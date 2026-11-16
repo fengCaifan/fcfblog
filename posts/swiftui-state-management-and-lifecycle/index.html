@@ -1,0 +1,346 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">SwiftUI 状态管理（@State / @StateObject）与视图更新机制</h1><div class="article-meta"><time>2025-03-08</time><span class="meta-sep">·</span><span>UIKit 与系统框架</span><span class="meta-sep">·</span><span class="article-tags">SwiftUI / 状态管理</span></div></header><div class="markdown-body"><p>SwiftUI 用 @State/@Binding/@ObservedObject 等属性包装器表达单向数据流；与 UIKit 通过 UIHostingController/UIViewRepresentable 互通。</p>
+<hr/>
+<h2 id="4-swiftui-基础">4. SwiftUI 基础</h2>
+<h3 id="41-声明式-ui">4.1 声明式 UI</h3>
+<p><strong>UIKit（命令式）</strong>：</p>
+<pre><code class="language-swift">let label = UILabel()
+label.text = &quot;Hello&quot;
+label.font = UIFont.systemFont(ofSize: 17)
+view.addSubview(label)
+</code></pre>
+<p><strong>SwiftUI（声明式）</strong>：</p>
+<pre><code class="language-swift">struct ContentView: View {
+    var body: some View {
+        Text(&quot;Hello&quot;)
+            .font(.system(size: 17))
+    }
+}
+</code></pre>
+<h3 id="42-状态管理">4.2 状态管理</h3>
+<p><strong>@State</strong>：</p>
+<pre><code class="language-swift">struct ContentView: View {
+    @State private var isOn = false
+
+    var body: some View {
+        Toggle(&quot;Switch&quot;, isOn: $isOn)
+    }
+}
+</code></pre>
+<p><strong>@Binding</strong>：</p>
+<pre><code class="language-swift">struct ParentView: View {
+    @State private var isOn = false
+
+    var body: some View {
+        ChildView(isOn: $isOn)  // $isOn 是 Binding
+    }
+}
+
+struct ChildView: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(&quot;Switch&quot;, isOn: $isOn)
+    }
+}
+</code></pre>
+<p><strong>@ObservedObject &amp; @Published</strong>：</p>
+<pre><code class="language-swift">class ViewModel: ObservableObject {
+    @Published var count = 0
+
+    func increment() {
+        count += 1
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var viewModel = ViewModel()
+
+    var body: some View {
+        VStack {
+            Text(&quot;\(viewModel.count)&quot;)
+            Button(&quot;Increment&quot;) {
+                viewModel.increment()
+            }
+        }
+    }
+}
+</code></pre>
+<p><strong>@EnvironmentObject</strong>：</p>
+<pre><code class="language-swift">// 注入
+struct ContentView: View {
+    @EnvironmentObject var settings: UserSettings
+
+    var body: some View {
+        Text(&quot;Username: \(settings.username)&quot;)
+    }
+}
+
+// 提供
+struct AppView: View {
+    @StateObject private var settings = UserSettings()
+
+    var body: some View {
+        ContentView()
+            .environmentObject(settings)
+    }
+}
+</code></pre>
+<h3 id="43-数据流">4.3 数据流</h3>
+<p><strong>单向数据流</strong>：</p>
+<pre><code>User Action → Action → State Update → View Update
+</code></pre>
+<p><strong>示例</strong>：</p>
+<pre><code class="language-swift">enum Action {
+    case increment
+    case decrement
+}
+
+struct AppState {
+    var count: Int = 0
+
+    mutating func handle(_ action: Action) {
+        switch action {
+        case .increment:
+            count += 1
+        case .decrement:
+            count -= 1
+        }
+    }
+}
+
+struct ContentView: View {
+    @State private var state = AppState()
+
+    var body: some View {
+        VStack {
+            Text(&quot;\(state.count)&quot;)
+            Button(&quot;+&quot;) {
+                state.handle(.increment)
+            }
+            Button(&quot;-&quot;) {
+                state.handle(.decrement)
+            }
+        }
+    }
+}
+</code></pre>
+<hr/>
+<h2 id="5-swiftui-高级特性">5. SwiftUI 高级特性</h2>
+<h3 id="51-自定义-viewmodifier">5.1 自定义 ViewModifier</h3>
+<p><strong>ViewModifier 协议</strong>：</p>
+<pre><code class="language-swift">struct ShadowModifier: ViewModifier {
+    let color: Color
+    let radius: CGFloat
+
+    func body(content: Content) -&gt; some View {
+        content
+            .shadow(color: color, radius: radius)
+    }
+}
+
+extension View {
+    func shadow(color: Color = .black, radius: CGFloat = 5) -&gt; some View {
+        modifier(ShadowModifier(color: color, radius: radius))
+    }
+}
+
+// 使用
+Text(&quot;Hello&quot;)
+    .shadow(color: .blue, radius: 10)
+</code></pre>
+<h3 id="52-preferencekey">5.2 PreferenceKey</h3>
+<p><strong>父子 View 通信</strong>：</p>
+<pre><code class="language-swift">struct SizePreferenceKey: PreferenceKey {
+    typealias Value = CGSize
+    static var defaultValue: CGSize = .zero
+}
+
+struct ChildView: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Color.blue
+                .preference(key: SizePreferenceKey.self, value: geometry.size)
+        }
+    }
+}
+
+struct ParentView: View {
+    var body: some View {
+        VStack {
+            ChildView()
+                .onPreferenceChange(SizePreferenceKey.self) { size in
+                    print(&quot;Child size: \(size)&quot;)
+                }
+        }
+    }
+}
+</code></pre>
+<h3 id="53-自定义-shape">5.3 自定义 Shape</h3>
+<p><strong>Shape 协议</strong>：</p>
+<pre><code class="language-swift">struct Diamond: Shape {
+    var inset: CGFloat
+
+    func path(in rect: CGRect) -&gt; Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let size = min(rect.width, rect.height) / 2 - inset
+
+        path.move(to: CGPoint(x: center.x, y: center.y - size))
+        path.addLine(to: CGPoint(x: center.x + size, y: center.y))
+        path.addLine(to: CGPoint(x: center.x, y: center.y + size))
+        path.addLine(to: CGPoint(x: center.x - size, y: center.y))
+        path.closeSubpath()
+
+        return path
+    }
+}
+
+// 使用
+Diamond(inset: 10)
+    .fill(Color.blue)
+    .frame(width: 100, height: 100)
+</code></pre>
+<h3 id="54-combine-集成">5.4 Combine 集成</h3>
+<p><strong>onReceive</strong>：</p>
+<pre><code class="language-swift">class ViewModel: ObservableObject {
+    @Published var data: [String] = []
+
+    func fetchData() {
+        // 模拟网络请求
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.data = [&quot;Item1&quot;, &quot;Item2&quot;, &quot;Item3&quot;]
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var viewModel = ViewModel()
+
+    var body: some View {
+        List(viewModel.data, id: \.self) { item in
+            Text(item)
+        }
+        .onReceive(viewModel.$data) { data in
+            print(&quot;Data updated: \(data)&quot;)
+        }
+        .onAppear {
+            viewModel.fetchData()
+        }
+    }
+}
+</code></pre>
+<hr/>
+<h2 id="6-uikit-与-swiftui-互操作">6. UIKit 与 SwiftUI 互操作</h2>
+<h3 id="61-swiftui-中使用-uikit">6.1 SwiftUI 中使用 UIKit</h3>
+<p><strong>UIViewRepresentable</strong>：</p>
+<pre><code class="language-swift">struct ActivityIndicator: UIViewRepresentable {
+    @Binding var isAnimating: Bool
+
+    func makeUIView(context: Context) -&gt; UIActivityIndicatorView {
+        let indicator = UIActivityIndicatorView(style: .large)
+        return indicator
+    }
+
+    func updateUIView(_ uiView: UIActivityIndicatorView, context: Context) {
+        if isAnimating {
+            uiView.startAnimating()
+        } else {
+            uiView.stopAnimating()
+        }
+    }
+}
+
+// 使用
+struct ContentView: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        ActivityIndicator(isAnimating: $isAnimating)
+            .onAppear {
+                isAnimating = true
+            }
+    }
+}
+</code></pre>
+<p><strong>UIViewControllerRepresentable</strong>：</p>
+<pre><code class="language-swift">struct ImagePicker: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+    @Environment(\.presentationMode) var presentationMode
+
+    func makeUIViewController(context: Context) -&gt; UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -&gt; Coordinator {
+        Coordinator(image: $image, presentationMode: presentationMode)
+    }
+
+    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        @Binding var image: UIImage?
+        @Binding var presentationMode: PresentationMode
+
+        init(image: Binding&lt;UIImage?&gt;, presentationMode: Binding&lt;PresentationMode&gt;) {
+            self._image = image
+            self._presentationMode = presentationMode
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let uiImage = info[.originalImage] as? UIImage {
+                image = uiImage
+            }
+            presentationMode.dismiss()
+        }
+    }
+}
+</code></pre>
+<h3 id="62-uikit-中使用-swiftui">6.2 UIKit 中使用 SwiftUI</h3>
+<p><strong>UIHostingController</strong>：</p>
+<pre><code class="language-swift">import SwiftUI
+
+class ViewController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        let swiftUIView = ContentView()
+        let hostingController = UIHostingController(rootView: swiftUIView)
+
+        addChild(hostingController)
+        view.addSubview(hostingController.view)
+        hostingController.view.frame = view.bounds
+        hostingController.didMove(toParent: self)
+    }
+}
+
+struct ContentView: View {
+    var body: some View {
+        Text(&quot;Hello from SwiftUI&quot;)
+            .font(.largeTitle)
+    }
+}
+</code></pre>
+<hr/>
+<h2 id="7-常见问题整理">7. 常见问题整理</h2>
+<h3 id="71-swiftui">7.1 SwiftUI</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>问题</th><th>答案要点</th><th>难度</th></tr></thead><tbody><tr><td>@State vs @Binding vs @ObservedObject？</td><td>@State：本地状态；@Binding：子视图修改父视图；@ObservedObject：引用类型，外部管理</td><td>⭐⭐⭐⭐</td></tr><tr><td>@EnvironmentObject 的作用？</td><td>全局共享状态，依赖注入</td><td>⭐⭐⭐</td></tr><tr><td>SwiftUI 的 View 刷新机制？</td><td>状态改变 → body 重新计算 → View 更新（Diff 算法）</td><td>⭐⭐⭐⭐</td></tr><tr><td>UIViewRepresentable 的作用？</td><td>在 SwiftUI 中使用 UIView</td><td>⭐⭐⭐</td></tr></tbody></table></div>
+<hr/>
+<h2 id="8-参考资料">8. 参考资料</h2>
+<h3 id="优质文章">优质文章</h3>
+<ul>
+<li><a href="https://developer.apple.com/documentation/uikit/uievent">iOS 事件传递与响应机制</a></li>
+<li><a href="https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreAnimation_guide/">Core Animation Programming Guide</a></li>
+<li><a href="https://developer.apple.com/tutorials/swiftui/">SwiftUI Tutorials</a></li>
+<li><a href="https://developer.apple.com/design/human-interface-guidelines/ios">Human Interface Guidelines - iOS</a></li>
+</ul>
+<h3 id="官方文档">官方文档</h3>
+<ul>
+<li><a href="https://developer.apple.com/documentation/uikit/uievent">UIKit - Event Handling</a></li>
+<li><a href="https://developer.apple.com/quartzcore/">Core Animation</a></li>
+<li><a href="https://developer.apple.com/documentation/swiftui">SwiftUI</a></li>
+</ul>
+<hr/>
+<p><strong>最后更新</strong>：2026-04-07
+<strong>状态</strong>： 已完成</p></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/coretext-typography-and-yylabel/"><span class="pager-hint">上一篇</span><span class="pager-title">Core Text 排版原理与 YYLabel 异步绘制机制</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/avfoundation-audio-video-basics/"><span class="pager-hint">下一篇</span><span class="pager-title">AVFoundation 音视频基础整理：播放、采集与硬编解码</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#4-swiftui-基础">4. SwiftUI 基础</a></li><li class="toc-level-3"><a href="#41-声明式-ui">4.1 声明式 UI</a></li><li class="toc-level-3"><a href="#42-状态管理">4.2 状态管理</a></li><li class="toc-level-3"><a href="#43-数据流">4.3 数据流</a></li><li class="toc-level-2"><a href="#5-swiftui-高级特性">5. SwiftUI 高级特性</a></li><li class="toc-level-3"><a href="#51-自定义-viewmodifier">5.1 自定义 ViewModifier</a></li><li class="toc-level-3"><a href="#52-preferencekey">5.2 PreferenceKey</a></li><li class="toc-level-3"><a href="#53-自定义-shape">5.3 自定义 Shape</a></li><li class="toc-level-3"><a href="#54-combine-集成">5.4 Combine 集成</a></li><li class="toc-level-2"><a href="#6-uikit-与-swiftui-互操作">6. UIKit 与 SwiftUI 互操作</a></li><li class="toc-level-3"><a href="#61-swiftui-中使用-uikit">6.1 SwiftUI 中使用 UIKit</a></li><li class="toc-level-3"><a href="#62-uikit-中使用-swiftui">6.2 UIKit 中使用 SwiftUI</a></li><li class="toc-level-2"><a href="#7-常见问题整理">7. 常见问题整理</a></li><li class="toc-level-3"><a href="#71-swiftui">7.1 SwiftUI</a></li><li class="toc-level-2"><a href="#8-参考资料">8. 参考资料</a></li><li class="toc-level-3"><a href="#优质文章">优质文章</a></li><li class="toc-level-3"><a href="#官方文档">官方文档</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"swiftui-state-management-and-lifecycle\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"swiftui-state-management-and-lifecycle\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"swiftui-state-management-and-lifecycle\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"9-hMLhh8orhzYQPRuAuaAv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n13:T4e8,struct ImagePicker: UIViewControllerRepresentable {\n    @Binding var image: UIImage?\n    @Environment(\\.presentationMode) var presentationMode\n\n    func makeUIViewController(context: Context) -\u003e UIImagePickerController {\n        let picker = UIImagePickerController()\n        picker.delegate = context.coordinator\n        return picker\n    }\n\n    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}\n\n    func makeCoordinator() -\u003e Coordinator {\n        Coordinator(image: $image, presentationMode: presentationMode)\n    }\n\n    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {\n        @Binding var image: UIImage?\n        @Binding var presentationMode: PresentationMode\n\n        init(image: Binding\u003cUIImage?\u003e, presentationMode: Binding\u003cPresentationMode\u003e) {\n            self._image = image\n            self._presentationMode = presentationMode\n        }\n\n        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {\n            if let uiImage = info[.originalImage] as? UIImage {\n                image = uiImage\n            }\n            presentationMode.dismiss()\n        }\n    }\n}\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"SwiftUI 状态管理（@State / @StateObject）与视图更新机制\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2025-03-08\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"UIKit 与系统框架\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"SwiftUI / 状态管理\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"p\",\"p-0\",{\"children\":\"SwiftUI 用 @State/@Binding/@ObservedObject 等属性包装器表达单向数据流；与 UIKit 通过 UIHostingController/UIViewRepresentable 互通。\"}],\"\\n\",[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h2\",\"h2-0\",{\"id\":\"4-swiftui-基础\",\"children\":\"4. SwiftUI 基础\"}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"41-声明式-ui\",\"children\":\"4.1 声明式 UI\"}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"UIKit（命令式）\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"let label = UILabel()\\nlabel.text = \\\"Hello\\\"\\nlabel.font = UIFont.systemFont(ofSize: 17)\\nview.addSubview(label)\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"SwiftUI（声明式）\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"struct ContentView: View {\\n    var body: some View {\\n        Text(\\\"Hello\\\")\\n            .font(.system(size: 17))\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"42-状态管理\",\"children\":\"4.2 状态管理\"}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"@State\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"struct ContentView: View {\\n    @State private var isOn = false\\n\\n    var body: some View {\\n        Toggle(\\\"Switch\\\", isOn: $isOn)\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-4\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"@Binding\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"struct ParentView: View {\\n    @State private var isOn = false\\n\\n    var body: some View {\\n        ChildView(isOn: $isOn)  // $isOn 是 Binding\\n    }\\n}\\n\\nstruct ChildView: View {\\n    @Binding var isOn: Bool\\n\\n    var body: some View {\\n        Toggle(\\\"Switch\\\", isOn: $isOn)\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-5\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"@ObservedObject \u0026 @Published\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"class ViewModel: ObservableObject {\\n    @Published var count = 0\\n\\n    func increment() {\\n        count += 1\\n    }\\n}\\n\\nstruct ContentView: View {\\n    @StateObject private var viewModel = ViewModel()\\n\\n    var body: some View {\\n        VStack {\\n            Text(\\\"\\\\(viewModel.count)\\\")\\n            Button(\\\"Increment\\\") {\\n                viewModel.increment()\\n            }\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-6\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"@EnvironmentObject\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-5\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"// 注入\\nstruct ContentView: View {\\n    @EnvironmentObject var settings: UserSettings\\n\\n    var body: some View {\\n        Text(\\\"Username: \\\\(settings.username)\\\")\\n    }\\n}\\n\\n// 提供\\nstruct AppView: View {\\n    @StateObject private var settings = UserSettings()\\n\\n    var body: some View {\\n        ContentView()\\n            .environmentObject(settings)\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"43-数据流\",\"children\":\"4.3 数据流\"}],\"\\n\",[\"$\",\"p\",\"p-7\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"单向数据流\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-6\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"User Action → Action → State Update → View Update\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-8\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"示例\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-7\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"enum Action {\\n    case increment\\n    case decrement\\n}\\n\\nstruct AppState {\\n    var count: Int = 0\\n\\n    mutating func handle(_ action: Action) {\\n        switch action {\\n        case .increment:\\n            count += 1\\n        case .decrement:\\n            count -= 1\\n        }\\n    }\\n}\\n\\nstruct ContentView: View {\\n    @State private var state = AppState()\\n\\n    var body: some View {\\n        VStack {\\n            Text(\\\"\\\\(state.count)\\\")\\n            Button(\\\"+\\\") {\\n                state.handle(.increment)\\n            }\\n            Button(\\\"-\\\") {\\n                state.handle(.decrement)\\n            }\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-1\",{}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"5-swiftui-高级特性\",\"children\":\"5. SwiftUI 高级特性\"}],\"\\n\",[\"$\",\"h3\",\"h3-3\",{\"id\":\"51-自定义-viewmodifier\",\"children\":\"5.1 自定义 ViewModifier\"}],\"\\n\",[\"$\",\"p\",\"p-9\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"ViewModifier 协议\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-8\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"struct ShadowModifier: ViewModifier {\\n    let color: Color\\n    let radius: CGFloat\\n\\n    func body(content: Content) -\u003e some View {\\n        content\\n            .shadow(color: color, radius: radius)\\n    }\\n}\\n\\nextension View {\\n    func shadow(color: Color = .black, radius: CGFloat = 5) -\u003e some View {\\n        modifier(ShadowModifier(color: color, radius: radius))\\n    }\\n}\\n\\n// 使用\\nText(\\\"Hello\\\")\\n    .shadow(color: .blue, radius: 10)\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-4\",{\"id\":\"52-preferencekey\",\"children\":\"5.2 PreferenceKey\"}],\"\\n\",[\"$\",\"p\",\"p-10\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"父子 View 通信\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-9\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"struct SizePreferenceKey: PreferenceKey {\\n    typealias Value = CGSize\\n    static var defaultValue: CGSize = .zero\\n}\\n\\nstruct ChildView: View {\\n    var body: some View {\\n        GeometryReader { geometry in\\n            Color.blue\\n                .preference(key: SizePreferenceKey.self, value: geometry.size)\\n        }\\n    }\\n}\\n\\nstruct ParentView: View {\\n    var body: some View {\\n        VStack {\\n            ChildView()\\n                .onPreferenceChange(SizePreferenceKey.self) { size in\\n                    print(\\\"Child size: \\\\(size)\\\")\\n                }\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-5\",{\"id\":\"53-自定义-shape\",\"children\":\"5.3 自定义 Shape\"}],\"\\n\",[\"$\",\"p\",\"p-11\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Shape 协议\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-10\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"struct Diamond: Shape {\\n    var inset: CGFloat\\n\\n    func path(in rect: CGRect) -\u003e Path {\\n        var path = Path()\\n        let center = CGPoint(x: rect.midX, y: rect.midY)\\n        let size = min(rect.width, rect.height) / 2 - inset\\n\\n        path.move(to: CGPoint(x: center.x, y: center.y - size))\\n        path.addLine(to: CGPoint(x: center.x + size, y: center.y))\\n        path.addLine(to: CGPoint(x: center.x, y: center.y + size))\\n        path.addLine(to: CGPoint(x: center.x - size, y: center.y))\\n        path.closeSubpath()\\n\\n        return path\\n    }\\n}\\n\\n// 使用\\nDiamond(inset: 10)\\n    .fill(Color.blue)\\n    .frame(width: 100, height: 100)\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-6\",{\"id\":\"54-combine-集成\",\"children\":\"5.4 Combine 集成\"}],\"\\n\",[\"$\",\"p\",\"p-12\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"onReceive\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-11\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"class ViewModel: ObservableObject {\\n    @Published var data: [String] = []\\n\\n    func fetchData() {\\n        // 模拟网络请求\\n        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {\\n            self.data = [\\\"Item1\\\", \\\"Item2\\\", \\\"Item3\\\"]\\n        }\\n    }\\n}\\n\\nstruct ContentView: View {\\n    @StateObject private var viewModel = ViewModel()\\n\\n    var body: some View {\\n        List(viewModel.data, id: \\\\.self) { item in\\n            Text(item)\\n        }\\n        .onReceive(viewModel.$data) { data in\\n            print(\\\"Data updated: \\\\(data)\\\")\\n        }\\n        .onAppear {\\n            viewModel.fetchData()\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-2\",{}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"6-uikit-与-swiftui-互操作\",\"children\":\"6. UIKit 与 SwiftUI 互操作\"}],\"\\n\",[\"$\",\"h3\",\"h3-7\",{\"id\":\"61-swiftui-中使用-uikit\",\"children\":\"6.1 SwiftUI 中使用 UIKit\"}],\"\\n\",[\"$\",\"p\",\"p-13\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"UIViewRepresentable\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-12\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"struct ActivityIndicator: UIViewRepresentable {\\n    @Binding var isAnimating: Bool\\n\\n    func makeUIView(context: Context) -\u003e UIActivityIndicatorView {\\n        let indicator = UIActivityIndicatorView(style: .large)\\n        return indicator\\n    }\\n\\n    func updateUIView(_ uiView: UIActivityIndicatorView, context: Context) {\\n        if isAnimating {\\n            uiView.startAnimating()\\n        } else {\\n            uiView.stopAnimating()\\n        }\\n    }\\n}\\n\\n// 使用\\nstruct ContentView: View {\\n    @State private var isAnimating = false\\n\\n    var body: some View {\\n        ActivityIndicator(isAnimating: $isAnimating)\\n            .onAppear {\\n                isAnimating = true\\n            }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-14\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"UIViewControllerRepresentable\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-13\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"$13\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-8\",{\"id\":\"62-uikit-中使用-swiftui\",\"children\":\"6.2 UIKit 中使用 SwiftUI\"}],\"\\n\",[\"$\",\"p\",\"p-15\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"UIHostingController\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-14\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"import SwiftUI\\n\\nclass ViewController: UIViewController {\\n    override func viewDidLoad() {\\n        super.viewDidLoad()\\n\\n        let swiftUIView = ContentView()\\n        let hostingController = UIHostingController(rootView: swiftUIView)\\n\\n        addChild(hostingController)\\n        view.addSubview(hostingController.view)\\n        hostingController.view.frame = view.bounds\\n        hostingController.didMove(toParent: self)\\n    }\\n}\\n\\nstruct ContentView: View {\\n    var body: some View {\\n        Text(\\\"Hello from SwiftUI\\\")\\n            .font(.largeTitle)\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-3\",{}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"7-常见问题整理\",\"children\":\"7. 常见问题整理\"}],\"\\n\",[\"$\",\"h3\",\"h3-9\",{\"id\":\"71-swiftui\",\"children\":\"7.1 SwiftUI\"}],\"\\n\",[\"$\",\"div\",\"div-0\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"问题\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"答案要点\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"难度\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"@State vs @Binding vs @ObservedObject？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"@State：本地状态；@Binding：子视图修改父视图；@ObservedObject：引用类型，外部管理\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"@EnvironmentObject 的作用？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"全局共享状态，依赖注入\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"SwiftUI 的 View 刷新机制？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"状态改变 → body 重新计算 → View 更新（Diff 算法）\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"UIViewRepresentable 的作用？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"在 SwiftUI 中使用 UIView\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"hr\",\"hr-4\",{}],\"\\n\",[\"$\",\"h2\",\"h2-4\",{\"id\":\"8-参考资料\",\"children\":\"8. 参考资料\"}],\"\\n\",[\"$\",\"h3\",\"h3-10\",{\"id\":\"优质文章\",\"children\":\"优质文章\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/documentation/uikit/uievent\",\"children\":\"iOS 事件传递与响应机制\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreAnimation_guide/\",\"children\":\"Core Animation Programming Guide\"}]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/tutorials/swiftui/\",\"children\":\"SwiftUI Tutorials\"}]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/design/human-interface-guidelines/ios\",\"children\":\"Human Interface Guidelines - iOS\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-11\",{\"id\":\"官方文档\",\"children\":\"官方文档\"}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/documentation/uikit/uievent\",\"children\":\"UIKit - Event Handling\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/quartzcore/\",\"children\":\"Core Animation\"}]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/documentation/swiftui\",\"children\":\"SwiftUI\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-5\",{}],\"\\n\",[\"$\",\"p\",\"p-16\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"最后更新\"}],\"：2026-04-07\\n\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"状态\"}],\"： 已完成\"]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/coretext-typography-and-yylabel\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Core Text 排版原理与 YYLabel 异步绘制机制\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/avfoundation-audio-video-basics\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"AVFoundation 音视频基础整理：播放、采集与硬编解码\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"4-swiftui-基础-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#4-swiftui-基础\",\"children\":\"4. SwiftUI 基础\"}]}],[\"$\",\"li\",\"41-声明式-ui-1\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#41-声明式-ui\",\"children\":\"4.1 声明式 UI\"}]}],[\"$\",\"li\",\"42-状态管理-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#42-状态管理\",\"children\":\"4.2 状态管理\"}]}],[\"$\",\"li\",\"43-数据流-3\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#43-数据流\",\"children\":\"4.3 数据流\"}]}],[\"$\",\"li\",\"5-swiftui-高级特性-4\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#5-swiftui-高级特性\",\"children\":\"5. SwiftUI 高级特性\"}]}],[\"$\",\"li\",\"51-自定义-viewmodifier-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#51-自定义-viewmodifier\",\"children\":\"5.1 自定义 ViewModifier\"}]}],[\"$\",\"li\",\"52-preferencekey-6\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#52-preferencekey\",\"children\":\"5.2 PreferenceKey\"}]}],[\"$\",\"li\",\"53-自定义-shape-7\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#53-自定义-shape\",\"children\":\"5.3 自定义 Shape\"}]}],[\"$\",\"li\",\"54-combine-集成-8\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#54-combine-集成\",\"children\":\"5.4 Combine 集成\"}]}],[\"$\",\"li\",\"6-uikit-与-swiftui-互操作-9\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#6-uikit-与-swiftui-互操作\",\"children\":\"6. UIKit 与 SwiftUI 互操作\"}]}],[\"$\",\"li\",\"61-swiftui-中使用-uikit-10\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#61-swiftui-中使用-uikit\",\"children\":\"6.1 SwiftUI 中使用 UIKit\"}]}],[\"$\",\"li\",\"62-uikit-中使用-swiftui-11\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#62-uikit-中使用-swiftui\",\"children\":\"6.2 UIKit 中使用 SwiftUI\"}]}],[\"$\",\"li\",\"7-常见问题整理-12\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#7-常见问题整理\",\"children\":\"7. 常见问题整理\"}]}],[\"$\",\"li\",\"71-swiftui-13\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#71-swiftui\",\"children\":\"7.1 SwiftUI\"}]}],[\"$\",\"li\",\"8-参考资料-14\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#8-参考资料\",\"children\":\"8. 参考资料\"}]}],[\"$\",\"li\",\"优质文章-15\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#优质文章\",\"children\":\"优质文章\"}]}],[\"$\",\"li\",\"官方文档-16\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#官方文档\",\"children\":\"官方文档\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

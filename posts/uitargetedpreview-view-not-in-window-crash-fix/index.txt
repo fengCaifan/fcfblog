@@ -1,0 +1,372 @@
+1:"$Sreact.fragment"
+2:I[7555,[],""]
+3:I[1295,[],""]
+5:I[9665,[],"OutletBoundary"]
+8:I[4911,[],"AsyncMetadataOutlet"]
+a:I[9665,[],"ViewportBoundary"]
+c:I[9665,[],"MetadataBoundary"]
+e:I[6614,[],""]
+:HL["/fcfblog/_next/static/css/0ae5dd793e516608.css","style"]
+0:{"P":null,"b":"bCC3fH8ggorFQfQxoj4EU","p":"/fcfblog","c":["","posts","uitargetedpreview-view-not-in-window-crash-fix",""],"i":false,"f":[[["",{"children":["posts",{"children":[["slug","uitargetedpreview-view-not-in-window-crash-fix","d"],{"children":["__PAGE__",{}]}]}]},"$undefined","$undefined",true],["",["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/fcfblog/_next/static/css/0ae5dd793e516608.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]],["$","html",null,{"lang":"zh-CN","children":["$","body",null,{"children":["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]],"forbidden":"$undefined","unauthorized":"$undefined"}]}]}]]}],{"children":["posts",["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":[["slug","uitargetedpreview-view-not-in-window-crash-fix","d"],["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":["__PAGE__",["$","$1","c",{"children":["$L4",null,["$","$L5",null,{"children":["$L6","$L7",["$","$L8",null,{"promise":"$@9"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],["$","$1","h",{"children":[null,["$","$1","5d5UXp75_mhEZY_JxRcpUv",{"children":[["$","$La",null,{"children":"$Lb"}],null]}],["$","$Lc",null,{"children":"$Ld"}]]}],false]],"m":"$undefined","G":["$e","$undefined"],"s":false,"S":true}
+f:"$Sreact.suspense"
+10:I[4911,[],"AsyncMetadata"]
+12:I[6874,["874","static/chunks/874-7618c3fad5f7ba4a.js","858","static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js"],""]
+d:["$","div",null,{"hidden":true,"children":["$","$f",null,{"fallback":null,"children":["$","$L10",null,{"promise":"$@11"}]}]}]
+13:T575,+ (void)hookRuntimeMethod {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        CrashFixObfuscator * hero = [CrashFixObfuscator share];
+        
+        // 获取混淆后的类名和方法名
+        NSString * clsTargetedPreview = [hero getObfuscatedClassName: CrashFixClassKeyTargetedPreview];
+        NSString * selInitWithViewParameters = [hero getObfuscatedSelName: CrashFixSelKeyInitWithView];
+        
+        // Hook initWithView:parameters:
+        [self safeSwizzleMethodWith:clsTargetedPreview
+                           oldSel:selInitWithViewParameters
+                           newSel:@"hookInitWithView:parameters:"
+                         toTarget:@"UITargetedPreview"];
+    });
+}
+
+- (instancetype)hookInitWithView:(UIView *)view parameters:(UIPreviewParameters *)parameters {
+    // 关键防护：检查 view 是否在 window 中
+    if (view.window == nil) {
+        NSLog(@"[AppCrashFix] UITargetedPreview init with view not in window");
+        
+        // 使用 try-catch 捕获异常
+        @try {
+            return [self hookInitWithView:view parameters:parameters];
+        } @catch (NSException *exception) {
+            NSLog(@"[AppCrashFix] Caught exception: %@", exception);
+            return nil;
+        }
+    }
+    
+    // view 正常在 window 中，调用原方法
+    return [self hookInitWithView:view parameters:parameters];
+}
+14:T5ac,/// 显示测试菜单
+private func showCrashTestMenu() {
+    let alert = UIAlertController(
+        title: " UITargetedPreview Crash 测试",
+        message: "选择测试场景验证 Hook 是否生效",
+        preferredStyle: .actionSheet
+    )
+    
+    // 场景1：正常测试（view 在 window 中）
+    alert.addAction(UIAlertAction(title: " 场景1：正常 View 测试", style: .default) { [weak self] _ in
+        self?.testNormalView()
+    })
+    
+    // 场景2：崩溃场景测试（view 不在 window 中）
+    alert.addAction(UIAlertAction(title: " 场景2：View 不在 Window 测试", style: .default) { [weak self] _ in
+        self?.testViewNotInWindow()
+    })
+    
+    // 场景3：真实场景测试（Context Menu）
+    alert.addAction(UIAlertAction(title: " 场景3：Context Menu 测试", style: .default) { [weak self] _ in
+        self?.testContextMenu()
+    })
+    
+    // 场景4：极限崩溃测试（创建 Preview 时同步移除 view）
+    alert.addAction(UIAlertAction(title: " 场景4：极限崩溃复现", style: .destructive) { [weak self] _ in
+        self?.testExtremeCrashScenario()
+    })
+    
+    // 场景5：完整测试（所有场景）
+    alert.addAction(UIAlertAction(title: " 场景5：运行所有测试", style: .default) { [weak self] _ in
+        self?.runAllTests()
+    })
+    
+    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    
+    present(alert, animated: true)
+}
+15:T596,/// 场景1：正常 View 测试
+private func testNormalView() {
+    if #available(iOS 13.0, *) {
+        TargetedPreviewCrashTest.showResult(from: self, message: "开始测试场景1...\n请查看控制台日志")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let testView = self.createTestView(title: "场景1")
+            self.view.addSubview(testView)
+            
+            print("\n[AppCrashTest] ===== 场景1：正常 View =====")
+            print("[AppCrashTest] View.window = \(testView.window != nil ? " 存在" : " nil")")
+            
+            let parameters = UIPreviewParameters()
+            parameters.backgroundColor = .clear
+            
+            let preview: UITargetedPreview? = UITargetedPreview(view: testView, parameters: parameters)
+            
+            if preview != nil {
+                print("[AppCrashTest]  成功创建 UITargetedPreview")
+                TargetedPreviewCrashTest.showResult(from: self, message: " 场景1 通过\n正常创建 UITargetedPreview")
+            } else {
+                print("[AppCrashTest]  创建失败")
+                TargetedPreviewCrashTest.showResult(from: self, message: " 场景1 异常\n创建失败")
+            }
+            
+            testView.removeFromSuperview()
+        }
+    } else {
+        TargetedPreviewCrashTest.showResult(from: self, message: "需要 iOS 13.0 及以上版本")
+    }
+}
+16:T687,/// 场景2：View 不在 Window 测试
+private func testViewNotInWindow() {
+    if #available(iOS 13.0, *) {
+        TargetedPreviewCrashTest.showResult(from: self, message: "开始测试场景2...\n这应该触发 Hook 防护\n请查看控制台日志")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let testView = self.createTestView(title: "场景2")
+            // 注意：不添加到 superview，所以 view.window == nil
+            
+            print("\n[AppCrashTest] ===== 场景2：View 不在 Window =====")
+            print("[AppCrashTest] View.window = \(testView.window != nil ? " 存在" : " nil")")
+            print("[AppCrashTest]  尝试创建 UITargetedPreview（应该触发 Hook）...")
+            
+            let parameters = UIPreviewParameters()
+            parameters.backgroundColor = .clear
+            
+            // 这里应该被 Hook 防护，不会崩溃
+            let preview: UITargetedPreview? = UITargetedPreview(view: testView, parameters: parameters)
+            
+            if preview == nil {
+                print("[AppCrashTest]  Hook 生效！返回 nil，避免了崩溃")
+                TargetedPreviewCrashTest.showResult(from: self, message: " 场景2 通过\nHook 成功防护了崩溃！")
+            } else {
+                print("[AppCrashTest]  创建成功（可能系统允许）")
+                TargetedPreviewCrashTest.showResult(from: self, message: " 场景2 异常\n创建成功（可能系统版本原因）")
+            }
+        }
+    } else {
+        TargetedPreviewCrashTest.showResult(from: self, message: "需要 iOS 13.0 及以上版本")
+    }
+}
+17:T575,/// 场景3：Context Menu 测试
+private func testContextMenu() {
+    if #available(iOS 13.0, *) {
+        let testView = createTestView(title: "长按我")
+        view.addSubview(testView)
+        testView.center = view.center
+        
+        // 保存测试 view 引用
+        testView.tag = 99999
+        
+        let interaction = UIContextMenuInteraction(delegate: self)
+        testView.addInteraction(interaction)
+        
+        TargetedPreviewCrashTest.showResult(
+            from: self,
+            message: " Context Menu 已添加\n\n请长按红色方块\n\n系统会自动模拟以下场景：\n1. 长按触发菜单\n2. 0.3秒后自动移除 view\n3. 0.8秒后自动切换页面"
+        )
+        
+        print("\n[AppCrashTest] ===== 场景3：Context Menu =====")
+        print("[AppCrashTest]  已添加 Context Menu，请长按红色方块")
+        print("[AppCrashTest]  长按后将自动切换页面，模拟崩溃场景")
+        
+        // 10秒后自动移除（兜底）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+            if let view = self.view.viewWithTag(99999) {
+                view.removeFromSuperview()
+                print("[AppCrashTest] 测试 View 已自动移除（超时）")
+            }
+        }
+    } else {
+        TargetedPreviewCrashTest.showResult(from: self, message: "需要 iOS 13.0 及以上版本")
+    }
+}
+18:Tf9a,/// 场景4：极限崩溃测试（更激进的测试方式）
+private func testExtremeCrashScenario() {
+    if #available(iOS 13.0, *) {
+        TargetedPreviewCrashTest.showResult(
+            from: self,
+            message: "开始极限崩溃测试...\n\n这个测试会直接触发原始崩溃场景\n请查看控制台日志"
+        )
+        
+        print("\n[AppCrashTest] ===== 场景4：极限崩溃复现 =====")
+        print("[AppCrashTest]  这是最接近真实崩溃的测试场景")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.performExtremeCrashTest()
+        }
+    } else {
+        TargetedPreviewCrashTest.showResult(from: self, message: "需要 iOS 13.0 及以上版本")
+    }
+}
+
+/// 执行极限崩溃测试
+@available(iOS 13.0, *)
+private func performExtremeCrashTest() {
+    print("\n[AppCrashTest] 开始执行极限崩溃测试...")
+    
+    // 测试1：创建 view 后立即从 window 移除，然后创建 Preview
+    let testView1 = createTestView(title: "测试1")
+    view.addSubview(testView1)
+    
+    print("[AppCrashTest]  View 已添加到 window")
+    print("[AppCrashTest]  立即移除 view...")
+    
+    testView1.removeFromSuperview()
+    
+    print("[AppCrashTest]  View 已移除（view.window = \(testView1.window != nil ? "存在" : "nil")）")
+    print("[AppCrashTest]  尝试创建 UITargetedPreview...")
+    
+    let parameters1 = UIPreviewParameters()
+    parameters1.backgroundColor = .clear
+    
+    let preview1: UITargetedPreview? = UITargetedPreview(view: testView1, parameters: parameters1)
+    
+    if preview1 == nil {
+        print("[AppCrashTest]  测试1 通过！Hook 防护成功，返回 nil")
+    } else {
+        print("[AppCrashTest]  测试1 异常：创建成功（系统可能允许）")
+    }
+    
+    // 测试2和测试3...
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        self.testCellReuseCrashScenario()
+    }
+}
+
+/// 测试 Cell 复用崩溃场景
+@available(iOS 13.0, *)
+private func testCellReuseCrashScenario() {
+    print("\n[AppCrashTest] --- 测试3：Cell 复用崩溃场景 ---")
+    
+    // 创建一个临时容器，模拟 Cell
+    let containerView = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 100))
+    containerView.backgroundColor = .systemGray
+    view.addSubview(containerView)
+    containerView.center = CGPoint(x: view.center.x, y: view.center.y - 100)
+    
+    let cellContentView = createTestView(title: "测试3\nCell")
+    cellContentView.frame = containerView.bounds
+    containerView.addSubview(cellContentView)
+    
+    print("[AppCrashTest]  模拟 Cell 已创建")
+    print("[AppCrashTest]  模拟 Cell 被复用...")
+    
+    // 模拟 prepareForReuse：移除所有子视图
+    containerView.subviews.forEach { $0.removeFromSuperview() }
+    
+    print("[AppCrashTest]  Cell 内容已被清空（模拟 prepareForReuse）")
+    print("[AppCrashTest]  此时如果还有长按手势回调，尝试创建 Preview...")
+    
+    // 此时 cellContentView 已经不在 window 中了
+    let parameters = UIPreviewParameters()
+    parameters.backgroundColor = .clear
+    
+    let preview: UITargetedPreview? = UITargetedPreview(view: cellContentView, parameters: parameters)
+    
+    if preview == nil {
+        print("[AppCrashTest]  测试3 通过！Hook 防护成功")
+    } else {
+        print("[AppCrashTest]  测试3 异常：创建成功")
+    }
+    
+    // 清理
+    containerView.removeFromSuperview()
+    
+    print("\n[AppCrashTest] ===== 场景4 极限测试完成 =====")
+    print("[AppCrashTest]  测试结果总结：")
+    print("[AppCrashTest] - 如果看到 [AppCrashFix] 日志，说明 Hook 成功防护")
+    print("[AppCrashTest] - 如果没有崩溃，说明修复方案有效")
+    
+    TargetedPreviewCrashTest.showResult(
+        from: self,
+        message: "极限测试完成！\n\n请检查控制台：\n1. 是否看到 [AppCrashFix] 日志\n2. 应用是否没有崩溃"
+    )
+}
+19:Teea,// MARK: - UIContextMenuInteractionDelegate (测试用)
+@available(iOS 13.0, *)
+extension FeedContainerController: UIContextMenuInteractionDelegate {
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        print("[AppCrashTest]  Context Menu 被触发")
+        
+        // 自动模拟崩溃场景：0.3秒后移除 view
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self = self else { return }
+            
+            print("[AppCrashTest]  开始自动模拟崩溃场景...")
+            print("[AppCrashTest]  方式1：移除测试 View（模拟 Cell 复用）")
+            
+            if let testView = self.view.viewWithTag(99999) {
+                testView.removeFromSuperview()
+                print("[AppCrashTest]  测试 View 已移除")
+                print("[AppCrashTest]  此时如果 Context Menu 还在创建 Preview，应该触发 Hook")
+            }
+        }
+        
+        // 再延迟 0.5 秒，尝试切换页面（模拟页面跳转）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self = self else { return }
+            
+            print("[AppCrashTest]  方式2：切换页面（模拟页面跳转）")
+            
+            // 切换到其他 Tab 再切回来
+            if let tabBarController = self.tabBarController {
+                let currentIndex = tabBarController.selectedIndex
+                let nextIndex = (currentIndex + 1) % (tabBarController.viewControllers?.count ?? 1)
+                
+                tabBarController.selectedIndex = nextIndex
+                print("[AppCrashTest]  已切换到 Tab \(nextIndex)")
+                
+                // 0.5秒后切回来
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    tabBarController.selectedIndex = currentIndex
+                    print("[AppCrashTest]  已切回原 Tab \(currentIndex)")
+                    print("[AppCrashTest] ===== 场景3 自动测试完成 =====\n")
+                }
+            } else {
+                print("[AppCrashTest]  无法获取 TabBarController，跳过页面切换测试")
+                print("[AppCrashTest] ===== 场景3 自动测试完成 =====\n")
+            }
+        }
+        
+        return UIContextMenuConfiguration(
+            identifier: nil,
+            previewProvider: nil
+        ) { _ in
+            let action1 = UIAction(title: "测试选项1", image: UIImage(systemName: "checkmark")) { _ in
+                print("[AppCrashTest] 测试选项1 被点击")
+            }
+            let action2 = UIAction(title: "测试选项2", image: UIImage(systemName: "star")) { _ in
+                print("[AppCrashTest] 测试选项2 被点击")
+            }
+            let action3 = UIAction(title: "重新测试", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
+                print("[AppCrashTest] 重新运行场景3")
+                self?.testContextMenu()
+            }
+            return UIMenu(title: "测试菜单", children: [action1, action2, action3])
+        }
+    }
+    
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willDisplayMenuFor configuration: UIContextMenuConfiguration,
+        animator: UIContextMenuInteractionAnimating?
+    ) {
+        print("[AppCrashTest]  Context Menu 开始显示")
+    }
+    
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willEndFor configuration: UIContextMenuConfiguration,
+        animator: UIContextMenuInteractionAnimating?
+    ) {
+        print("[AppCrashTest]  Context Menu 即将关闭")
+    }
+}
+#endif
+4:["$","div",null,{"className":"blog-shell","children":[["$","header",null,{"className":"masthead","children":["$","div",null,{"className":"masthead-inner","children":[["$","$L12",null,{"href":"/","className":"brand-title","children":"Caifan's Notes"}],["$","nav",null,{"className":"top-nav","children":["$","$L12",null,{"href":"/","className":"nav-link","children":"← 返回列表"}]}]]}]}],["$","div",null,{"className":"article-page-wrap","children":[["$","article",null,{"className":"article-main","children":[["$","header",null,{"className":"article-header","children":[["$","h1",null,{"className":"article-title","children":"UITargetedPreview 因视图不在 Window 层级引发的崩溃修复"}],["$","div",null,{"className":"article-meta","children":[["$","time",null,{"children":"2025-10-24"}],["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"children":"性能优化与排查"}],[["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"className":"article-tags","children":"Crash排查 / UIKit / UITargetedPreview"}]]]}]]}],["$","div",null,{"className":"markdown-body","children":[["$","h2","h2-0",{"id":"崩溃信息","children":"崩溃信息"}],"\n",["$","h3","h3-0",{"id":"崩溃类型","children":"崩溃类型"}],"\n",["$","pre","pre-0",{"children":["$","code","code-0",{"children":"Fatal Exception: NSInternalInconsistencyException\nBUG_IN_CLIENT_OF_TARGETED_PREVIEW__VIEW_IS_NOT_IN_A_WINDOW\n"}]}],"\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"Issue ID"}],"：",["$","code","code-0",{"children":"f71b8fcf81cc23e58469fcd1adbbbe2c"}],["$","strong","strong-1",{"children":"崩溃时间"}],"：2025年10月22日 13:55:42"]}],"\n",["$","h3","h3-1",{"id":"堆栈关键路径","children":"堆栈关键路径"}],"\n",["$","pre","pre-1",{"children":["$","code","code-0",{"children":"UIKitCore: BUG_IN_CLIENT_OF_TARGETED_PREVIEW__VIEW_IS_NOT_IN_A_WINDOW\n  ↓\nUIKitCore: -[UITargetedPreview initWithView:parameters:]\n  ↓\nUIKitCore: UIContextMenuPresentationAnimation\n  ↓\nUIKitCore: UILongPressClickInteractionDriver (长按手势)\n"}]}],"\n",["$","hr","hr-0",{}],"\n",["$","h2","h2-1",{"id":"问题定位","children":"问题定位"}],"\n",["$","h3","h3-2",{"id":"根本原因","children":"根本原因"}],"\n",["$","p","p-1",{"children":["在创建 ",["$","code","code-0",{"children":"UITargetedPreview"}]," 时，目标 view 不在窗口层级中（",["$","code","code-1",{"children":"view.window == nil"}],"），导致 UIKit 抛出断言崩溃。"]}],"\n",["$","h3","h3-3",{"id":"触发场景","children":"触发场景"}],"\n",["$","ol","ol-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"Cell 复用时"}],"：view 已从父视图移除但长按手势仍被触发"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"页面切换时"}],"：ViewController 正在 dismiss/pop 时触发长按"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"动画过程中"}],"：视图正在移除动画时被长按"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"系统 Context Menu"}],"：异常时机触发默认长按菜单"]}],"\n"]}],"\n",["$","h3","h3-4",{"id":"高风险代码","children":"高风险代码"}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"FeedCommentView.swift"}]," - 评论视图长按"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"FeedCommentReplyCell.swift"}]," - 评论回复长按"]}],"\n"]}],"\n",["$","hr","hr-1",{}],"\n",["$","h2","h2-2",{"id":"修复方案","children":"修复方案"}],"\n",["$","h3","h3-5",{"id":"核心思路","children":"核心思路"}],"\n",["$","p","p-2",{"children":["Hook ",["$","code","code-0",{"children":"UITargetedPreview"}]," 的 ",["$","code","code-1",{"children":"initWithView:parameters:"}]," 方法，在初始化时检查 view 是否在 window 中，如果不在则捕获异常避免崩溃。"]}],"\n",["$","hr","hr-2",{}],"\n",["$","h2","h2-3",{"id":"代码修改流程","children":"代码修改流程"}],"\n",["$","h3","h3-6",{"id":"1-创建-hook-实现文件","children":"1. 创建 Hook 实现文件"}],"\n",["$","h4","h4-0",{"children":["$","code","code-0",{"children":"UITargetedPreview+AppRuntimeSafe.h"}]}],"\n",["$","pre","pre-2",{"children":["$","code","code-0",{"children":"@interface UITargetedPreview (AppRuntimeSafe)\n+ (void)hookRuntimeMethod;\n@end\n"}]}],"\n",["$","h4","h4-1",{"children":["$","code","code-0",{"children":"UITargetedPreview+AppRuntimeSafe.m"}]}],"\n",["$","pre","pre-3",{"children":["$","code","code-0",{"children":"$13"}]}],"\n",["$","hr","hr-3",{}],"\n",["$","h3","h3-7",{"id":"2-更新配置文件","children":"2. 更新配置文件"}],"\n",["$","h4","h4-2",{"children":["$","code","code-0",{"children":"CrashFixKey.swift"}]}],"\n",["$","pre","pre-4",{"children":["$","code","code-0",{"className":"language-swift","children":"@objc public enum CrashFixClassKey: Int {\n    case clsArrayI\n    case clsSingleObjectArrayI\n    case clsArrayM\n    case clsTargetedPreview  // 新增：混淆 UITargetedPreview\n}\n\n@objc public enum CrashFixSelKey: Int {\n    case selObjectAtIndex\n    case selObjectAtIndexedSubscript\n    case selGetObjectsRange\n    case selInitWithViewParameters  // 新增：混淆 initWithView:parameters:\n}\n"}]}],"\n",["$","h4","h4-3",{"children":[["$","code","code-0",{"children":"selector_obfuscation_map"}]," 加密配置"]}],"\n",["$","pre","pre-5",{"children":["$","code","code-0",{"className":"language-json","children":"{\n  \"clsTargetedPreview\": \"UITargetedPreview\",\n  \"selInitWithViewParameters\": \"initWithView:parameters:\"\n}\n"}]}],"\n",["$","p","p-3",{"children":[["$","strong","strong-0",{"children":"混淆命名"}],"："]}],"\n",["$","ul","ul-1",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UITargetedPreview"}]," → ",["$","code","code-1",{"children":"clsTargetedPreview"}]]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"initWithView:parameters:"}]," → ",["$","code","code-1",{"children":"selInitWithViewParameters"}]]}],"\n"]}],"\n",["$","hr","hr-4",{}],"\n",["$","h3","h3-8",{"id":"3-启动时调用-hook","children":"3. 启动时调用 Hook"}],"\n",["$","h4","h4-4",{"children":["$","code","code-0",{"children":"AppCrashHook.swift"}]}],"\n",["$","pre","pre-6",{"children":["$","code","code-0",{"className":"language-swift","children":"class AppCrashHook: AppBootTask {\n    func app(_ app: UIApplication, didFinished options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {\n        CrashFixObfuscator.share.config()\n        inputCrashFix()\n        marrayCrashFix()\n        targetedPreviewCrashFix()  // 新增\n        return true\n    }\n    \n    /// 修复 UITargetedPreview view not in window 崩溃\n    private func targetedPreviewCrashFix() {\n        guard RemoteConfig.openFixTargetedPreviewCrash else {\n            return\n        }\n        UITargetedPreview.hookRuntimeMethod()\n    }\n}\n"}]}],"\n",["$","hr","hr-5",{}],"\n",["$","h3","h3-9",{"id":"4-添加远程开关","children":"4. 添加远程开关"}],"\n",["$","h4","h4-5",{"children":["$","code","code-0",{"children":"RemoteConfig.swift"}]}],"\n",["$","pre","pre-7",{"children":["$","code","code-0",{"className":"language-swift","children":"/// 9.4.2 是否开启 UITargetedPreview crash 修复\n@FeatureFlagBool(key: .openFixTargetedPreviewCrash, defualtValue: false)\nstatic var openFixTargetedPreviewCrash: Bool\n"}]}],"\n",["$","h4","h4-6",{"children":["$","code","code-0",{"children":"RemoteConfigManager+Extension.swift"}]}],"\n",["$","pre","pre-8",{"children":["$","code","code-0",{"className":"language-swift","children":"/// 9.4.2 是否开启 UITargetedPreview crash 修复\ncase openFixTargetedPreviewCrash\n"}]}],"\n",["$","hr","hr-6",{}],"\n",["$","h3","h3-10",{"id":"5-更新桥接头文件","children":"5. 更新桥接头文件"}],"\n",["$","h4","h4-7",{"children":["$","code","code-0",{"children":"ExampleApp-Bridging-Header.h"}]}],"\n",["$","pre","pre-9",{"children":["$","code","code-0",{"children":"#import \"NSArray+AppRuntimeSafe.h\"\n#import \"NSMutableArray+AppRuntimeSafe.h\"\n#import \"UITargetedPreview+AppRuntimeSafe.h\"  // 新增\n"}]}],"\n",["$","hr","hr-7",{}],"\n",["$","h2","h2-4",{"id":"测试场景","children":"测试场景"}],"\n",["$","h3","h3-11",{"id":"测试入口","children":"测试入口"}],"\n",["$","p","p-4",{"children":"Feed 首页右下角显示 ** 橙色测试按钮**（仅 Debug 模式）。"}],"\n",["$","h3","h3-12",{"id":"场景1正常-view-测试","children":"场景1：正常 View 测试"}],"\n",["$","p","p-5",{"children":[["$","strong","strong-0",{"children":"目的"}],"：验证 Hook 不影响正常使用"]}],"\n",["$","p","p-6",{"children":[["$","strong","strong-0",{"children":"预期"}],"： 正常创建 UITargetedPreview"]}],"\n",["$","hr","hr-8",{}],"\n",["$","h3","h3-13",{"id":"场景2view-不在-window-测试--核心场景","children":"场景2：View 不在 Window 测试 ⭐ 核心场景"}],"\n",["$","p","p-7",{"children":[["$","strong","strong-0",{"children":"目的"}],"：验证 Hook 防护崩溃"]}],"\n",["$","p","p-8",{"children":[["$","strong","strong-0",{"children":"预期日志"}],"："]}],"\n",["$","pre","pre-10",{"children":["$","code","code-0",{"children":"[AppCrashTest] View.window =  nil\n[AppCrashTest]  尝试创建 UITargetedPreview...\n\n 必须看到这两行！\n[AppCrashFix] UITargetedPreview init with view not in window\n[AppCrashFix] Caught exception in UITargetedPreview init\n\n[AppCrashTest]  Hook 生效！返回 nil，避免了崩溃\n"}]}],"\n",["$","p","p-9",{"children":[["$","strong","strong-0",{"children":"验证标准"}],"："]}],"\n",["$","ul","ul-2",{"children":["\n",["$","li","li-0",{"children":["看到 ",["$","code","code-0",{"children":"[AppCrashFix]"}]," 日志"]}],"\n",["$","li","li-1",{"children":"应用没有崩溃"}],"\n"]}],"\n",["$","hr","hr-9",{}],"\n",["$","h3","h3-14",{"id":"场景3context-menu-测试","children":"场景3：Context Menu 测试"}],"\n",["$","p","p-10",{"children":[["$","strong","strong-0",{"children":"目的"}],"：测试真实使用场景"]}],"\n",["$","p","p-11",{"children":[["$","strong","strong-0",{"children":"操作"}],"：长按红色方块，系统自动模拟以下场景："]}],"\n",["$","ol","ol-1",{"children":["\n",["$","li","li-0",{"children":"0.3秒后移除 view（模拟 Cell 复用）"}],"\n",["$","li","li-1",{"children":"0.8秒后切换 Tab（模拟页面跳转）"}],"\n"]}],"\n",["$","p","p-12",{"children":[["$","strong","strong-0",{"children":"预期"}],"：能正常弹出菜单，切换页面时不崩溃"]}],"\n",["$","hr","hr-10",{}],"\n",["$","h3","h3-15",{"id":"场景4极限崩溃复现--100-触发","children":"场景4：极限崩溃复现 ⭐ 100% 触发"}],"\n",["$","p","p-13",{"children":[["$","strong","strong-0",{"children":"目的"}],"：直接触发崩溃场景"]}],"\n",["$","p","p-14",{"children":[["$","strong","strong-0",{"children":"测试1"}],"：View 添加后立即移除，然后创建 Preview"]}],"\n",["$","pre","pre-11",{"children":["$","code","code-0",{"className":"language-swift","children":"view.addSubview(testView)\ntestView.removeFromSuperview()  // view.window = nil\nlet preview = UITargetedPreview(view: testView)  //  触发 Hook\n"}]}],"\n",["$","p","p-15",{"children":[["$","strong","strong-0",{"children":"测试2"}],"：模拟 Cell 复用"]}],"\n",["$","pre","pre-12",{"children":["$","code","code-0",{"className":"language-swift","children":"containerView.subviews.forEach { $0.removeFromSuperview() }  // 清空 Cell\nlet preview = UITargetedPreview(view: cellContentView)  //  触发 Hook\n"}]}],"\n",["$","p","p-16",{"children":[["$","strong","strong-0",{"children":"预期"}],"："]}],"\n",["$","ul","ul-3",{"children":["\n",["$","li","li-0",{"children":["测试1 和测试3 应该 ",["$","strong","strong-0",{"children":"100% 触发"}]," Hook 日志"]}],"\n",["$","li","li-1",{"children":"应用不崩溃"}],"\n"]}],"\n",["$","hr","hr-11",{}],"\n",["$","h2","h2-5",{"id":"测试成功标准","children":"测试成功标准"}],"\n",["$","div","div-0",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"测试项"}],["$","th","th-1",{"children":"标准"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"场景2 或 场景4"}],["$","td","td-1",{"children":"必须看到 <br/>`[AppCrashFix]`<br/> 日志 ⭐"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"所有场景"}],["$","td","td-1",{"children":"应用不崩溃"}]]}]]}]]}]}],"\n",["$","p","p-17",{"children":["$","strong","strong-0",{"children":"如果满足以上标准 = Hook 工作正常！"}]}],"\n",["$","hr","hr-12",{}],"\n",["$","h2","h2-6",{"id":"修改文件清单","children":"修改文件清单"}],"\n",["$","h3","h3-16",{"id":"新增文件","children":"新增文件"}],"\n",["$","ul","ul-4",{"children":["\n",["$","li","li-0",{"children":["$","code","code-0",{"children":"ExampleApp/Sources/CrashFix/UITargetedPreview+AppRuntimeSafe.h"}]}],"\n",["$","li","li-1",{"children":["$","code","code-0",{"children":"ExampleApp/Sources/CrashFix/UITargetedPreview+AppRuntimeSafe.m"}]}],"\n",["$","li","li-2",{"children":["$","code","code-0",{"children":"ExampleApp/Sources/CrashFix/TargetedPreviewCrashTest.swift"}]}],"\n"]}],"\n",["$","h3","h3-17",{"id":"修改文件","children":"修改文件"}],"\n",["$","ul","ul-5",{"children":["\n",["$","li","li-0",{"children":["$","code","code-0",{"children":"ExampleApp/Sources/CrashFix/CrashFixKey.swift"}]}],"\n",["$","li","li-1",{"children":["$","code","code-0",{"children":"ExampleApp/Sources/CrashFix/selector_obfuscation_map"}]}],"\n",["$","li","li-2",{"children":["$","code","code-0",{"children":"Chat/BootTask/AppCrashHook.swift"}]}],"\n",["$","li","li-3",{"children":["$","code","code-0",{"children":"Chat/ExampleApp-Bridging-Header.h"}]}],"\n",["$","li","li-4",{"children":["$","code","code-0",{"children":"ExampleApp/Sources/BusinessModules/RemoteConfig/RemoteConfig.swift"}]}],"\n",["$","li","li-5",{"children":["$","code","code-0",{"children":"ExampleApp/Sources/BusinessModules/RemoteConfig/RemoteConfigManager+Extension.swift"}]}],"\n",["$","li","li-6",{"children":[["$","code","code-0",{"children":"ExampleApp/Sources/Feed/Controller/FeedContainerController.swift"}],"（Debug 测试代码）"]}],"\n"]}],"\n",["$","hr","hr-13",{}],"\n",["$","h2","h2-7",{"id":"完整测试代码","children":"完整测试代码"}],"\n",["$","blockquote","blockquote-0",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"注意"}],"：以下测试代码仅用于 Debug 模式验证，提交代码前会删除。"]}],"\n"]}],"\n",["$","h3","h3-18",{"id":"添加测试入口在-feedcontainercontrollerswift-的-viewdidload-中","children":"添加测试入口（在 FeedContainerController.swift 的 viewDidLoad 中）"}],"\n",["$","pre","pre-13",{"children":["$","code","code-0",{"className":"language-swift","children":"// Debug 模式下添加测试按钮\n#if DEBUG\nsetupCrashTestButton()\n#endif\n"}]}],"\n",["$","h3","h3-19",{"id":"测试代码实现","children":"测试代码实现"}],"\n",["$","h4","h4-8",{"children":"1. 创建测试按钮"}],"\n",["$","pre","pre-14",{"children":["$","code","code-0",{"className":"language-swift","children":"// MARK: - Debug 测试工具\n#if DEBUG\nextension FeedContainerController {\n    \n    /// 设置 Crash 测试按钮（仅 Debug 模式）\n    private func setupCrashTestButton() {\n        let testButton = UIButton(type: .system)\n        testButton.setTitle(\"\", for: .normal)\n        testButton.titleLabel?.font = .systemFont(ofSize: 30)\n        testButton.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.8)\n        testButton.layer.cornerRadius = 25\n        testButton.addTarget(self, action: #selector(crashTestButtonTapped), for: .touchUpInside)\n        \n        view.addSubview(testButton)\n        testButton.snp.makeConstraints { make in\n            make.width.height.equalTo(50)\n            make.bottom.equalTo(submitFeedButton.snp.top).offset(-16)\n            make.right.equalToSuperview().offset(-20.fitScreen)\n        }\n        \n        print(\"[AppCrashTest]  测试按钮已添加（仅 Debug 模式可见）\")\n    }\n    \n    /// 测试按钮点击事件\n    @objc private func crashTestButtonTapped() {\n        showCrashTestMenu()\n    }\n}\n"}]}],"\n",["$","h4","h4-9",{"children":"2. 显示测试菜单"}],"\n",["$","pre","pre-15",{"children":["$","code","code-0",{"className":"language-swift","children":"$14"}]}],"\n",["$","h4","h4-10",{"children":"3. 场景1：正常 View 测试"}],"\n",["$","pre","pre-16",{"children":["$","code","code-0",{"className":"language-swift","children":"$15"}]}],"\n",["$","h4","h4-11",{"children":"4. 场景2：View 不在 Window 测试"}],"\n",["$","pre","pre-17",{"children":["$","code","code-0",{"className":"language-swift","children":"$16"}]}],"\n",["$","h4","h4-12",{"children":"5. 场景3：Context Menu 测试"}],"\n",["$","pre","pre-18",{"children":["$","code","code-0",{"className":"language-swift","children":"$17"}]}],"\n",["$","h4","h4-13",{"children":"6. 场景4：极限崩溃复现"}],"\n",["$","pre","pre-19",{"children":["$","code","code-0",{"className":"language-swift","children":"$18"}]}],"\n",["$","h4","h4-14",{"children":"7. 辅助方法"}],"\n",["$","pre","pre-20",{"children":["$","code","code-0",{"className":"language-swift","children":"/// 创建测试 View\nprivate func createTestView(title: String) -> UIView {\n    let view = UIView(frame: CGRect(x: 100, y: 200, width: 120, height: 120))\n    view.backgroundColor = .systemRed\n    view.layer.cornerRadius = 12\n    view.isUserInteractionEnabled = true\n    \n    let label = UILabel(frame: view.bounds)\n    label.text = title\n    label.textColor = .white\n    label.textAlignment = .center\n    label.font = .boldSystemFont(ofSize: 16)\n    label.numberOfLines = 0\n    view.addSubview(label)\n    \n    return view\n}\n"}]}],"\n",["$","h4","h4-15",{"children":"8. Context Menu 代理实现"}],"\n",["$","pre","pre-21",{"children":["$","code","code-0",{"className":"language-swift","children":"$19"}]}],"\n",["$","h3","h3-20",{"id":"使用说明","children":"使用说明"}],"\n",["$","ol","ol-2",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"添加代码位置"}],"：",["$","code","code-0",{"children":"ExampleApp/Sources/Feed/Controller/FeedContainerController.swift"}]]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"所有代码"}],"：包裹在 ",["$","code","code-0",{"children":"#if DEBUG ... #endif"}]," 中"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"提交前删除"}],"：Release 版本前删除所有测试代码"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"依赖文件"}],"：",["$","code","code-0",{"children":"TargetedPreviewCrashTest.swift"}],"（测试工具类）"]}],"\n"]}],"\n",["$","hr","hr-14",{}]]}],["$","footer",null,{"className":"article-pager","children":[["$","div",null,{"className":"pager-item","children":["$","$L12",null,{"href":"/posts/ktvhttpcache-multirange-array-bounds-crash-fix","children":[["$","span",null,{"className":"pager-hint","children":"上一篇"}],["$","span",null,{"className":"pager-title","children":"KTVHTTPCache 多范围响应数组越界崩溃修复记录"}]]}]}],["$","div",null,{"className":"pager-item right","children":["$","$L12",null,{"href":"/posts/snapkit-constraint-race-condition-superview-nil","children":[["$","span",null,{"className":"pager-hint","children":"下一篇"}],["$","span",null,{"className":"pager-title","children":"SnapKit 约束激活时偶现 superview 为 nil 的崩溃分析"}]]}]}]]}]]}],["$","aside",null,{"className":"article-toc","children":["$","div",null,{"className":"toc-sticky","children":[["$","div",null,{"className":"toc-heading","children":"本文目录"}],["$","ul",null,{"className":"toc-list","children":[["$","li","崩溃信息-0",{"className":"toc-level-2","children":["$","a",null,{"href":"#崩溃信息","children":"崩溃信息"}]}],["$","li","崩溃类型-1",{"className":"toc-level-3","children":["$","a",null,{"href":"#崩溃类型","children":"崩溃类型"}]}],["$","li","堆栈关键路径-2",{"className":"toc-level-3","children":["$","a",null,{"href":"#堆栈关键路径","children":"堆栈关键路径"}]}],["$","li","问题定位-3",{"className":"toc-level-2","children":["$","a",null,{"href":"#问题定位","children":"问题定位"}]}],["$","li","根本原因-4",{"className":"toc-level-3","children":["$","a",null,{"href":"#根本原因","children":"根本原因"}]}],["$","li","触发场景-5",{"className":"toc-level-3","children":["$","a",null,{"href":"#触发场景","children":"触发场景"}]}],["$","li","高风险代码-6",{"className":"toc-level-3","children":["$","a",null,{"href":"#高风险代码","children":"高风险代码"}]}],["$","li","修复方案-7",{"className":"toc-level-2","children":["$","a",null,{"href":"#修复方案","children":"修复方案"}]}],["$","li","核心思路-8",{"className":"toc-level-3","children":["$","a",null,{"href":"#核心思路","children":"核心思路"}]}],["$","li","代码修改流程-9",{"className":"toc-level-2","children":["$","a",null,{"href":"#代码修改流程","children":"代码修改流程"}]}],["$","li","1-创建-hook-实现文件-10",{"className":"toc-level-3","children":["$","a",null,{"href":"#1-创建-hook-实现文件","children":"1. 创建 Hook 实现文件"}]}],["$","li","2-更新配置文件-11",{"className":"toc-level-3","children":["$","a",null,{"href":"#2-更新配置文件","children":"2. 更新配置文件"}]}],["$","li","3-启动时调用-hook-12",{"className":"toc-level-3","children":["$","a",null,{"href":"#3-启动时调用-hook","children":"3. 启动时调用 Hook"}]}],["$","li","4-添加远程开关-13",{"className":"toc-level-3","children":["$","a",null,{"href":"#4-添加远程开关","children":"4. 添加远程开关"}]}],["$","li","5-更新桥接头文件-14",{"className":"toc-level-3","children":["$","a",null,{"href":"#5-更新桥接头文件","children":"5. 更新桥接头文件"}]}],["$","li","测试场景-15",{"className":"toc-level-2","children":["$","a",null,{"href":"#测试场景","children":"测试场景"}]}],["$","li","测试入口-16",{"className":"toc-level-3","children":["$","a",null,{"href":"#测试入口","children":"测试入口"}]}],["$","li","场景1正常-view-测试-17",{"className":"toc-level-3","children":["$","a",null,{"href":"#场景1正常-view-测试","children":"场景1：正常 View 测试"}]}],["$","li","场景2view-不在-window-测试--核心场景-18",{"className":"toc-level-3","children":["$","a",null,{"href":"#场景2view-不在-window-测试--核心场景","children":"场景2：View 不在 Window 测试 ⭐ 核心场景"}]}],["$","li","场景3context-menu-测试-19",{"className":"toc-level-3","children":["$","a",null,{"href":"#场景3context-menu-测试","children":"场景3：Context Menu 测试"}]}],["$","li","场景4极限崩溃复现--100-触发-20",{"className":"toc-level-3","children":["$","a",null,{"href":"#场景4极限崩溃复现--100-触发","children":"场景4：极限崩溃复现 ⭐ 100% 触发"}]}],["$","li","测试成功标准-21",{"className":"toc-level-2","children":["$","a",null,{"href":"#测试成功标准","children":"测试成功标准"}]}],["$","li","修改文件清单-22",{"className":"toc-level-2","children":["$","a",null,{"href":"#修改文件清单","children":"修改文件清单"}]}],["$","li","新增文件-23",{"className":"toc-level-3","children":["$","a",null,{"href":"#新增文件","children":"新增文件"}]}],["$","li","修改文件-24",{"className":"toc-level-3","children":["$","a",null,{"href":"#修改文件","children":"修改文件"}]}],["$","li","完整测试代码-25",{"className":"toc-level-2","children":["$","a",null,{"href":"#完整测试代码","children":"完整测试代码"}]}],["$","li","添加测试入口在-feedcontainercontrollerswift-的-viewdidload-中-26",{"className":"toc-level-3","children":["$","a",null,{"href":"#添加测试入口在-feedcontainercontrollerswift-的-viewdidload-中","children":"添加测试入口（在 FeedContainerController.swift 的 viewDidLoad 中）"}]}],["$","li","测试代码实现-27",{"className":"toc-level-3","children":["$","a",null,{"href":"#测试代码实现","children":"测试代码实现"}]}],["$","li","使用说明-28",{"className":"toc-level-3","children":["$","a",null,{"href":"#使用说明","children":"使用说明"}]}]]}]]}]}]]}],["$","footer",null,{"className":"site-footer","children":["$","span",null,{"children":"© 2022–2026 FengCaifan"}]}]]}]
+7:null
+b:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
+6:null
+9:{"metadata":[["$","title","0",{"children":"Caifan's Notes"}],["$","meta","1",{"name":"description","content":"个人开发与学习笔记"}],["$","link","2",{"rel":"icon","href":"/fcfblog/favicon.ico","type":"image/x-icon","sizes":"16x16"}]],"error":null,"digest":"$undefined"}
+11:{"metadata":"$9:metadata","error":null,"digest":"$undefined"}

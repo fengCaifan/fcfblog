@@ -1,0 +1,1278 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">Swift 进阶学习笔记：值类型、协议扩展与闭包</h1><div class="article-meta"><time>2024-05-12</time><span class="meta-sep">·</span><span>iOS 底层与原理</span><span class="meta-sep">·</span><span class="article-tags">Swift / 泛型 / 协议</span></div></header><div class="markdown-body"><hr/>
+<h2 id="title-swift进阶-date-2020-8-1-80000-tags-swift-categories-swift进阶-description-这篇文章主要是重新学习swift">title: swift进阶.
+date: 2020-8-1 8:00:00
+tags: swift
+categories: swift进阶
+description:  这篇文章主要是重新学习swift</h2>
+<h3 id="基础语法">基础语法</h3>
+<ul>
+<li>
+<p>常量只能赋值1次，不要求在编译时期确定，使用之前必须赋值1次。</p>
+</li>
+<li>
+<p>常见数据类型：(注意：<strong>swift就两种基本数据类型值类型和引用类型，不存在什么基本数据类型，比如Int不算是基本数据类型，Int是结构体</strong>)</p>
+<ul>
+<li>值类型： 枚举Enum（Optional）；结构体 ( Bool，Int，Float，Double，Character，String，Array，Dictionary，Set )</li>
+<li>引用类型：类Class</li>
+</ul>
+</li>
+<li>
+<p>区间运算：</p>
+<ul>
+<li>闭区间运算符：a...b  ， a &lt;= 取值 &lt;= b ； a、b可以是常量，也可以是变量</li>
+<li>半开区间运算符：a..&lt;b ，a &lt;= 取值 &lt; b ；</li>
+<li>单侧区间（主要用于数组上）：array[2...] 表示从第2个下标一直到最后；array[...2] 表示从第0个下标一直到第2个下标；array[..&lt;2] 表示从第0个下标一直到第2个下标，但是不包含第2个下标；</li>
+<li>区间类型：</li>
+</ul>
+<pre><code>//三种区间类型
+let range1:ClosedRange&lt;Int&gt; = 1...3
+let range2:Range&lt;Int&gt; = 1..&lt;3
+let range3:PartialRangeThrough&lt;Int&gt; = ...5
+
+let stringRange = &quot;a&quot;...&quot;f&quot; //表示从字面a到字面f之间的字母。
+stringRange.contains(&quot;d&quot;) //true
+stringRange.contains(&quot;h&quot;) //false
+
+//\0到~囊括了所有可能用到的ASCII字符
+let characterRange:ClosedRange&lt;Character&gt; = &quot;\0&quot;...&quot;~&quot;
+//所有整数
+let numRange:ClosedRange&lt;Character&gt; = &quot;0&quot;...&quot;9&quot;
+//带间隔的区间值，表示从4...11，每隔两个值打印一次。
+for i in stride(from:4, through:11, by: 2) {
+      print(i) //4、6、8、10
+}
+</code></pre>
+</li>
+<li>
+<p>switch：不写break，不会贯穿效果，需要加贯穿效果，需要加fallthrough；case和where语句的使用。</p>
+</li>
+<li>
+<p>typealias：用来给类型起别名。比如swift没有Long，typealias Long = Int64，比如block。</p>
+</li>
+<li>
+<p>MemoryLayout：获取某种类型的size ： MemoryLayout<!-- -->&lt;Int&gt;<!-- -->.size；MemoryLayout.size(ofValue: 10)</p>
+</li>
+<li>
+<p>可选项Optional：</p>
+<ul>
+<li>可选类型初始值为nil。</li>
+<li>空合并运算符 ?? ， a ?? b ， a不为nil,返回a，a为nil,返回b;</li>
+<li>guard 提前退出使用；</li>
+<li>可选型的本质就是枚举；</li>
+</ul>
+</li>
+</ul>
+<pre><code>//遍历数组，将遇到的正数相加，遇到负数或非数字，停止遍历
+var strs = [&quot;10&quot;,&quot;20&quot;,&quot;abs&quot;,&quot;30&quot;]
+var i =0, sum = 0
+while let num = Int(strs[i]), num &gt; 0 {
+    sum += num
+    i += 1
+}
+print(sum)
+</code></pre>
+<ul>
+<li>
+<p>enum枚举：</p>
+<ul>
+<li>关联值：case points(Int);</li>
+<li>原始值：enum Poker : Character {},说明枚举里的case都默认使用相同类型的默认值。隐式原始值，也就是说使用了原始值是Int、String的枚举，case没有赋值的话，swift会自动分配原始值，String默认是case的名字，Int直接从0开始。</li>
+<li>递归枚举：也就是枚举里的case成员也用到了自身枚举类型。使用递归枚举需要使用<strong>indirect</strong>关键字</li>
+</ul>
+<pre><code>enum AirExpr{
+	case number(Int)
+	indirect case sum(AirExpr,AirExpr)
+	indirect case difference(AirExpr,AirExpr)
+}
+let five = AirExpr.number(5)
+let four = AirExpr.number(4)
+let two = AirExpr.number(2)
+let sum = AirExpr.sum(five,four)
+let diff = AirExpr.difference(sum,two)
+</code></pre>
+<ul>
+<li>枚举内存：使用一个字节存储成员值，N个字节存储关联值（N取占用内存最大的关联值），任何一个case的关联值都共用这N个字节。</li>
+</ul>
+<pre><code>enum TestEnum {
+    case test1,test2,teat3
+}
+enum TestEnum2 : Int {
+    case test1,test2,teat3
+}
+上述两种情况都没有关联值，TestEnum只有原始值。所以只需要分配一个字节存储枚举的成员值（是哪个case）。
+enum TestEnum3 {
+    case test1(Int,Int,Int)
+    case test2(Int)
+    case test3(Bool)
+    case test4
+}
+TestEnum3含有关联值，最大的关联值有3个Int类型的，每个Int类型占用8个字节，所以需要24个字节来存储关联值，其它的关联值也共用这些存储空间。其次需要一个字节大小来存储枚举的成员值。所以实际使用25个字节，但是由于内存对齐问题，所以系统会分配32个字节给这个枚举。
+
+</code></pre>
+</li>
+<li>
+<p>结构体：在swift标准库中，绝大多数的公开类型都是结构体，枚举和类只占一小部分。比如Bool、Int、Double、String、Array、Dictionary等。</p>
+<ul>
+<li>所有的结构体都有一个编译器自动生成的初始化器，初始化器可以传入所有成员值，用以初始化所有存储属性。也可能会有多个初始化器，但是宗旨就是：保证所有成员都有初始值。</li>
+<li>一旦自定义了初始化器，编译器就不会再帮它自动生成初始化器。</li>
+<li>结构体中的属性默认的初始值实际也是在默认初始化器中进行的赋值。相当于调用了默认初始化器。</li>
+</ul>
+</li>
+<li>
+<p>类：swift没有为类自动生成带参初始化器，只有一个无参的初始化器，成员的初始化值就是在这个初始化器中完成的。类对象的内存中前面默认有8个字节指向类型信息，然后有8个字节存储ARC，之后才是成员变量。也就是说没有任何成员变量的类占有16字节的内存大小。</p>
+<ul>
+<li>类有2种初始化器：指定初始化器（designed initializer）、便捷初始化器（converience initializer）。 每个类至少有一个指定初始化器，指定初始化器是类的主要初始化器，<strong>默认初始化器总是类的指定初始化器</strong>。这么做的目的就是安全性——保证所有的存储属性都在指定初始化器中得到初始化，那其他部分成员初始化的方法就可以作为便捷初始化器使用。</li>
+<li>初始化器的调用规则：<!-- -->
+<ul>
+<li>指定初始化器必须从它的直系父类调用指定初始化器；</li>
+<li>子类的指定初始化器不能调用自身的指定初始化器；</li>
+<li>便捷初始化器必须从相同的类里调用另一个初始化器；</li>
+<li>便捷初始化器最终必须调用一个指定初始化器；</li>
+<li>便捷初始化器只能横向调用(调用自己的初始化器)，指定初始化器才可以纵向调用；</li>
+</ul>
+</li>
+<li>两段式初始化：<!-- -->
+<ul>
+<li>第一阶段：初始化所有存储属性：也就是说从子类的初始化器开始一路调用父类的初始化器，最终保证整个初始化链条中的所有类的所有存储属性都得到初始化。也就是说在调用父类的初始化器（这个肯定是指定初始化器）之前，需要先对自己的存储属性进行初始化，且这个阶段不能够调用方法。</li>
+<li>第二阶段：设置新的存储属性：也就是说在整个初始化链完成后，可以在后续代码中重新给存储属性赋值，此时也可以使用self做任何事情。</li>
+</ul>
+</li>
+</ul>
+<pre><code>class Person {
+    var age:Int
+    func init() {
+        //因为Person是基类，所以在age初始之前，是不可以调用方法的
+        // fuc() 这里会报错
+        self.age = 1
+        //在age初始化之后，就可以开始调用函数了
+        fuc()
+    }
+    
+    func fuc(){
+        print(&quot;xxx&quot;)
+    }
+}
+
+class Student : Person {
+    var name:String
+    init(age: Int, name: String) {
+        //name的赋值必须放在调用父类的指定初始化器之前。
+        self.name = name
+        //子类指定初始化器必须调用直系父类的指定初始化器
+        super.init()
+        //初始化链完成之后，可以给name设置新值
+        self.name = &quot; \(name) 001&quot;
+    }
+    
+    converience init() {
+        //最终必须调用自身类的指定初始化器
+        self.init(age: 10, name: &quot;fcf&quot;)
+    }
+}
+</code></pre>
+<ul>
+<li>
+<p>重写父类初始化器：重写也就意味着函数名、参数个数、参数类型、参数标签都是一样的。重写必须要加上<strong>override</strong>关键字，但是有一个点要注意，因为便捷初始化器都是横向调用，所以子类是没法重新父类的便捷初始化器，或者说即使满足了重写的规则（函数名、参数个数、参数类型、参数标签都是一样），那也无需加<strong>override</strong>关键字。其次无论其是重写的是指定初始化器还是将指定初始化器重写为便捷初始化器，最终都必须满足上述初始化器的调用规则。</p>
+</li>
+<li>
+<p>如果子类没有定义任何指定初始化器，那么它会<strong>自动继承</strong>父类的所有指定初始化器，但是一旦有自身的指定初始化器，则不能再直接使用其父类的指定初始化器。同样的如果没有指定任何初始化器，那么它也可以继承其父类的便捷初始化器。</p>
+</li>
+<li>
+<p>用<strong>required</strong>修饰指定初始化器（注意如果修饰的是converience初始化器，则没有实际意义），表明其所有子类都必须实现该初始化器（通过继承或者重写实现）；也就是说一个类可能存在很多指定初始化器，但是一旦有一个初始化器被required修饰了，那么子类就必须实现这个指定初始化器；也就是说如果没有自定义的指定初始化器，那么子类就自动继承了该required指定初始化器；那如果一旦子类自定义了自身的指定初始化器，那么它也得重写父类的required指定初始化器</p>
+<pre><code>class Person {
+    required init(){ }
+    init(age: Int){ }
+}
+class Student : Person {
+    //情况1、如果这个子类没有任何指定初始化器，那么就会自动继承父类的所有指定初始化器，包括required指定初始化器
+    ...
+    //情况2、如果子类有自己的指定初始化器
+    init(no: Int) {
+        //首先自身的指定初始化器，一定得调用直系父类的指定初始化器
+        super.init(age: 0)
+    }
+    // 但是其也得实现父类的required指定初始化器,且可以不写override关键字，但是必须写required关键字
+    required init() { }
+}
+</code></pre>
+</li>
+<li>
+<p>可失败初始化器：类、结构体、枚举都可以使用**init?<strong>定义可失败初始化器。比如如果在某种条件下，你想让初始化失败，返回nil，那么就可以使用可失败初始化器。所以这种情况下返回的也是Optional类型，那么也就意味着可以使用</strong>init!**初始化隐私解包的初始化器。</p>
+</li>
+</ul>
+<pre><code>class Person {
+    var name: String
+    init?(name: String) {
+        if name.isEmpty {
+            return nil
+        }
+        self.name = name
+    }
+    
+    converience init?() {
+        //这里，可失败初始化器可以调用可失败初始化器
+        self.init(&quot;&quot;) 
+        //如果上一行的可失败初始化器失败了，也就是返回了nil，则它之后的代码都不会执行了，也就是这行代码不会执行。
+        self.name = &quot;fcf&quot;
+    }
+}
+</code></pre>
+<ul>
+<li>析构：deinit</li>
+</ul>
+</li>
+<li>
+<p>结构体与类的本质区别：</p>
+<ul>
+<li>结构体是值类型（枚举也是），类是引用类型；</li>
+<li>值类型的存储位置取决于它创建的位置，如果是在栈空间中创建(比如结构体在函数内部创建)，那么它就存储在栈空间；如果是全局变量，那应该是在数据区；如果是定义在一个类内部，则是存储在堆中。引用类型无论在哪里创建都是存储在堆空间，指向引用类型的变量则也是根据这个变量的位置来确定存储位置（和值类型一样的）。</li>
+</ul>
+<pre><code>class Size{
+      var w = 1
+      var h = 1
+      var p = Point() //在类中创建，则它跟随类存储在堆区。
+}
+struct Point {
+      var x = 3
+      var y = 4
+}
+
+func test() {
+      var size = Size() //等号左边的是指针变量存储在栈空间，等号右侧是引用对象，存储在堆空间
+      var point = Point() //结构体在当前函数栈中创建，所以它存储在栈空间中。
+}
+
+var point = Point() //在全局区创建，则是在已初始化区
+
+</code></pre>
+<ul>
+<li>值类型赋值给var 、let 或者函数参数时，是直接将所有内容拷贝一份，产生一个全新的副本，属于深拷贝；所以Array、Dictionary进行赋值其实都是深拷贝。其次swift标准库中（也就是自己定义的结构体除外），为了提升性能，String、Array、Dictionary、Set采取了Copy On Write技术。也就是说在对新赋值的变量进行修改时才会进行深拷贝，否则就是浅拷贝。</li>
+<li>引用类型赋值给var 、let 或者函数参数时，是将内存地址拷贝一份，类似浅拷贝；其次值类型的let常量的成员也是不能改的，引用类型的let常量的成员则是可以改的。</li>
+</ul>
+</li>
+<li>
+<p>函数：</p>
+<ul>
+<li>
+<p>函数不占用对象的内存空间，它是存储正在代码段中。枚举、结构体、类都可以定义函数。</p>
+</li>
+<li>
+<p>默认参数并不需要从右到左(c++)，因为swift含有参数标签；</p>
+</li>
+<li>
+<p>可变参数：一个函数最多只能有一个可变参数;紧跟在可变参数后面的参数不能省略参数标签</p>
+</li>
+</ul>
+<pre><code>func sum(_ nums:Int..., n:Int) -&gt; Int {
+	var total = 0
+	for n in nums {
+          total += n
+	}
+      return total
+}
+</code></pre>
+<ul>
+<li>输入输出参数: <strong>inout</strong> 在函数内部修改外部变量(当然是值类型的情况)，实际上inout的本质也就将原来值传递的过程改成了地址传递的过程。<!-- -->
+<ul>
+<li>如果实参有物理地址（存储属性），且没有设置属性观察器，inout的本质就是直接将实参的内存地址传入函数(实参进行引用传递)；</li>
+<li>如果实参是计算属性或者设置了属性观察器，则采取Copy In Copy Out的做法，即：调用该函数时，先复制实参的值，产生副本(get)，然后将副本的内存地址传入函数(副本进行引用传递)，在函数内部修改副本的值，函数返回后，再将修改后的副本的值覆盖实参的值(set)</li>
+</ul>
+</li>
+<li>函数重载(overload)：规则就是函数名相同+（参数个数不同||参数类型不同||参数标签不同）；注意swift的函数重载跟返回值无关，其次要注意可省参数的问题。</li>
+<li>内联函数（内联是指编译器会直接将函数体复制到调用位置）：xcode在release模式下，默认开启优化，编译器会将某些函数变成内联函数。那哪些函数不会被内联优化呢？函数太长、包含递归、包含动态派发。</li>
+<li>函数类型：每一个函数类型是由形式参数类型+返回值类型组成，比如(Int,Int)-&gt;Int。所以函数就也是一种类型，那函数就可以作为参数传递，也可以作为返回值，或者属性等。返回值时函数类型的函数，叫做<strong>高阶函数</strong>。</li>
+</ul>
+<pre><code>func sum(v1:Int, v2:Int) -&gt; Int {
+      v1 + v2 //只有一句代码可以省略return
+}
+func printF(_ mfun:(Int,Int)-&gt;Int, _ a:Int, _ b:Int) {
+      print(&quot;\(mfun(a,b))&quot;)
+}
+printF(sum,2,3)
+</code></pre>
+<ul>
+<li>闭包：格式：{(参数列表)-&gt;返回值类型 in 函数体代码}；一个函数和它所捕获的变量或常量环境组合起来，称为闭包。<!-- -->
+<ul>
+<li>如果函数的最后一个参数是一个闭包，则可以将其作为一个尾随闭包来使用，尾随闭包是一个被书写在函数调用括号外面的闭包表达式。</li>
+<li>闭包一般是指在函数内定义的函数，一般它捕获的是外层函数的局部变量和常量；</li>
+<li>可以把闭包想象成一个类的实例对象，内存在堆空间。捕获的局部变量和常量就是对象的成员(存储属性)，组成闭包的函数就是类内部定义的方法。</li>
+</ul>
+</li>
+</ul>
+<pre><code>typealis Fn = (Int)-&gt;Int
+func getFn() -&gt; Fn {
+    var num = 0
+    func plus(_ i:Int) -&gt; Int {
+        num += i
+        return num
+    }
+    return plus
+}
+var fn = getFn()
+print(fn(1)) //1
+print(fn(2)) //3
+print(fn(3)) //6
+print(fn(4)) //10
+//为什么num不会被释放？汇编可以看到会生成一块堆空间用于放num，所以num不会被释放。
+
+// 其实上诉闭包就类似于下面的类。
+class Closuse {
+    var num = 0
+    func plus(_ i:Int) -&gt; Int {
+        num += i
+        return num
+    }
+}
+
+//假如plus函数没有捕获变量，那么fn其实存放的就是plus的函数地址，而不会再分配堆空间地址。这其实就不是严格意义上的闭包。
+</code></pre>
+<ul>
+<li>
+<p>自动闭包：@autoClosure。只适用于 () ——&gt; T 格式的闭包；</p>
+</li>
+<li>
+<p>mutating：值类型（结构体、枚举）在默认情况下，其值类型的属性不能被自身实例方法修改，如果要允许这种修改，则需要加上mutating关键字；</p>
+</li>
+<li>
+<p>@discardableResult 表示可以忽略返回值；</p>
+</li>
+<li>
+<p>使用subscript可以给任意类型添加下标功能。实例方法和类方法都可以定义下标；</p>
+</li>
+<li>
+<p>@escaping：逃逸闭包。</p>
+<ul>
+<li>非逃逸闭包、逃逸闭包，一般都是当做参数传递给函数；</li>
+<li>非逃逸闭包：闭包调用发生在函数结束之前，闭包调用在函数作用域内；</li>
+</ul>
+</li>
+<li>
+<p>逃逸闭包：闭包有可能在函数结束后调用，闭包调用逃离了函数作用域。</p>
+<pre><code>  	typealias Fn = () -&gt; ()
+  	//非逃逸
+  	func test1(_ fn: Fn) {
+  fn()
+  	}
+  	//逃逸闭包
+  	var gFn: Fn?
+  	func test2(_ fn: @escaping Fn) {
+  gFn = fn
+  	}
+  	// 多线程下的逃逸闭包。因为fn()可能是在test3函数调用完成后才调用。而且async源码实际也是一个逃逸闭包。所以async闭包里使用了实例成员，编译器会强制要求明确写self。
+  	func test3(_ fn: @escaping Fn) {
+  DispatchQueue.global().async {
+      fn()
+  }
+  	}
+</code></pre>
+<pre><code></code></pre>
+</li>
+</ul>
+</li>
+<li>
+<p>属性：swift中的属性可以分为实例属性和类型属性，实例属性又可以分为两大类：存储属性和计算属性。类型属性则是类的属性，类似于类方法。</p>
+<pre><code>struct Circle {
+      /// 存储属性
+      var radius: Double
+      /// 计算属性
+      var diameter: Double {
+          set{
+              radius = newValue / 2
+          }
+          get {
+              radius * 2
+          }
+      }
+}
+</code></pre>
+<ul>
+<li>存储属性的特点：<!-- -->
+<ul>
+<li>类似于成员变量的概念</li>
+<li>存储在实例的内存中</li>
+<li>结构体和类可以定义存储属性</li>
+<li>枚举<strong>不可以</strong>定义存储属性。因为按照枚举的内存分析，枚举中要么用一个字节只存储原始类型，要么用n个字节存储关联值。而不会开辟空间存储存储属性。</li>
+<li>在创建类或结构体实例时，必须为所有存储属性设置一个合适的初始值。可以在默认初始化器里为存储属性设置初始值，也可以在定义的时候默认一个属性值。</li>
+<li>延迟存储属性：lazy var car = Car()。在第一次用到属性的时候才会进行初始化。注意：<strong>如果多个线程同时第一次访问lazy属性，那么它是无法被保证只初始化1次的。</strong>。 其次延迟属性实际也是存储在实例变量的内存当中的，所以结构体的话，只有var修饰的实例变量才能访问延迟存储属性，因为延迟属性初始化的时候必然会修改结构体的内存</li>
+</ul>
+</li>
+<li>计算属性：<!-- -->
+<ul>
+<li>本质就是方法(函数)</li>
+<li>不占用实例内存</li>
+<li>枚举、结构体、类都可以定义计算属性</li>
+<li>计算属性只能用var，不能用let，因为计算属性是会发生变化的。也可以设置只读属性。其次let属性被要求必须在类初始化之前必须有值。</li>
+<li>比如枚举的rawValue是一个只读的计算属性</li>
+</ul>
+</li>
+<li>类型属性：只能通过类型访问，类似于类方法的使用。使用static关键字。整个程序运行过程中，只存在1份，类似于全局变量；单例就是类型属性的最佳实践</li>
+<li>属性观察器，只有非lazy的存储属性才能设置属性观察器willSet{},didSet{}。因为计算属性的观察可以直接在set和get中。其次初始化器中是不会触发属性观察器，注意这里的意思是在存储属性初始化时，没法触发，但是一旦初始化完成再设置新值（可以参考初始化器的两段式初始化，这里指的是第二阶段）则可以触发属性观察器。</li>
+</ul>
+</li>
+<li>
+<p>继承</p>
+<ul>
+<li>只有类支持继承，值类型不支持继承；</li>
+<li>子类可以用override重写父类的方法、存储属性；</li>
+<li>被class修饰的类方法，可以被子类override重写，被static修饰的类方法，不允许被override重写。</li>
+<li>可以在子类中为父类属性增加属性观察器；</li>
+</ul>
+</li>
+<li>
+<p>多态：父类类型指向子类对象就是多态。在OC中使用runtime实现多态，在C++中，使用虚函数表实现多态。</p>
+<ul>
+<li>上面类中说到，类内存中前8个字节是用来存储类的类型信息，这8个字节实际指向另一个新的内存区域，这个内存区域的内容存储的是类的类型信息及类的方法地址。</li>
+<li>也就是说在编译完成时，每个类的类型信息就基本确定了，然后存储在全局区域。当实例化的时候，会根据类的前8个字节先取出类的类型信息及函数信息，然后调用函数的时候就会调用真正类型的函数。也就是使用的是类似C++的虚函数表的方式实现的多态。</li>
+</ul>
+</li>
+<li>
+<p>协议</p>
+<ul>
+<li>协议中属性，需要标识读写属性。协议可以作为传参使用；</li>
+<li>CaseIterable 枚举遵循这个协议，可以实现遍历枚举；</li>
+</ul>
+</li>
+<li>
+<p>Any、AnyObject: Any表示任意类型，AnyObject表示任意类类型；</p>
+</li>
+<li>
+<p>X.self、X.type:</p>
+<ul>
+<li>X.self : 是表示原类型的数据。也就是上述说到的堆内存中首8个字节所指向的空间地址，表示当前对象的真实类型；</li>
+<li>X.Type表示当前类型，X.self属于X.Type</li>
+</ul>
+<pre><code>protocol  Runnable {
+      func test() -&gt; Self //返回当前类
+}
+class Person : Runnable {
+      required init() { }
+      func test() -&gt; Self {
+          type(of: self).init() //这样才能返回最终的类型,Self返回值必须调用required初始化器。
+      }
+}
+class Student : Person {}
+var stu = Student()
+stu.test()
+
+//注意：以下4张方法最终都是调用init()方法初始化，底层其实都没什么区别。
+var p0 = Person()	
+var p1 = Person.self() 
+var p2 = Person.init()
+var p3 = Person.self.init()
+var p4 = type(of: p0).init()
+
+//获取类型
+var pType:Person.Type = Person.self
+
+</code></pre>
+</li>
+<li>
+<p>错误。</p>
+<ul>
+<li>如果函数有可能要抛出错误，则在函数上用<strong>throws</strong>关键字声明。然后使用<strong>try</strong>关键字调用可能会抛出异常的函数。使用do{}catch处理最终抛出的错误。</li>
+</ul>
+<pre><code>enum MyError : Error {
+  	case illegalArg(String)
+  	case outOfBounds(Int, Int)
+  	case outOfMemory
+} 
+
+func divide( _ num1: Int, _ num2: Int) throws -&gt; Int {
+  	if num2 == 0 {
+      	throw MyError(msg: &quot;0不能作为除数&quot;)
+  	}
+  	return num1 / num2
+}
+
+do {
+   	let result = try  divide(1,0)
+   	print(result)
+}catch let MyError.illegalArg(msg){
+  	print(&quot;参数错误:&quot;, msg)
+}catch let MyError.outOfBounds(size, index){
+  	print(&quot;下标越界:&quot;, &quot;size=\(size)&quot;, &quot;index=\(index)&quot;)
+}catch let MyError.outOfMemory{
+		print(&quot;内存溢出&quot;)
+}catch {
+ 		print(&quot;其他错误&quot;)
+}
+</code></pre>
+<ul>
+<li>rethrows：表明函数本身不会抛出错误，但是调用闭包参数抛出错误，那么它会将错误向上抛。</li>
+</ul>
+<pre><code>func exec(_ fnc: (Int, Int) throws -&gt; Int, _ num1: Int, _ num2: Int) rethrows {
+      print(try fnc(num1, num2))
+}
+
+try exec(divece,20,20)
+</code></pre>
+</li>
+<li>
+<p>defer: 定义以任何方式在离开代码块之前定义必须要执行的代码。</p>
+</li>
+<li>
+<p>泛型：将类型参数化，提高代码复用率，减少代码量；</p>
+<pre><code>func swapValue&lt;T&gt;(_ a: inout T, _ b: inout T) {
+  	(a, b) = (b, a)
+}
+
+//假设要将泛型函数传递给某个变量
+var fn: (inout Int, inout Int) -&gt; ()  = swapValue
+var n1 = 10
+var n2 = 20
+fn(&amp;n1, &amp;n2)
+
+//定义一个泛型类型
+class Stack&lt;T&gt; {
+  	var elements = [T]()
+  
+  	init(first: T) {
+      	element.append(first)
+  	}
+  	func push(_ element: T) {
+      	elements.append(element)
+  	}
+  	func pop() -&gt; T {
+      	element.reloveLast()
+  	}
+}
+
+//如果初始化函数里声明了类型，那么就不要使用&lt;T&gt;标识具体类型。
+let stack = Stack(first: 10)
+</code></pre>
+<ul>
+<li>关联类型 associatedtype , 给协议中用到的类型定义一个占位名称。遵守协议的时候，可以使用typelias 先设定真实类型，不过其实也可以省略，直接设置具体类型。</li>
+<li>使用some关键字声明不透明类型, some限制只能返回一种类型</li>
+</ul>
+<pre><code>protocol Runnable {
+      associateType Speed
+      var speed: Speed {get}
+}
+class Person : Runnable {
+      var speed: Double {0.0}
+}
+class Car : Runnable {
+      var speed: Int {0}
+}
+
+// 如果这里只返回1种类型，可以加上some限制
+func get1(_ type: Int) -&gt; some Runnable {
+      return Car()
+}
+
+func get(_ type: Int) -&gt; Runnable {
+      if type == 0 {
+          return Person()
+      }
+      return Car()
+}
+
+var r1 = get(0)
+var r2 = get(1)
+
+// 使用some解包可选类型
+var age: Int? = 10
+age = 20
+age = nil
+
+switch age{
+case let .some(v):
+    print(&quot;1&quot;,v)
+case .none:
+	print(&quot;2&quot;)
+}
+
+</code></pre>
+</li>
+<li>
+<p>汇编学习String</p>
+<ul>
+<li>String： 字面量一旦字符串的长度小于等于15，那么字符串直接存储在16个字节的变量内存里面，类似OC的tag pointer。如果长度超过了15，则存储在常量区；在使用append函数时，如果append之后字符串长度超过了15个字符，则会调用malloc函数开辟堆空间，如果长度依旧小于15，则还是直接存放在变量内存里面。</li>
+</ul>
+<pre><code>let str = &quot;0123456789ABCDE&quot; //存储在str的地址里面
+let str1 = &quot;0123456789ABCDEF&quot; //存储在常量区
+str1.append(&quot;G&quot;)			// 存储在堆空间
+</code></pre>
+</li>
+<li>
+<p>运算符</p>
+<ul>
+<li>溢出运算符：&amp;+、&amp;-、&amp;*。溢出的话，会重新循环进这个范围。</li>
+</ul>
+<pre><code>// UInt8 取值范围在0~255
+var v: UInt8 = UInt8.max
+v += 1 //这里就会产生溢出
+v = v &amp;+ 1 //溢出运算符，溢出的话，会重新回到0，
+</code></pre>
+<ul>
+<li>运算符重载：类、结构体、枚举都可以实现运算符重载. （重载 意味着函数名相同，但是功能不一样）</li>
+</ul>
+<pre><code>struct Point {
+      var x = 0, y = 0
+      static func +(p1: Point, p2: Point) -&gt; Point {
+  		Point(x: p1.x + p2.x, y: p1.y + p2.y)
+  	}
+}
+
+	
+
+var p1 = Point(x: 10, y: 20)
+var p2 = Point(x: 11, y: 22)
+
+
+</code></pre>
+</li>
+</ul>
+<h3 id="项目开发">项目开发</h3>
+<ul>
+<li>
+<p>访问权限控制：swift一共提供了5种访问权限控制。下面由高到低</p>
+<ul>
+<li>
+<p>open：允许在定义实体的模块(模块就指一个target)、其他模块中访问，允许其他模块进行继承、重写。但是<strong>open只能用在类、类成员上，不能用在实例成员、结构体、枚举上</strong>；</p>
+</li>
+<li>
+<p>public：允许在定义实体的模块(也就是项目所有文件)、其他模块(包括其他target)中访问，但是不允许其他模块进行继承、重写；比如，我们自己的pod库，如果想要其他pod库访问，则必须显示写清楚public。</p>
+</li>
+<li>
+<p>internal：只允许在定义实体的模块中访问，不允许在其他模块中访问；<strong>系统默认权限</strong></p>
+</li>
+<li>
+<p>fileprivate：只允许在定义实体的源文件中访问，也就是说只允许在当前文件中访问；</p>
+</li>
+<li>
+<p>private：只允许在定义实体的封闭声明中访问，也就是在{}内允许访问；比如private定义的类在全局作用域里，则表明在当前文件内都可以访问。扩展如果没有另外设置权限，则整个扩展则就默认是原类的访问权限。</p>
+<pre><code>//这里private定义在全局作用域里，所以表明它在当前文件实体内都可以访问。所以这里即使person的作用域级别小于Student，也仍然不会报错，因为此时private和fileprivate的作用域是一样的。
+</code></pre>
+</li>
+</ul>
+<p>private class Person{}
+fileprivate class Student : Person {}</p>
+<p>// 这里将上面函数放到class内部，那么private的作用域就是在Test{}内部，fileprivate则是当前文件，相当于子类作用域大于父类作用域，所以这样是会报错的。
+class Test {
+private class Person{}
+fileprivate class Student : Person {}
+}</p>
+<p>//这里private(set)表明age的set权限是private，所以外面只能get到age的值，不能对age进行set操作。
+class Person {
+private(set) var age = 10
+}</p>
+<pre><code></code></pre>
+</li>
+<li>
+<p>内存管理
+swift 也采用基于引用计数的ARC内存管理方案(针对堆空间)。swift的ARC有3种</p>
+<ul>
+<li>强引用：默认情况下，都是强引用，strong；</li>
+<li>弱引用：通过weak定义弱引用；但是swift中，<!-- -->
+<ul>
+<li>弱引用必须是可选类型；</li>
+<li>使用var修饰；</li>
+<li>实例销毁后，ARC会自动将弱引用设置为nil；</li>
+<li>另外ARC自动给弱引用设置nil时，是不会触发属性观察器的；</li>
+</ul>
+</li>
+<li>无主引用：通过unowned修饰。<!-- -->
+<ul>
+<li>不会产生强引用，非可选类型，</li>
+<li>实例销毁后仍然存储着实例的内存地址。类似于OC的unsafe_unretained。所以在实例销毁后访问无主引用，会产生野指针错误；</li>
+</ul>
+</li>
+<li>循环引用：weak、unowned都能解决循环引用的问题，unowned要比weak少一些性能消耗。<!-- -->
+<ul>
+<li>
+<p>在生命周期中可能会变为nil，使用weak；</p>
+</li>
+<li>
+<p>初始化赋值后再也不会变为nil，使用unowned；</p>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>模式匹配</p>
+<ul>
+<li>枚举case模式：if case 语句等价于只有一个case的switch语句。</li>
+</ul>
+<pre><code>let age = 2
+// 老式写法
+if age &gt;= 0 &amp;&amp; age &lt;= 9 {
+      print(&quot;匹配成功&quot;)
+}
+//if case 匹配。注意这里的=不是赋值的意思，而是匹配的意思
+if case 0...9 = age {
+      print(&quot;匹配成功&quot;)
+}
+// guard 样式
+guard case 0...9 = age else {return}
+print(&quot;匹配成功&quot;)
+
+// for 循环里使用case
+let ages: [Int?] = [2,3,nil,5]
+for case nil in ages {
+      print(&quot;有nil值&quot;)
+      break
+}
+let points = [(1,0),(2,1),(3,0)]
+for case let (x, 0) in points { //匹配y为0的point 
+      print(x)
+}
+
+</code></pre>
+<ul>
+<li>自定义表达式模式。可以通过重载运算符~=，自定义表达式模式的匹配规则。</li>
+</ul>
+<pre><code>struct Student {
+      var score =0, name = &quot;&quot;
+      static func ~= (pattern: Int, value: Studnt) -&gt; Bool { value.score &gt;= pattern }
+      static func ~= (pattern: CloseRange&lt;Int&gt;, value: Student) -&gt; Bool { pattern.contains(value.score) }
+      static func ~= (pattern: Range&lt;Int&gt;, value: Student) -&gt; Bool { pattern.contains(value.score) }
+}
+
+var stu = Student(score: 75, name: &quot;jack&quot;)
+switch stu {
+  case 100: print(&quot;&gt;= 100&quot;)
+  case 90: print(&quot;&gt;= 90&quot;)
+  case 80..&lt;90: print(&quot;[80, 90]&quot;)
+  case 60...79: print(&quot;[60, 79]&quot;)
+  case 0: print(&quot;&gt;= 0&quot;)
+  default: break
+}
+
+// 字符串前后缀匹配
+func hasPrefix(_ prefix: String) -&gt; ((Strign) -&gt; Bool) { { $0.hasPrefix(prefix) } }
+func hasSuffix(_ prefix: String) -&gt; ((Strign) -&gt; Bool) { { $0.hasSuffix(prefix) } }
+extension String {
+      static func ~=(pattern: ((String) -&gt; Bool, value: String) -&gt; Bool {
+          pattern(value)
+      }
+}
+
+var str = &quot;123456&quot;
+switch str {
+  case hasPrefix(&quot;123&quot;), hasSuffix(&quot;456&quot;):
+      print(&quot;以123开头&quot;)
+      pritn(&quot;以456结尾&quot;)
+  default: break
+}
+
+//eg: 奇偶数匹配
+func isEvent(_ i: Int) -&gt; Bool { i % 2 == 0 }
+func isOdd(_ i: Int) -&gt; Bool { i % 2 != 0 }
+extension Int {
+      static func ~=(pattern: (Int) -&gt; Bool, value: Int) -&gt; Bool {
+          pattern(value)
+      }
+}
+
+var age = 9
+switch age {
+  case isEvent:
+      print(age, &quot;是个偶数&quot;)
+  case isOdd:
+  	print(age, &quot;是个奇数&quot;)
+  default: break
+}
+</code></pre>
+<ul>
+<li>where 可以使用where为模式匹配增加匹配条件。</li>
+</ul>
+</li>
+<li>
+<p>字面量</p>
+<ul>
+<li>Swift自带类型之所以可以通过修改字面量初始化，是因为它们遵守了对应的协议</li>
+</ul>
+<pre><code>Bool: ExpressibleByBooleanLiteral
+Int: ExpressibleByIntegerLiteral
+Float、Double: ExpressibleByInterLiteral、ExpressibleByFloatLiteral //所以Float和Double可以使用整型和浮点型进行字面量初始化
+Dictionary: ExpressibleByDictionaryLiteral
+String: ExpressibleByStringLiteral
+Array、Set: ExpressibleByArrayLiteral
+Optional: ExpressibleByNilLiteral
+</code></pre>
+<p>eg1: 使Int遵守Bool类型协议，使Int可以使用Bool进行字面量初始化</p>
+<pre><code>extension Int: ExpressibleByBooleanLiteral {
+      public init(booleanLiteral value: Bool) {
+          self = value ? 1 : 0
+      }
+}
+var num: Int = false
+print(num) //这个时候num是bool类型
+</code></pre>
+<p>eg2: 使用字面量初始化自定义的类型</p>
+<pre><code>class Student : ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral, ExpressibleByStringLiteral, CustomStringConvertible {
+      var name: String = &quot;&quot;
+      var score: Int = 0
+      required init(floatLiteral value: Double) { self.score = value }
+      required init(integerLiteral value: Int) { self.score = value }
+      required init(stringLiteral value: String) { self.name = value }
+      required init(unicodeScalarLiteral value: String) { self.name = value }
+      required init(extendedGraphemeClusterLiteral value: String) { self.name = value }
+      var description: Sting { &quot;name=\(name), score=\(score)&quot;}
+}
+var stu: Student = 90
+print(stu)
+stu = 98.5
+pritn(stu)
+stu = &quot;Jack&quot;
+print(stu)
+</code></pre>
+<p>eg3: 字面量初始化结构体</p>
+<pre><code>stuct Point {
+      var x = 0.0, y = 0.0
+}
+extension Point : ExpressibleByArrayLiteral、ExpressibleByDictionaryLiteral {
+      init(arrayLiteral elements: Double...) {
+          guard elements.count &gt; 0 else { return }
+          self.x = elements[0]
+          guard elements.count &gt; 1 else { return }
+          self.y = elements[1]
+      }
+      init(dictionaryLiteral elements: (String, Double)...) {
+          for (k, v) in elements {
+              if k == &quot;x&quot; { self.x = v }
+              else if k == &quot;y&quot; { self.y = v }
+          }
+      }
+}
+var p: Point = [10.5, 20.5]
+pritn(p)
+p = [&quot;x&quot; : 11, &quot;y&quot; : 22]
+pritn(p)
+</code></pre>
+<ul>
+<li>可以通过typealias修改字面量的默认类型</li>
+</ul>
+<pre><code>typealias FloatLiteralType = Float
+typealias IntegerLiteralType = UInt8
+var age = 10 //UInt8
+var height = 1.68 //Float
+</code></pre>
+</li>
+<li>
+<p>代码风格与习惯</p>
+<ul>
+<li>注释： // MARK: 、// MARK: -、// TODO:、// FIXME:</li>
+<li>warning //如果要更加明显地注释，可以使用#warning, eg: #warning(&quot;undo&quot;)</li>
+<li>fetalError() //如果不想写注释，或者遇到暂时不想实现的方法，则可以使用fetalError()先让程序崩溃</li>
+</ul>
+</li>
+<li>
+<p>程序入口
+程序入口其实就是在Appdelegate的默认的@UIApplicationMain标记里。</p>
+<ul>
+<li>自定义main程序入口
+如果要自定义main程序入口，第一步需要把@UIApplicationMain标记注释的，然后重新创建一个main.swift文件。然后重写以下代码：</li>
+</ul>
+<pre><code>import UIKit
+//自定义UIApplication 这一步是可选的。
+class MyApplication: UIApplication {}
+UIApplicationMain(CommandLine.argc,
+					CommandLine.unsafeArgv,
+					NSStringFromClass(MyApplication.self),
+					NSStringFromClass(AppDelegate.self))
+</code></pre>
+</li>
+<li>
+<p>OC 到 swift：</p>
+<ul>
+<li>
+<p>条件编译：</p>
+<ul>
+<li>在xcode debug编译标记设置custom DEBUG标记。是的代码可以直接使用#if DEBUG ，但是得放在函数里调用。</li>
+<li>log 条件打印</li>
+</ul>
+<pre><code>func log&lt;T&gt;(_ msg: T, 
+file: NSStrign = #file, 
+line: Int = #line, 
+fn: String = #function) {
+        #if DEBUG
+        let prefix = &quot;\(file.lastPathComponent)_\(line)_\(fn):&quot;
+        print(prefix, msg)
+        #endif
+}
+</code></pre>
+</li>
+<li>
+<p>如果要将类中的某个成员变量暴露给OC，则在成员变量前面加上@objc，如果要将Swift的所有成员都暴露给OC，则给类加上 @objcMembers, 这样就不需要每个成员变量前面都加上@objc；</p>
+</li>
+<li>
+<p>可以通过@objc重命名swift暴露给OC的符号名（类名，属性名，函数名等）</p>
+</li>
+</ul>
+<pre><code>@objc(FCFCar) //重命名类
+@objcMembers class Car: NSObject {
+	@objc(name) //重命名属性
+	var band: String
+	@objc(drive) //重命名方法
+	func run() {
+          print(band, &quot;run&quot;)
+	}
+}
+</code></pre>
+<ul>
+<li>selector选择器必须是被@objc或@objcMembers修饰。因为选择器都是在runtime中使用，而swift的runtime还是使用OC的runtime，所以必须加上@objc暴露成OC的方法；</li>
+</ul>
+</li>
+<li>
+<p>代码细节</p>
+<ul>
+<li>swift类无论是否继承NSObject或是否被@objc修饰，如果在swift类中调用，那么就是走swift 虚表调用机制，如果在OC中调用，那么就是走OC的objc_messageSend机制。swift要实现KVO和KVC，则必须是@objc dynamic修饰的。</li>
+</ul>
+<pre><code>class Person: NSObject {
+		@objc dynamic var age: Int = 0
+		var observation: NSKeyValueObservation?
+		funt test() {
+    		observation = observe(\Person.age, options: .new) {
+              (person, change) in
+              print(change.newValue as Any)
+    		}
+		}
+}
+
+</code></pre>
+<ul>
+<li>Substring：Substring不是一个String类型，<strong>Substring是一个单独的类型</strong>，String的子串可以通过小标、prefix、suffix截取。Substring可以通过String强转为String类型，substring可以调用.base方法获取其对应的原始String。注意：<strong>实际上Substring与原理String共用一块内存区域，所以可以调用base获取原来的string。如果对substring进行修改，那么此时才会拷贝一份新的内存，然后将substring放进去</strong>。</li>
+</ul>
+<pre><code>var str = &quot;123456&quot;
+var subStr1 = str.prefix(2)
+var subStr2 = str.suffix(3)
+var range = str.startIndex..&lt;str.index(str.startIndex, offsetBy: 3)
+var subStr3 = str[range]
+//送substring中获取原理的string
+var originStr = subStr3.base
+//转成String
+var str1 = String(subStr3)
+</code></pre>
+<ul>
+<li>多行String使用三引号：&quot;&quot;&quot;xxx&quot;&quot;&quot; 包裹。</li>
+</ul>
+</li>
+<li>
+<p>多线程</p>
+<ul>
+<li>使用DispatchWokItem包装任务。DispatchWorkItem可以使用cancel取消。</li>
+</ul>
+<pre><code>public typealias Task = ()-&gt;Void
+public struct Async {
+    public static func async(_ task: @escaping Task) {
+    	_async(task)
+	}
+	public static func async(_ task: @escaping Task, 
+	_ mainTask: @escaping Task) {
+    	_async(task, mainTask)
+	}
+	private static func _async(_ task: @escaping Task, 
+	_ mainTask: Task? = nil) {
+    	let item = DispatchWorkItem(block: task)
+    	DispatchQueue.global().async(execute: item)
+    	if let main = mainTask {
+        	item.notify(queue: DispatchQueue.main, execute: main)
+    	}
+	}
+	
+	@discardableResult
+	private static func _aysncDelay(_ seconds: Double, 
+	_ task: @secaping Task, 
+	_ mainTask: @secaping Task? = nil) -&gt; DispatchWorkItem {
+        let item = DispatchWorkItem(block: task)
+        DispatchQueue.global().asyncAfter(deadline: DispatchTime.now() + seconds, execute: item)
+        if let main = mainTask {
+            item.notify(queue: DispatchQueue.main, execute: main)
+        }
+	}
+	
+	@discardableResult
+	public static func asyncDelay(_ seconds: Double, 
+	_ task: @escaping Task) -&gt; DispatchWorkItem {
+        return _aysncDelay(seconds, task)
+	}
+	
+	@discardableResult 
+	public static func asyncDelay(_ seconds: Double,
+    _ task: @escaping Task, 
+	_ mainTask: @escaping Task)
+	return _aysncDelay(seconds, task, mainTask)
+}
+</code></pre>
+<ul>
+<li>Dispatch_once：swift代码里已经废弃了Dispatch_once. 而是直接用static。static是全局变量，只会初始化一次，且默认就是lazy。其内部其实使用了Dispatch_once，所以<strong>它也是线程安全的</strong>。 所以<strong>static可以保证线程安全和懒加载</strong></li>
+</ul>
+<pre><code>//单例
+struct Single {
+	static let share = Single()
+    private init() {
+    }
+}
+</code></pre>
+<ul>
+<li>加锁：线程安全</li>
+</ul>
+<pre><code>public struct Cache {
+	//分析：data是一个全局变量，永远只有一份内存，如果有多个线程同时调用set方法，那么就会产生数据安全问题。
+    private static var data = [String: Any]()
+    
+    //01信号量, value 其实可以认为表示允许多少条线程同时访问
+    private static var lock = DispatchSamephone(value: 1)
+    //02 Lock, 递归调用会产生死锁
+    private static var lock = NSLock()
+    //03 递归锁
+    private static var lock = NSRecursiveLock()
+    
+    public static func get(_ key: String) -&gt; Any? {
+        data[key]
+    }
+    public static func set(_ key: String, _ value: Any) {
+    	//01信号量
+    	lock.wait()
+    	defer { lock.signal() }
+    	//02 Lock
+    	lock.lock()
+    	defer { lock.unlock() }
+    	//03 递归锁
+    	lock.lock()
+    	defer { lock.unlock() }
+    	
+        data[key] = value
+    }
+}
+
+</code></pre>
+</li>
+</ul>
+<h3 id="高阶">高阶</h3>
+<ul>
+<li>
+<p>函数式编程</p>
+<ul>
+<li>Array的常见操作<!-- -->
+<ul>
+<li>map: 遍历Array每个元素，block里可以对元素单独处理，最终返回新的Array。返回结果的元素类型就是block里新创建的类型；</li>
+<li>filter: 遍历Array每个元素，block里添加条件语句，最终返回符合条件的新Array；</li>
+<li>reduce: 遍历Array每一个元素，block里会有两个参数，第一个参数是上一次遍历的结果，第二个参数是当前遍历元素。最后返回一个最终结果值；</li>
+<li>flatMap: 和map功能一样，只是会把二维数组压成一维数组；</li>
+<li>first: 查找第一个满足条件的元素，block是一个条件语句；</li>
+<li>firstIndex: 查找第一个满足条件的元素的索引，block是一个条件语句；</li>
+</ul>
+</li>
+</ul>
+<pre><code>var arr = [1,2,3]
+_ = arr.map{ $0 * 2 }
+_ = arr.map{ &quot;abc_\($0)&quot;}
+//传入函数
+func blockf = (_ element: Int)-&gt;String { &quot;abc_\(element)&quot; }
+_ = arr.map(blockf)
+// 处理可选型
+var score: Int? = 98
+//老方法
+var str1 = score != nil ? &quot;score is \(score!)&quot; : &quot;no_score&quot;
+//新方法
+var str2 = score.map{ &quot;score is \($0)&quot; } ?? &quot;no_score&quot;
+
+/*******************************************************/
+_ = arr.filter{ $0 % 2 == 0 }
+/*******************************************************/
+// $0 是上一次遍历返回的结果，初始值是传进来的那个0.$1是每次遍历的元素
+_ = arr.resuce(0){ $0 + $1 } // _ = arr.reduce(0,+)
+/*******************************************************/
+// flatMap 可选项处理
+var fmt = DateFormatter()
+fmt.dateFormat = &quot;yyyy-MM-dd&quot;
+var str: String? = &quot;2011-11-11&quot; //可能字符串为nil
+//老方法
+var date1 = str != nil ? fmt.date(from: str!) : nil
+// 新方法
+var date2 = str.flatMap(fmt.date)
+/*******************************************************/
+// 重要 —— lazy 优化
+let arr = [1,2,3]
+let result = arr.map{
+      (i: Int) -&gt; Int in
+      print(&quot;mapping \(i)&quot;)
+      return i * 2
+}
+print(&quot;begin---------&quot;)
+pirnt(&quot;mapped&quot;, result[0])
+pirnt(&quot;mapped&quot;, result[1])
+pirnt(&quot;mapped&quot;, result[3])
+print(&quot;end-----------&quot;)
+
+/*
+得到的结果：
+mapping 1
+mapping 2
+mapping 3
+begin---------
+mapped 2
+mapped 4
+mapped 6
+end-----------
+解析：也就是说，这里begin之前就会执行一次，然后后续使用的时候，会再调用一次。假设有1000个元素，那么就会非常耗时。
+*/
+let result = arr.lazy.map{
+      (i: Int) -&gt; Int in
+      print(&quot;mapping \(i)&quot;)
+      return i * 2
+}
+print(&quot;begin---------&quot;)
+pirnt(&quot;mapped&quot;, result[1])
+print(&quot;end-----------&quot;)
+/*
+得到的结果：
+
+begin---------
+mapping 2
+mapped 4
+end-----------
+解析：也就是说，这里begin之前就不会执行，然后后续使用的时候，使用到哪个函数，那个函数才会具体执行。
+*/
+</code></pre>
+<ul>
+<li>函数式编程：函数式编程是一种编程范式(也就是如何编程的一种方法论)。主要思想就是把计算过程尽可能分解成一系列可复用函数的调用。函数式编程里，函数是“第一等公民”；<!-- -->
+<ul>
+<li>接收一个或多个函数作为输入或者返回一个函数的函数是高阶函数；</li>
+<li>柯里化：将接收多个参数的函数变成一系列接收单个参数的函数；</li>
+</ul>
+<pre><code>//柯里化实际的编写过程中，参数的传递顺序正好和传统方式是相反的。
+func add1(_ v1: Int, _ v2: Int) -&gt; Int {v1 + v2}
+func add10(_ v1: Int) -&gt; (Int) -&gt; Int { { $0 + V1 } }
+
+func reduce1(_ v1: Int, _ v2: Int, _ v3: Int) -&gt; {
+    return v1 - v2 - v3
+}
+func reduce10(_ v3: Int) -&gt; (Int) -&gt; (Int) -&gt; Int {
+    return {v2 in
+    	return {v1 in
+    		v1 - v2 - v3
+    	}
+    }
+}
+reduce1(10)(20)(30)
+/***************************************************/
+//给定任何一个格式为 (Int, Int) -&gt; Int 的函数，实现柯里化 (prefix表示给任意函数前加上~)
+prefix ~&lt;A,B,C&gt;(_ fn: @escaping (A, B) -&gt; C) -&gt; (B) -&gt; (A) -&gt; C { {b in { a in fn(a,b) } } }
+//调用
+(~add1)(10)(20)
+
+</code></pre>
+<ul>
+<li>函子：像Array、Optional这样支持map运算的类型，成为函子。</li>
+</ul>
+<pre><code>public func map&lt;T&gt;(_ transform: (Element) -&gt; T) -&gt; Array&lt;T&gt;
+public func map&lt;T&gt;(_ transform: (Wrapped) -&gt; U) -&gt; Optional&lt;U&gt;
+//对于任意一个函子，如果能支持以下运算，该函子就是一个适用函子
+func pure&lt;A&gt;(_ value: A) -&gt; F&lt;A&gt;
+func &lt;*&gt;&lt;A, B&gt;(fn: F&lt;(A) -&gt; B&gt;, value: F&lt;A&gt;) -&gt; F&lt;B&gt;
+infix operator &lt;*&gt;: AdditionPrecedence
+func &lt;*&gt;&lt;A, B&gt;(fn: ((A) -&gt; B)?, value: A?) -&gt; B? {
+    guard let f = fn , let v = value else {return nil}
+    return f(v)
+}
+</code></pre>
+</li>
+</ul>
+</li>
+<li>
+<p>面向协议编程</p>
+<ul>
+<li>
+<p>面向对象就是将事务抽象成对象的概念，然后给对象赋予属性和方法，让对象去执行自己的方法。它的核心思想就是使用封装、继承将一系列的相关内容放到一起。但是由于事务往往不是一脉相承的，而是由多种特质的组合，所以导致面向对象很多时候没法很好地对事务进行抽象。面向对象存在一定的问题</p>
+<ul>
+<li>
+<p>横切关注点：也就是说如果两个在不同继承关系中的类（没有继承关系）使用了同样的代码（比如都实现了一个method()函数），那么这个代码没法共用。（解决方案可以给它们搞个父类，或者实现多继承等）。</p>
+<pre><code>@interface c1: NSObject
+    func method() {}
+@end
+@interface c2 : NSObject
+    func method() {}
+@end
+</code></pre>
+<ul>
+<li>
+<p>菱形缺陷：比如上述问题，我们给两个类施加一个共同的父类（比如c0）,此时又有一个类c3同时继承于c1和c2。那么c3在使用的时候对于使用哪个父类的method方法就会很难确定，导致不安全。这就是菱形缺陷；</p>
+</li>
+<li>
+<p>动态派发安全性：比如动态类型，动态调用方法，该方法没有实现，就会导致崩溃。比如：</p>
+<pre><code>C1 *c1 = ...
+C2 *c2 = ...
+NSObject *c3 = ...
+NSArray * arr = @[c1, c2, c3]
+for (id obj) in arr {
+    [obj method];
+}
+</code></pre>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>面向协议就是通过协议来定义事务的实现。通过遵守不同的协议，来对类或结构体进行定制。它只需要实现协议里规定的属性和方法就可以。相对于面向对象，其耦合性更低，维护和扩展更灵活。其次其正好可以解决面向对象的三大缺陷问题。</p>
+<pre><code>/// 定义前缀类型
+struct FCF&lt;Base&gt; {
+    var base: Base
+    init(_ base: Base) {
+        self.base = base
+    }
+}
+/// 利用前缀扩展前缀属性
+protocol FCFCompatible {
+    var fcf: FCF&lt;Self&gt; {
+        set{}
+        get{ FCF&lt;self&gt; }
+    }
+    static var fcf: FCF&lt;Self&gt;.Type {
+        set{}
+        get{ FCF&lt;Self&gt;.self }
+    }
+}
+
+// 给String.fcf、String().fcf 前缀扩展功能
+extension FCF where Base: ExpressibleByStringLiteral {
+	// 扩展一个字符串数字个数的实例方法
+	var numCount: Int {
+        var count = 0
+        for c in (base as String) where (&quot;0&quot;...&quot;9&quot;).contains(c) {
+            count += 1
+        }
+        return count
+    }
+    
+    // 扩展一个类方法
+    static func test() { }
+    
+    // 扩展一个mutating方法
+    mutating func test1() { }
+}
+
+
+// 让String、NSString拥有前缀属性
+extension String: FCFCompatible {}
+extension NSString: FCFCompatible {}
+
+// 使用
+var str1 = &quot;123&quot;
+var str2: NSString = &quot;123&quot;
+var str3: NSMutableString = &quot;123&quot;
+print(str1.fcf.numCount)
+print(str2.fcf.numCount)
+print(str3.fcf.numCount)
+</code></pre>
+</li>
+</ul>
+</li>
+<li>
+<p>响应式编程
+响应式编程(Reactive Programming， RP)， 也是一种编程范式，可以简化异步编程，提供更优雅的数据绑定。比较成熟的响应式框架：ReactiveCocoa（简称RAC，有OC和Swift版本）、ReactiveX（简称Rx, 很多语言都有Rx版本，比如RxJave、RxKotlin、RxGo、RxSwift等）。</p>
+<ul>
+<li>RxSwift 包含两部分RxSwift和RxCocoa。RxSwift是Rx标准API的Swift实现，不包括任何iOS相关内容；RxCocoa是基于RxSwift给iOS UI控件扩展了很多Rx特性。<!-- -->
+<ul>
+<li>Observable: 负责发送事件(Event)</li>
+<li>Observer: 负责订阅（subscribe）Observable，监听Observable发送的事件（3种Event: next(携带具体数据)\error(携带错误信息，表明Observable终止，不会再发出事件)\completed(表明Observable终止，不会再发出事件)）；</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/swift-common-algorithms-collection/"><span class="pager-hint">上一篇</span><span class="pager-title">Swift 手写 LRU 缓存、链表与二分查找常用代码</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/stress-test-memory-spike-and-wda-leak/"><span class="pager-hint">下一篇</span><span class="pager-title">Monkey 压测内存持续上涨排查记录</span></a></div></footer></article></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"swift-advanced-programming-notes\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"swift-advanced-programming-notes\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"swift-advanced-programming-notes\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"O52QGKmhIm4YgujU8HEBhv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n13:T581,struct Student {\n      var score =0, name = \"\"\n      static func ~= (pattern: Int, value: Studnt) -\u003e Bool { value.score \u003e= pattern }\n      static func ~= (pattern: CloseRange\u003cInt\u003e, value: Student) -\u003e Bool { pattern.contains(value.score) }\n      static func ~= (pattern: Range\u003cInt\u003e, value: Student) -\u003e Bool { pattern.contains(value.score) }\n}\n\nvar stu = Student(score: 75, name: \"jack\")\nswitch stu {\n  case 100: print(\"\u003e= 100\")\n  case 90: print(\"\u003e= 90\")\n  case 80..\u003c90: print(\"[80, 90]\")\n  case 60...79: print(\"[60, 79]\")\n  case 0: print(\"\u003e= 0\")\n  default: break\n}\n\n// 字符串前后缀匹配\nfunc hasPrefix(_ prefix: String) -\u003e ((Strign) -\u003e Bool) { { $0.hasPrefix(prefix) } }\nfunc hasSuffix(_ prefix: String) -\u003e ((Strign) -\u003e Bool) { { $0.hasSuffix(prefix) } }\nextension String {\n      static func ~=(pattern: ((String) -\u003e Bool, value: String) -\u003e Bool {\n          pattern(value)\n      }\n}\n\nvar str = \"123456\"\nswitch str {\n  case hasPrefix(\"123\"), hasSuffix(\"456\"):\n      print(\"以123开头\")\n      pritn(\"以456结尾\")\n  default: break\n}\n\n//eg: 奇偶数匹配\nfunc isEvent(_ i: Int) -\u003e Bool { i % 2 == 0 }\nfunc isOdd(_ i: Int) -\u003e Bool { i % 2 != 0 }\nextension Int {\n      static func ~=(pattern: (Int) -\u003e Bool, value: Int) -\u003e Bool {\n          pattern(value)\n      }\n}\n\nvar age = 9\nswitch age {\n  case isEvent:\n      print(age, \"是个偶数\")\n  case isOdd:\n  \tprint(age, \"是个奇数\")\n  default: break\n}\n14:T503,public typealias Task = ()-\u003eVoid\npublic struct Async {\n    public static func async(_ task: @escaping Task) {\n    \t_async(task)\n\t}\n\tpublic static func async(_ task: @escaping Task, \n\t_ mainTask: @escaping Task) {\n    \t_async(task, mainTask)\n\t}\n\tprivate static func _async(_ task: @escaping Task, \n\t_ mainTask: Task"])</script><script>self.__next_f.push([1,"? = nil) {\n    \tlet item = DispatchWorkItem(block: task)\n    \tDispatchQueue.global().async(execute: item)\n    \tif let main = mainTask {\n        \titem.notify(queue: DispatchQueue.main, execute: main)\n    \t}\n\t}\n\t\n\t@discardableResult\n\tprivate static func _aysncDelay(_ seconds: Double, \n\t_ task: @secaping Task, \n\t_ mainTask: @secaping Task? = nil) -\u003e DispatchWorkItem {\n        let item = DispatchWorkItem(block: task)\n        DispatchQueue.global().asyncAfter(deadline: DispatchTime.now() + seconds, execute: item)\n        if let main = mainTask {\n            item.notify(queue: DispatchQueue.main, execute: main)\n        }\n\t}\n\t\n\t@discardableResult\n\tpublic static func asyncDelay(_ seconds: Double, \n\t_ task: @escaping Task) -\u003e DispatchWorkItem {\n        return _aysncDelay(seconds, task)\n\t}\n\t\n\t@discardableResult \n\tpublic static func asyncDelay(_ seconds: Double,\n    _ task: @escaping Task, \n\t_ mainTask: @escaping Task)\n\treturn _aysncDelay(seconds, task, mainTask)\n}\n15:T7a3,var arr = [1,2,3]\n_ = arr.map{ $0 * 2 }\n_ = arr.map{ \"abc_\\($0)\"}\n//传入函数\nfunc blockf = (_ element: Int)-\u003eString { \"abc_\\(element)\" }\n_ = arr.map(blockf)\n// 处理可选型\nvar score: Int? = 98\n//老方法\nvar str1 = score != nil ? \"score is \\(score!)\" : \"no_score\"\n//新方法\nvar str2 = score.map{ \"score is \\($0)\" } ?? \"no_score\"\n\n/*******************************************************/\n_ = arr.filter{ $0 % 2 == 0 }\n/*******************************************************/\n// $0 是上一次遍历返回的结果，初始值是传进来的那个0.$1是每次遍历的元素\n_ = arr.resuce(0){ $0 + $1 } // _ = arr.reduce(0,+)\n/*******************************************************/\n// flatMap 可选项处理\nvar fmt = DateFormatter()\nfmt.dateFormat = \"yyyy-MM-dd\"\nvar str: String? = \"2011-11-11\" //可能字符串为nil\n//老方法\nvar date1 = str != nil ? fmt.date(from: str!) : nil\n// 新方法\nvar date2 = str.flatMap(fmt.date)\n/*******************************************************/\n// 重要 —— lazy 优化\nlet arr = [1,2,3]\nlet result = arr.m"])</script><script>self.__next_f.push([1,"ap{\n      (i: Int) -\u003e Int in\n      print(\"mapping \\(i)\")\n      return i * 2\n}\nprint(\"begin---------\")\npirnt(\"mapped\", result[0])\npirnt(\"mapped\", result[1])\npirnt(\"mapped\", result[3])\nprint(\"end-----------\")\n\n/*\n得到的结果：\nmapping 1\nmapping 2\nmapping 3\nbegin---------\nmapped 2\nmapped 4\nmapped 6\nend-----------\n解析：也就是说，这里begin之前就会执行一次，然后后续使用的时候，会再调用一次。假设有1000个元素，那么就会非常耗时。\n*/\nlet result = arr.lazy.map{\n      (i: Int) -\u003e Int in\n      print(\"mapping \\(i)\")\n      return i * 2\n}\nprint(\"begin---------\")\npirnt(\"mapped\", result[1])\nprint(\"end-----------\")\n/*\n得到的结果：\n\nbegin---------\nmapping 2\nmapped 4\nend-----------\n解析：也就是说，这里begin之前就不会执行，然后后续使用的时候，使用到哪个函数，那个函数才会具体执行。\n*/\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"Swift 进阶学习笔记：值类型、协议扩展与闭包\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2024-05-12\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"iOS 底层与原理\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"Swift / 泛型 / 协议\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h2\",\"h2-0\",{\"id\":\"title-swift进阶-date-2020-8-1-80000-tags-swift-categories-swift进阶-description-这篇文章主要是重新学习swift\",\"children\":\"title: swift进阶.\\ndate: 2020-8-1 8:00:00\\ntags: swift\\ncategories: swift进阶\\ndescription:  这篇文章主要是重新学习swift\"}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"基础语法\",\"children\":\"基础语法\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"常量只能赋值1次，不要求在编译时期确定，使用之前必须赋值1次。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"常见数据类型：(注意：\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"swift就两种基本数据类型值类型和引用类型，不存在什么基本数据类型，比如Int不算是基本数据类型，Int是结构体\"}],\")\"]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"值类型： 枚举Enum（Optional）；结构体 ( Bool，Int，Float，Double，Character，String，Array，Dictionary，Set )\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"引用类型：类Class\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"区间运算：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"闭区间运算符：a...b  ， a \u003c= 取值 \u003c= b ； a、b可以是常量，也可以是变量\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"半开区间运算符：a..\u003cb ，a \u003c= 取值 \u003c b ；\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"单侧区间（主要用于数组上）：array[2...] 表示从第2个下标一直到最后；array[...2] 表示从第0个下标一直到第2个下标；array[..\u003c2] 表示从第0个下标一直到第2个下标，但是不包含第2个下标；\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"区间类型：\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"//三种区间类型\\nlet range1:ClosedRange\u003cInt\u003e = 1...3\\nlet range2:Range\u003cInt\u003e = 1..\u003c3\\nlet range3:PartialRangeThrough\u003cInt\u003e = ...5\\n\\nlet stringRange = \\\"a\\\"...\\\"f\\\" //表示从字面a到字面f之间的字母。\\nstringRange.contains(\\\"d\\\") //true\\nstringRange.contains(\\\"h\\\") //false\\n\\n//\\\\0到~囊括了所有可能用到的ASCII字符\\nlet characterRange:ClosedRange\u003cCharacter\u003e = \\\"\\\\0\\\"...\\\"~\\\"\\n//所有整数\\nlet numRange:ClosedRange\u003cCharacter\u003e = \\\"0\\\"...\\\"9\\\"\\n//带间隔的区间值，表示从4...11，每隔两个值打印一次。\\nfor i in stride(from:4, through:11, by: 2) {\\n      print(i) //4、6、8、10\\n}\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"switch：不写break，不会贯穿效果，需要加贯穿效果，需要加fallthrough；case和where语句的使用。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"typealias：用来给类型起别名。比如swift没有Long，typealias Long = Int64，比如block。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"MemoryLayout：获取某种类型的size ： MemoryLayout\",\"\u003cInt\u003e\",\".size；MemoryLayout.size(ofValue: 10)\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"可选项Optional：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"可选类型初始值为nil。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"空合并运算符 ?? ， a ?? b ， a不为nil,返回a，a为nil,返回b;\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"guard 提前退出使用；\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"可选型的本质就是枚举；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"//遍历数组，将遇到的正数相加，遇到负数或非数字，停止遍历\\nvar strs = [\\\"10\\\",\\\"20\\\",\\\"abs\\\",\\\"30\\\"]\\nvar i =0, sum = 0\\nwhile let num = Int(strs[i]), num \u003e 0 {\\n    sum += num\\n    i += 1\\n}\\nprint(sum)\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"enum枚举：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"关联值：case points(Int);\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"原始值：enum Poker : Character {},说明枚举里的case都默认使用相同类型的默认值。隐式原始值，也就是说使用了原始值是Int、String的枚举，case没有赋值的话，swift会自动分配原始值，String默认是case的名字，Int直接从0开始。\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"递归枚举：也就是枚举里的case成员也用到了自身枚举类型。使用递归枚举需要使用\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"indirect\"}],\"关键字\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"enum AirExpr{\\n\\tcase number(Int)\\n\\tindirect case sum(AirExpr,AirExpr)\\n\\tindirect case difference(AirExpr,AirExpr)\\n}\\nlet five = AirExpr.number(5)\\nlet four = AirExpr.number(4)\\nlet two = AirExpr.number(2)\\nlet sum = AirExpr.sum(five,four)\\nlet diff = AirExpr.difference(sum,two)\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"枚举内存：使用一个字节存储成员值，N个字节存储关联值（N取占用内存最大的关联值），任何一个case的关联值都共用这N个字节。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"enum TestEnum {\\n    case test1,test2,teat3\\n}\\nenum TestEnum2 : Int {\\n    case test1,test2,teat3\\n}\\n上述两种情况都没有关联值，TestEnum只有原始值。所以只需要分配一个字节存储枚举的成员值（是哪个case）。\\nenum TestEnum3 {\\n    case test1(Int,Int,Int)\\n    case test2(Int)\\n    case test3(Bool)\\n    case test4\\n}\\nTestEnum3含有关联值，最大的关联值有3个Int类型的，每个Int类型占用8个字节，所以需要24个字节来存储关联值，其它的关联值也共用这些存储空间。其次需要一个字节大小来存储枚举的成员值。所以实际使用25个字节，但是由于内存对齐问题，所以系统会分配32个字节给这个枚举。\\n\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"结构体：在swift标准库中，绝大多数的公开类型都是结构体，枚举和类只占一小部分。比如Bool、Int、Double、String、Array、Dictionary等。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"所有的结构体都有一个编译器自动生成的初始化器，初始化器可以传入所有成员值，用以初始化所有存储属性。也可能会有多个初始化器，但是宗旨就是：保证所有成员都有初始值。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"一旦自定义了初始化器，编译器就不会再帮它自动生成初始化器。\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"结构体中的属性默认的初始值实际也是在默认初始化器中进行的赋值。相当于调用了默认初始化器。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"类：swift没有为类自动生成带参初始化器，只有一个无参的初始化器，成员的初始化值就是在这个初始化器中完成的。类对象的内存中前面默认有8个字节指向类型信息，然后有8个字节存储ARC，之后才是成员变量。也就是说没有任何成员变量的类占有16字节的内存大小。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"类有2种初始化器：指定初始化器（designed initializer）、便捷初始化器（converience initializer）。 每个类至少有一个指定初始化器，指定初始化器是类的主要初始化器，\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"默认初始化器总是类的指定初始化器\"}],\"。这么做的目的就是安全性——保证所有的存储属性都在指定初始化器中得到初始化，那其他部分成员初始化的方法就可以作为便捷初始化器使用。\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"初始化器的调用规则：\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"指定初始化器必须从它的直系父类调用指定初始化器；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"子类的指定初始化器不能调用自身的指定初始化器；\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"便捷初始化器必须从相同的类里调用另一个初始化器；\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"便捷初始化器最终必须调用一个指定初始化器；\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"便捷初始化器只能横向调用(调用自己的初始化器)，指定初始化器才可以纵向调用；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"两段式初始化：\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"第一阶段：初始化所有存储属性：也就是说从子类的初始化器开始一路调用父类的初始化器，最终保证整个初始化链条中的所有类的所有存储属性都得到初始化。也就是说在调用父类的初始化器（这个肯定是指定初始化器）之前，需要先对自己的存储属性进行初始化，且这个阶段不能够调用方法。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"第二阶段：设置新的存储属性：也就是说在整个初始化链完成后，可以在后续代码中重新给存储属性赋值，此时也可以使用self做任何事情。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"class Person {\\n    var age:Int\\n    func init() {\\n        //因为Person是基类，所以在age初始之前，是不可以调用方法的\\n        // fuc() 这里会报错\\n        self.age = 1\\n        //在age初始化之后，就可以开始调用函数了\\n        fuc()\\n    }\\n    \\n    func fuc(){\\n        print(\\\"xxx\\\")\\n    }\\n}\\n\\nclass Student : Person {\\n    var name:String\\n    init(age: Int, name: String) {\\n        //name的赋值必须放在调用父类的指定初始化器之前。\\n        self.name = name\\n        //子类指定初始化器必须调用直系父类的指定初始化器\\n        super.init()\\n        //初始化链完成之后，可以给name设置新值\\n        self.name = \\\" \\\\(name) 001\\\"\\n    }\\n    \\n    converience init() {\\n        //最终必须调用自身类的指定初始化器\\n        self.init(age: 10, name: \\\"fcf\\\")\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"重写父类初始化器：重写也就意味着函数名、参数个数、参数类型、参数标签都是一样的。重写必须要加上\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"override\"}],\"关键字，但是有一个点要注意，因为便捷初始化器都是横向调用，所以子类是没法重新父类的便捷初始化器，或者说即使满足了重写的规则（函数名、参数个数、参数类型、参数标签都是一样），那也无需加\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"override\"}],\"关键字。其次无论其是重写的是指定初始化器还是将指定初始化器重写为便捷初始化器，最终都必须满足上述初始化器的调用规则。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"如果子类没有定义任何指定初始化器，那么它会\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"自动继承\"}],\"父类的所有指定初始化器，但是一旦有自身的指定初始化器，则不能再直接使用其父类的指定初始化器。同样的如果没有指定任何初始化器，那么它也可以继承其父类的便捷初始化器。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"用\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"required\"}],\"修饰指定初始化器（注意如果修饰的是converience初始化器，则没有实际意义），表明其所有子类都必须实现该初始化器（通过继承或者重写实现）；也就是说一个类可能存在很多指定初始化器，但是一旦有一个初始化器被required修饰了，那么子类就必须实现这个指定初始化器；也就是说如果没有自定义的指定初始化器，那么子类就自动继承了该required指定初始化器；那如果一旦子类自定义了自身的指定初始化器，那么它也得重写父类的required指定初始化器\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"class Person {\\n    required init(){ }\\n    init(age: Int){ }\\n}\\nclass Student : Person {\\n    //情况1、如果这个子类没有任何指定初始化器，那么就会自动继承父类的所有指定初始化器，包括required指定初始化器\\n    ...\\n    //情况2、如果子类有自己的指定初始化器\\n    init(no: Int) {\\n        //首先自身的指定初始化器，一定得调用直系父类的指定初始化器\\n        super.init(age: 0)\\n    }\\n    // 但是其也得实现父类的required指定初始化器,且可以不写override关键字，但是必须写required关键字\\n    required init() { }\\n}\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"可失败初始化器：类、结构体、枚举都可以使用**init?\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"定义可失败初始化器。比如如果在某种条件下，你想让初始化失败，返回nil，那么就可以使用可失败初始化器。所以这种情况下返回的也是Optional类型，那么也就意味着可以使用\"}],\"init!**初始化隐私解包的初始化器。\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"class Person {\\n    var name: String\\n    init?(name: String) {\\n        if name.isEmpty {\\n            return nil\\n        }\\n        self.name = name\\n    }\\n    \\n    converience init?() {\\n        //这里，可失败初始化器可以调用可失败初始化器\\n        self.init(\\\"\\\") \\n        //如果上一行的可失败初始化器失败了，也就是返回了nil，则它之后的代码都不会执行了，也就是这行代码不会执行。\\n        self.name = \\\"fcf\\\"\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"析构：deinit\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"结构体与类的本质区别：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"结构体是值类型（枚举也是），类是引用类型；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"值类型的存储位置取决于它创建的位置，如果是在栈空间中创建(比如结构体在函数内部创建)，那么它就存储在栈空间；如果是全局变量，那应该是在数据区；如果是定义在一个类内部，则是存储在堆中。引用类型无论在哪里创建都是存储在堆空间，指向引用类型的变量则也是根据这个变量的位置来确定存储位置（和值类型一样的）。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"class Size{\\n      var w = 1\\n      var h = 1\\n      var p = Point() //在类中创建，则它跟随类存储在堆区。\\n}\\nstruct Point {\\n      var x = 3\\n      var y = 4\\n}\\n\\nfunc test() {\\n      var size = Size() //等号左边的是指针变量存储在栈空间，等号右侧是引用对象，存储在堆空间\\n      var point = Point() //结构体在当前函数栈中创建，所以它存储在栈空间中。\\n}\\n\\nvar point = Point() //在全局区创建，则是在已初始化区\\n\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"值类型赋值给var 、let 或者函数参数时，是直接将所有内容拷贝一份，产生一个全新的副本，属于深拷贝；所以Array、Dictionary进行赋值其实都是深拷贝。其次swift标准库中（也就是自己定义的结构体除外），为了提升性能，String、Array、Dictionary、Set采取了Copy On Write技术。也就是说在对新赋值的变量进行修改时才会进行深拷贝，否则就是浅拷贝。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"引用类型赋值给var 、let 或者函数参数时，是将内存地址拷贝一份，类似浅拷贝；其次值类型的let常量的成员也是不能改的，引用类型的let常量的成员则是可以改的。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"函数：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"函数不占用对象的内存空间，它是存储正在代码段中。枚举、结构体、类都可以定义函数。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"默认参数并不需要从右到左(c++)，因为swift含有参数标签；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"可变参数：一个函数最多只能有一个可变参数;紧跟在可变参数后面的参数不能省略参数标签\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"func sum(_ nums:Int..., n:Int) -\u003e Int {\\n\\tvar total = 0\\n\\tfor n in nums {\\n          total += n\\n\\t}\\n      return total\\n}\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"输入输出参数: \",[\"$\",\"strong\",\"strong-0\",{\"children\":\"inout\"}],\" 在函数内部修改外部变量(当然是值类型的情况)，实际上inout的本质也就将原来值传递的过程改成了地址传递的过程。\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"如果实参有物理地址（存储属性），且没有设置属性观察器，inout的本质就是直接将实参的内存地址传入函数(实参进行引用传递)；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"如果实参是计算属性或者设置了属性观察器，则采取Copy In Copy Out的做法，即：调用该函数时，先复制实参的值，产生副本(get)，然后将副本的内存地址传入函数(副本进行引用传递)，在函数内部修改副本的值，函数返回后，再将修改后的副本的值覆盖实参的值(set)\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"函数重载(overload)：规则就是函数名相同+（参数个数不同||参数类型不同||参数标签不同）；注意swift的函数重载跟返回值无关，其次要注意可省参数的问题。\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"内联函数（内联是指编译器会直接将函数体复制到调用位置）：xcode在release模式下，默认开启优化，编译器会将某些函数变成内联函数。那哪些函数不会被内联优化呢？函数太长、包含递归、包含动态派发。\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"函数类型：每一个函数类型是由形式参数类型+返回值类型组成，比如(Int,Int)-\u003eInt。所以函数就也是一种类型，那函数就可以作为参数传递，也可以作为返回值，或者属性等。返回值时函数类型的函数，叫做\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"高阶函数\"}],\"。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"func sum(v1:Int, v2:Int) -\u003e Int {\\n      v1 + v2 //只有一句代码可以省略return\\n}\\nfunc printF(_ mfun:(Int,Int)-\u003eInt, _ a:Int, _ b:Int) {\\n      print(\\\"\\\\(mfun(a,b))\\\")\\n}\\nprintF(sum,2,3)\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"闭包：格式：{(参数列表)-\u003e返回值类型 in 函数体代码}；一个函数和它所捕获的变量或常量环境组合起来，称为闭包。\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"如果函数的最后一个参数是一个闭包，则可以将其作为一个尾随闭包来使用，尾随闭包是一个被书写在函数调用括号外面的闭包表达式。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"闭包一般是指在函数内定义的函数，一般它捕获的是外层函数的局部变量和常量；\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"可以把闭包想象成一个类的实例对象，内存在堆空间。捕获的局部变量和常量就是对象的成员(存储属性)，组成闭包的函数就是类内部定义的方法。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"typealis Fn = (Int)-\u003eInt\\nfunc getFn() -\u003e Fn {\\n    var num = 0\\n    func plus(_ i:Int) -\u003e Int {\\n        num += i\\n        return num\\n    }\\n    return plus\\n}\\nvar fn = getFn()\\nprint(fn(1)) //1\\nprint(fn(2)) //3\\nprint(fn(3)) //6\\nprint(fn(4)) //10\\n//为什么num不会被释放？汇编可以看到会生成一块堆空间用于放num，所以num不会被释放。\\n\\n// 其实上诉闭包就类似于下面的类。\\nclass Closuse {\\n    var num = 0\\n    func plus(_ i:Int) -\u003e Int {\\n        num += i\\n        return num\\n    }\\n}\\n\\n//假如plus函数没有捕获变量，那么fn其实存放的就是plus的函数地址，而不会再分配堆空间地址。这其实就不是严格意义上的闭包。\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-3\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"自动闭包：@autoClosure。只适用于 () ——\u003e T 格式的闭包；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"mutating：值类型（结构体、枚举）在默认情况下，其值类型的属性不能被自身实例方法修改，如果要允许这种修改，则需要加上mutating关键字；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"@discardableResult 表示可以忽略返回值；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"使用subscript可以给任意类型添加下标功能。实例方法和类方法都可以定义下标；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"@escaping：逃逸闭包。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"非逃逸闭包、逃逸闭包，一般都是当做参数传递给函数；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"非逃逸闭包：闭包调用发生在函数结束之前，闭包调用在函数作用域内；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"逃逸闭包：闭包有可能在函数结束后调用，闭包调用逃离了函数作用域。\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"  \\ttypealias Fn = () -\u003e ()\\n  \\t//非逃逸\\n  \\tfunc test1(_ fn: Fn) {\\n  fn()\\n  \\t}\\n  \\t//逃逸闭包\\n  \\tvar gFn: Fn?\\n  \\tfunc test2(_ fn: @escaping Fn) {\\n  gFn = fn\\n  \\t}\\n  \\t// 多线程下的逃逸闭包。因为fn()可能是在test3函数调用完成后才调用。而且async源码实际也是一个逃逸闭包。所以async闭包里使用了实例成员，编译器会强制要求明确写self。\\n  \\tfunc test3(_ fn: @escaping Fn) {\\n  DispatchQueue.global().async {\\n      fn()\\n  }\\n  \\t}\\n\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{}]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"属性：swift中的属性可以分为实例属性和类型属性，实例属性又可以分为两大类：存储属性和计算属性。类型属性则是类的属性，类似于类方法。\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"struct Circle {\\n      /// 存储属性\\n      var radius: Double\\n      /// 计算属性\\n      var diameter: Double {\\n          set{\\n              radius = newValue / 2\\n          }\\n          get {\\n              radius * 2\\n          }\\n      }\\n}\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"存储属性的特点：\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"类似于成员变量的概念\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"存储在实例的内存中\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"结构体和类可以定义存储属性\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"枚举\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"不可以\"}],\"定义存储属性。因为按照枚举的内存分析，枚举中要么用一个字节只存储原始类型，要么用n个字节存储关联值。而不会开辟空间存储存储属性。\"]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"在创建类或结构体实例时，必须为所有存储属性设置一个合适的初始值。可以在默认初始化器里为存储属性设置初始值，也可以在定义的时候默认一个属性值。\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":[\"延迟存储属性：lazy var car = Car()。在第一次用到属性的时候才会进行初始化。注意：\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"如果多个线程同时第一次访问lazy属性，那么它是无法被保证只初始化1次的。\"}],\"。 其次延迟属性实际也是存储在实例变量的内存当中的，所以结构体的话，只有var修饰的实例变量才能访问延迟存储属性，因为延迟属性初始化的时候必然会修改结构体的内存\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"计算属性：\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"本质就是方法(函数)\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"不占用实例内存\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"枚举、结构体、类都可以定义计算属性\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"计算属性只能用var，不能用let，因为计算属性是会发生变化的。也可以设置只读属性。其次let属性被要求必须在类初始化之前必须有值。\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"比如枚举的rawValue是一个只读的计算属性\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"类型属性：只能通过类型访问，类似于类方法的使用。使用static关键字。整个程序运行过程中，只存在1份，类似于全局变量；单例就是类型属性的最佳实践\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"属性观察器，只有非lazy的存储属性才能设置属性观察器willSet{},didSet{}。因为计算属性的观察可以直接在set和get中。其次初始化器中是不会触发属性观察器，注意这里的意思是在存储属性初始化时，没法触发，但是一旦初始化完成再设置新值（可以参考初始化器的两段式初始化，这里指的是第二阶段）则可以触发属性观察器。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"继承\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"只有类支持继承，值类型不支持继承；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"子类可以用override重写父类的方法、存储属性；\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"被class修饰的类方法，可以被子类override重写，被static修饰的类方法，不允许被override重写。\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"可以在子类中为父类属性增加属性观察器；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"多态：父类类型指向子类对象就是多态。在OC中使用runtime实现多态，在C++中，使用虚函数表实现多态。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"上面类中说到，类内存中前8个字节是用来存储类的类型信息，这8个字节实际指向另一个新的内存区域，这个内存区域的内容存储的是类的类型信息及类的方法地址。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"也就是说在编译完成时，每个类的类型信息就基本确定了，然后存储在全局区域。当实例化的时候，会根据类的前8个字节先取出类的类型信息及函数信息，然后调用函数的时候就会调用真正类型的函数。也就是使用的是类似C++的虚函数表的方式实现的多态。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-8\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"协议\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"协议中属性，需要标识读写属性。协议可以作为传参使用；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"CaseIterable 枚举遵循这个协议，可以实现遍历枚举；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-9\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"Any、AnyObject: Any表示任意类型，AnyObject表示任意类类型；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-10\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"X.self、X.type:\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"X.self : 是表示原类型的数据。也就是上述说到的堆内存中首8个字节所指向的空间地址，表示当前对象的真实类型；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"X.Type表示当前类型，X.self属于X.Type\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"protocol  Runnable {\\n      func test() -\u003e Self //返回当前类\\n}\\nclass Person : Runnable {\\n      required init() { }\\n      func test() -\u003e Self {\\n          type(of: self).init() //这样才能返回最终的类型,Self返回值必须调用required初始化器。\\n      }\\n}\\nclass Student : Person {}\\nvar stu = Student()\\nstu.test()\\n\\n//注意：以下4张方法最终都是调用init()方法初始化，底层其实都没什么区别。\\nvar p0 = Person()\\t\\nvar p1 = Person.self() \\nvar p2 = Person.init()\\nvar p3 = Person.self.init()\\nvar p4 = type(of: p0).init()\\n\\n//获取类型\\nvar pType:Person.Type = Person.self\\n\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-11\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"错误。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"如果函数有可能要抛出错误，则在函数上用\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"throws\"}],\"关键字声明。然后使用\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"try\"}],\"关键字调用可能会抛出异常的函数。使用do{}catch处理最终抛出的错误。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"enum MyError : Error {\\n  \\tcase illegalArg(String)\\n  \\tcase outOfBounds(Int, Int)\\n  \\tcase outOfMemory\\n} \\n\\nfunc divide( _ num1: Int, _ num2: Int) throws -\u003e Int {\\n  \\tif num2 == 0 {\\n      \\tthrow MyError(msg: \\\"0不能作为除数\\\")\\n  \\t}\\n  \\treturn num1 / num2\\n}\\n\\ndo {\\n   \\tlet result = try  divide(1,0)\\n   \\tprint(result)\\n}catch let MyError.illegalArg(msg){\\n  \\tprint(\\\"参数错误:\\\", msg)\\n}catch let MyError.outOfBounds(size, index){\\n  \\tprint(\\\"下标越界:\\\", \\\"size=\\\\(size)\\\", \\\"index=\\\\(index)\\\")\\n}catch let MyError.outOfMemory{\\n\\t\\tprint(\\\"内存溢出\\\")\\n}catch {\\n \\t\\tprint(\\\"其他错误\\\")\\n}\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"rethrows：表明函数本身不会抛出错误，但是调用闭包参数抛出错误，那么它会将错误向上抛。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"func exec(_ fnc: (Int, Int) throws -\u003e Int, _ num1: Int, _ num2: Int) rethrows {\\n      print(try fnc(num1, num2))\\n}\\n\\ntry exec(divece,20,20)\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-12\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"defer: 定义以任何方式在离开代码块之前定义必须要执行的代码。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-13\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"泛型：将类型参数化，提高代码复用率，减少代码量；\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"func swapValue\u003cT\u003e(_ a: inout T, _ b: inout T) {\\n  \\t(a, b) = (b, a)\\n}\\n\\n//假设要将泛型函数传递给某个变量\\nvar fn: (inout Int, inout Int) -\u003e ()  = swapValue\\nvar n1 = 10\\nvar n2 = 20\\nfn(\u0026n1, \u0026n2)\\n\\n//定义一个泛型类型\\nclass Stack\u003cT\u003e {\\n  \\tvar elements = [T]()\\n  \\n  \\tinit(first: T) {\\n      \\telement.append(first)\\n  \\t}\\n  \\tfunc push(_ element: T) {\\n      \\telements.append(element)\\n  \\t}\\n  \\tfunc pop() -\u003e T {\\n      \\telement.reloveLast()\\n  \\t}\\n}\\n\\n//如果初始化函数里声明了类型，那么就不要使用\u003cT\u003e标识具体类型。\\nlet stack = Stack(first: 10)\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"关联类型 associatedtype , 给协议中用到的类型定义一个占位名称。遵守协议的时候，可以使用typelias 先设定真实类型，不过其实也可以省略，直接设置具体类型。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"使用some关键字声明不透明类型, some限制只能返回一种类型\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"protocol Runnable {\\n      associateType Speed\\n      var speed: Speed {get}\\n}\\nclass Person : Runnable {\\n      var speed: Double {0.0}\\n}\\nclass Car : Runnable {\\n      var speed: Int {0}\\n}\\n\\n// 如果这里只返回1种类型，可以加上some限制\\nfunc get1(_ type: Int) -\u003e some Runnable {\\n      return Car()\\n}\\n\\nfunc get(_ type: Int) -\u003e Runnable {\\n      if type == 0 {\\n          return Person()\\n      }\\n      return Car()\\n}\\n\\nvar r1 = get(0)\\nvar r2 = get(1)\\n\\n// 使用some解包可选类型\\nvar age: Int? = 10\\nage = 20\\nage = nil\\n\\nswitch age{\\ncase let .some(v):\\n    print(\\\"1\\\",v)\\ncase .none:\\n\\tprint(\\\"2\\\")\\n}\\n\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-14\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"汇编学习String\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"String： 字面量一旦字符串的长度小于等于15，那么字符串直接存储在16个字节的变量内存里面，类似OC的tag pointer。如果长度超过了15，则存储在常量区；在使用append函数时，如果append之后字符串长度超过了15个字符，则会调用malloc函数开辟堆空间，如果长度依旧小于15，则还是直接存放在变量内存里面。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"let str = \\\"0123456789ABCDE\\\" //存储在str的地址里面\\nlet str1 = \\\"0123456789ABCDEF\\\" //存储在常量区\\nstr1.append(\\\"G\\\")\\t\\t\\t// 存储在堆空间\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-15\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"运算符\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"溢出运算符：\u0026+、\u0026-、\u0026*。溢出的话，会重新循环进这个范围。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"// UInt8 取值范围在0~255\\nvar v: UInt8 = UInt8.max\\nv += 1 //这里就会产生溢出\\nv = v \u0026+ 1 //溢出运算符，溢出的话，会重新回到0，\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"运算符重载：类、结构体、枚举都可以实现运算符重载. （重载 意味着函数名相同，但是功能不一样）\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"struct Point {\\n      var x = 0, y = 0\\n      static func +(p1: Point, p2: Point) -\u003e Point {\\n  \\t\\tPoint(x: p1.x + p2.x, y: p1.y + p2.y)\\n  \\t}\\n}\\n\\n\\t\\n\\nvar p1 = Point(x: 10, y: 20)\\nvar p2 = Point(x: 11, y: 22)\\n\\n\\n\"}]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"项目开发\",\"children\":\"项目开发\"}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"访问权限控制：swift一共提供了5种访问权限控制。下面由高到低\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"open：允许在定义实体的模块(模块就指一个target)、其他模块中访问，允许其他模块进行继承、重写。但是\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"open只能用在类、类成员上，不能用在实例成员、结构体、枚举上\"}],\"；\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"public：允许在定义实体的模块(也就是项目所有文件)、其他模块(包括其他target)中访问，但是不允许其他模块进行继承、重写；比如，我们自己的pod库，如果想要其他pod库访问，则必须显示写清楚public。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"internal：只允许在定义实体的模块中访问，不允许在其他模块中访问；\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"系统默认权限\"}]]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"fileprivate：只允许在定义实体的源文件中访问，也就是说只允许在当前文件中访问；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"private：只允许在定义实体的封闭声明中访问，也就是在{}内允许访问；比如private定义的类在全局作用域里，则表明在当前文件内都可以访问。扩展如果没有另外设置权限，则整个扩展则就默认是原类的访问权限。\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"//这里private定义在全局作用域里，所以表明它在当前文件实体内都可以访问。所以这里即使person的作用域级别小于Student，也仍然不会报错，因为此时private和fileprivate的作用域是一样的。\\n\"}]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":\"private class Person{}\\nfileprivate class Student : Person {}\"}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":\"// 这里将上面函数放到class内部，那么private的作用域就是在Test{}内部，fileprivate则是当前文件，相当于子类作用域大于父类作用域，所以这样是会报错的。\\nclass Test {\\nprivate class Person{}\\nfileprivate class Student : Person {}\\n}\"}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":\"//这里private(set)表明age的set权限是private，所以外面只能get到age的值，不能对age进行set操作。\\nclass Person {\\nprivate(set) var age = 10\\n}\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"内存管理\\nswift 也采用基于引用计数的ARC内存管理方案(针对堆空间)。swift的ARC有3种\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"强引用：默认情况下，都是强引用，strong；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"弱引用：通过weak定义弱引用；但是swift中，\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"弱引用必须是可选类型；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"使用var修饰；\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"实例销毁后，ARC会自动将弱引用设置为nil；\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"另外ARC自动给弱引用设置nil时，是不会触发属性观察器的；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"无主引用：通过unowned修饰。\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"不会产生强引用，非可选类型，\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"实例销毁后仍然存储着实例的内存地址。类似于OC的unsafe_unretained。所以在实例销毁后访问无主引用，会产生野指针错误；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"循环引用：weak、unowned都能解决循环引用的问题，unowned要比weak少一些性能消耗。\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"在生命周期中可能会变为nil，使用weak；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"初始化赋值后再也不会变为nil，使用unowned；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"模式匹配\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"枚举case模式：if case 语句等价于只有一个case的switch语句。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"let age = 2\\n// 老式写法\\nif age \u003e= 0 \u0026\u0026 age \u003c= 9 {\\n      print(\\\"匹配成功\\\")\\n}\\n//if case 匹配。注意这里的=不是赋值的意思，而是匹配的意思\\nif case 0...9 = age {\\n      print(\\\"匹配成功\\\")\\n}\\n// guard 样式\\nguard case 0...9 = age else {return}\\nprint(\\\"匹配成功\\\")\\n\\n// for 循环里使用case\\nlet ages: [Int?] = [2,3,nil,5]\\nfor case nil in ages {\\n      print(\\\"有nil值\\\")\\n      break\\n}\\nlet points = [(1,0),(2,1),(3,0)]\\nfor case let (x, 0) in points { //匹配y为0的point \\n      print(x)\\n}\\n\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"自定义表达式模式。可以通过重载运算符~=，自定义表达式模式的匹配规则。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"$13\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"where 可以使用where为模式匹配增加匹配条件。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"字面量\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"Swift自带类型之所以可以通过修改字面量初始化，是因为它们遵守了对应的协议\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"Bool: ExpressibleByBooleanLiteral\\nInt: ExpressibleByIntegerLiteral\\nFloat、Double: ExpressibleByInterLiteral、ExpressibleByFloatLiteral //所以Float和Double可以使用整型和浮点型进行字面量初始化\\nDictionary: ExpressibleByDictionaryLiteral\\nString: ExpressibleByStringLiteral\\nArray、Set: ExpressibleByArrayLiteral\\nOptional: ExpressibleByNilLiteral\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":\"eg1: 使Int遵守Bool类型协议，使Int可以使用Bool进行字面量初始化\"}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"extension Int: ExpressibleByBooleanLiteral {\\n      public init(booleanLiteral value: Bool) {\\n          self = value ? 1 : 0\\n      }\\n}\\nvar num: Int = false\\nprint(num) //这个时候num是bool类型\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":\"eg2: 使用字面量初始化自定义的类型\"}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"class Student : ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral, ExpressibleByStringLiteral, CustomStringConvertible {\\n      var name: String = \\\"\\\"\\n      var score: Int = 0\\n      required init(floatLiteral value: Double) { self.score = value }\\n      required init(integerLiteral value: Int) { self.score = value }\\n      required init(stringLiteral value: String) { self.name = value }\\n      required init(unicodeScalarLiteral value: String) { self.name = value }\\n      required init(extendedGraphemeClusterLiteral value: String) { self.name = value }\\n      var description: Sting { \\\"name=\\\\(name), score=\\\\(score)\\\"}\\n}\\nvar stu: Student = 90\\nprint(stu)\\nstu = 98.5\\npritn(stu)\\nstu = \\\"Jack\\\"\\nprint(stu)\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":\"eg3: 字面量初始化结构体\"}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"stuct Point {\\n      var x = 0.0, y = 0.0\\n}\\nextension Point : ExpressibleByArrayLiteral、ExpressibleByDictionaryLiteral {\\n      init(arrayLiteral elements: Double...) {\\n          guard elements.count \u003e 0 else { return }\\n          self.x = elements[0]\\n          guard elements.count \u003e 1 else { return }\\n          self.y = elements[1]\\n      }\\n      init(dictionaryLiteral elements: (String, Double)...) {\\n          for (k, v) in elements {\\n              if k == \\\"x\\\" { self.x = v }\\n              else if k == \\\"y\\\" { self.y = v }\\n          }\\n      }\\n}\\nvar p: Point = [10.5, 20.5]\\npritn(p)\\np = [\\\"x\\\" : 11, \\\"y\\\" : 22]\\npritn(p)\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"可以通过typealias修改字面量的默认类型\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"typealias FloatLiteralType = Float\\ntypealias IntegerLiteralType = UInt8\\nvar age = 10 //UInt8\\nvar height = 1.68 //Float\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"代码风格与习惯\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"注释： // MARK: 、// MARK: -、// TODO:、// FIXME:\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"warning //如果要更加明显地注释，可以使用#warning, eg: #warning(\\\"undo\\\")\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"fetalError() //如果不想写注释，或者遇到暂时不想实现的方法，则可以使用fetalError()先让程序崩溃\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"程序入口\\n程序入口其实就是在Appdelegate的默认的@UIApplicationMain标记里。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"自定义main程序入口\\n如果要自定义main程序入口，第一步需要把@UIApplicationMain标记注释的，然后重新创建一个main.swift文件。然后重写以下代码：\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"import UIKit\\n//自定义UIApplication 这一步是可选的。\\nclass MyApplication: UIApplication {}\\nUIApplicationMain(CommandLine.argc,\\n\\t\\t\\t\\t\\tCommandLine.unsafeArgv,\\n\\t\\t\\t\\t\\tNSStringFromClass(MyApplication.self),\\n\\t\\t\\t\\t\\tNSStringFromClass(AppDelegate.self))\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"OC 到 swift：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"条件编译：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"在xcode debug编译标记设置custom DEBUG标记。是的代码可以直接使用#if DEBUG ，但是得放在函数里调用。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"log 条件打印\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"func log\u003cT\u003e(_ msg: T, \\nfile: NSStrign = #file, \\nline: Int = #line, \\nfn: String = #function) {\\n        #if DEBUG\\n        let prefix = \\\"\\\\(file.lastPathComponent)_\\\\(line)_\\\\(fn):\\\"\\n        print(prefix, msg)\\n        #endif\\n}\\n\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"如果要将类中的某个成员变量暴露给OC，则在成员变量前面加上@objc，如果要将Swift的所有成员都暴露给OC，则给类加上 @objcMembers, 这样就不需要每个成员变量前面都加上@objc；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"可以通过@objc重命名swift暴露给OC的符号名（类名，属性名，函数名等）\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"@objc(FCFCar) //重命名类\\n@objcMembers class Car: NSObject {\\n\\t@objc(name) //重命名属性\\n\\tvar band: String\\n\\t@objc(drive) //重命名方法\\n\\tfunc run() {\\n          print(band, \\\"run\\\")\\n\\t}\\n}\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"selector选择器必须是被@objc或@objcMembers修饰。因为选择器都是在runtime中使用，而swift的runtime还是使用OC的runtime，所以必须加上@objc暴露成OC的方法；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"代码细节\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"swift类无论是否继承NSObject或是否被@objc修饰，如果在swift类中调用，那么就是走swift 虚表调用机制，如果在OC中调用，那么就是走OC的objc_messageSend机制。swift要实现KVO和KVC，则必须是@objc dynamic修饰的。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"class Person: NSObject {\\n\\t\\t@objc dynamic var age: Int = 0\\n\\t\\tvar observation: NSKeyValueObservation?\\n\\t\\tfunt test() {\\n    \\t\\tobservation = observe(\\\\Person.age, options: .new) {\\n              (person, change) in\\n              print(change.newValue as Any)\\n    \\t\\t}\\n\\t\\t}\\n}\\n\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"Substring：Substring不是一个String类型，\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"Substring是一个单独的类型\"}],\"，String的子串可以通过小标、prefix、suffix截取。Substring可以通过String强转为String类型，substring可以调用.base方法获取其对应的原始String。注意：\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"实际上Substring与原理String共用一块内存区域，所以可以调用base获取原来的string。如果对substring进行修改，那么此时才会拷贝一份新的内存，然后将substring放进去\"}],\"。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"var str = \\\"123456\\\"\\nvar subStr1 = str.prefix(2)\\nvar subStr2 = str.suffix(3)\\nvar range = str.startIndex..\u003cstr.index(str.startIndex, offsetBy: 3)\\nvar subStr3 = str[range]\\n//送substring中获取原理的string\\nvar originStr = subStr3.base\\n//转成String\\nvar str1 = String(subStr3)\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"多行String使用三引号：\\\"\\\"\\\"xxx\\\"\\\"\\\" 包裹。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-8\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"多线程\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"使用DispatchWokItem包装任务。DispatchWorkItem可以使用cancel取消。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"$14\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"Dispatch_once：swift代码里已经废弃了Dispatch_once. 而是直接用static。static是全局变量，只会初始化一次，且默认就是lazy。其内部其实使用了Dispatch_once，所以\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"它也是线程安全的\"}],\"。 所以\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"static可以保证线程安全和懒加载\"}]]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"//单例\\nstruct Single {\\n\\tstatic let share = Single()\\n    private init() {\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"加锁：线程安全\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"public struct Cache {\\n\\t//分析：data是一个全局变量，永远只有一份内存，如果有多个线程同时调用set方法，那么就会产生数据安全问题。\\n    private static var data = [String: Any]()\\n    \\n    //01信号量, value 其实可以认为表示允许多少条线程同时访问\\n    private static var lock = DispatchSamephone(value: 1)\\n    //02 Lock, 递归调用会产生死锁\\n    private static var lock = NSLock()\\n    //03 递归锁\\n    private static var lock = NSRecursiveLock()\\n    \\n    public static func get(_ key: String) -\u003e Any? {\\n        data[key]\\n    }\\n    public static func set(_ key: String, _ value: Any) {\\n    \\t//01信号量\\n    \\tlock.wait()\\n    \\tdefer { lock.signal() }\\n    \\t//02 Lock\\n    \\tlock.lock()\\n    \\tdefer { lock.unlock() }\\n    \\t//03 递归锁\\n    \\tlock.lock()\\n    \\tdefer { lock.unlock() }\\n    \\t\\n        data[key] = value\\n    }\\n}\\n\\n\"}]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"高阶\",\"children\":\"高阶\"}],\"\\n\",[\"$\",\"ul\",\"ul-3\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"函数式编程\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"Array的常见操作\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"map: 遍历Array每个元素，block里可以对元素单独处理，最终返回新的Array。返回结果的元素类型就是block里新创建的类型；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"filter: 遍历Array每个元素，block里添加条件语句，最终返回符合条件的新Array；\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"reduce: 遍历Array每一个元素，block里会有两个参数，第一个参数是上一次遍历的结果，第二个参数是当前遍历元素。最后返回一个最终结果值；\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"flatMap: 和map功能一样，只是会把二维数组压成一维数组；\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"first: 查找第一个满足条件的元素，block是一个条件语句；\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":\"firstIndex: 查找第一个满足条件的元素的索引，block是一个条件语句；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"$15\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"函数式编程：函数式编程是一种编程范式(也就是如何编程的一种方法论)。主要思想就是把计算过程尽可能分解成一系列可复用函数的调用。函数式编程里，函数是“第一等公民”；\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"接收一个或多个函数作为输入或者返回一个函数的函数是高阶函数；\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"柯里化：将接收多个参数的函数变成一系列接收单个参数的函数；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"//柯里化实际的编写过程中，参数的传递顺序正好和传统方式是相反的。\\nfunc add1(_ v1: Int, _ v2: Int) -\u003e Int {v1 + v2}\\nfunc add10(_ v1: Int) -\u003e (Int) -\u003e Int { { $0 + V1 } }\\n\\nfunc reduce1(_ v1: Int, _ v2: Int, _ v3: Int) -\u003e {\\n    return v1 - v2 - v3\\n}\\nfunc reduce10(_ v3: Int) -\u003e (Int) -\u003e (Int) -\u003e Int {\\n    return {v2 in\\n    \\treturn {v1 in\\n    \\t\\tv1 - v2 - v3\\n    \\t}\\n    }\\n}\\nreduce1(10)(20)(30)\\n/***************************************************/\\n//给定任何一个格式为 (Int, Int) -\u003e Int 的函数，实现柯里化 (prefix表示给任意函数前加上~)\\nprefix ~\u003cA,B,C\u003e(_ fn: @escaping (A, B) -\u003e C) -\u003e (B) -\u003e (A) -\u003e C { {b in { a in fn(a,b) } } }\\n//调用\\n(~add1)(10)(20)\\n\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"函子：像Array、Optional这样支持map运算的类型，成为函子。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"public func map\u003cT\u003e(_ transform: (Element) -\u003e T) -\u003e Array\u003cT\u003e\\npublic func map\u003cT\u003e(_ transform: (Wrapped) -\u003e U) -\u003e Optional\u003cU\u003e\\n//对于任意一个函子，如果能支持以下运算，该函子就是一个适用函子\\nfunc pure\u003cA\u003e(_ value: A) -\u003e F\u003cA\u003e\\nfunc \u003c*\u003e\u003cA, B\u003e(fn: F\u003c(A) -\u003e B\u003e, value: F\u003cA\u003e) -\u003e F\u003cB\u003e\\ninfix operator \u003c*\u003e: AdditionPrecedence\\nfunc \u003c*\u003e\u003cA, B\u003e(fn: ((A) -\u003e B)?, value: A?) -\u003e B? {\\n    guard let f = fn , let v = value else {return nil}\\n    return f(v)\\n}\\n\"}]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"面向协议编程\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"面向对象就是将事务抽象成对象的概念，然后给对象赋予属性和方法，让对象去执行自己的方法。它的核心思想就是使用封装、继承将一系列的相关内容放到一起。但是由于事务往往不是一脉相承的，而是由多种特质的组合，所以导致面向对象很多时候没法很好地对事务进行抽象。面向对象存在一定的问题\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"横切关注点：也就是说如果两个在不同继承关系中的类（没有继承关系）使用了同样的代码（比如都实现了一个method()函数），那么这个代码没法共用。（解决方案可以给它们搞个父类，或者实现多继承等）。\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"@interface c1: NSObject\\n    func method() {}\\n@end\\n@interface c2 : NSObject\\n    func method() {}\\n@end\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"菱形缺陷：比如上述问题，我们给两个类施加一个共同的父类（比如c0）,此时又有一个类c3同时继承于c1和c2。那么c3在使用的时候对于使用哪个父类的method方法就会很难确定，导致不安全。这就是菱形缺陷；\"}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"动态派发安全性：比如动态类型，动态调用方法，该方法没有实现，就会导致崩溃。比如：\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"C1 *c1 = ...\\nC2 *c2 = ...\\nNSObject *c3 = ...\\nNSArray * arr = @[c1, c2, c3]\\nfor (id obj) in arr {\\n    [obj method];\\n}\\n\"}]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"面向协议就是通过协议来定义事务的实现。通过遵守不同的协议，来对类或结构体进行定制。它只需要实现协议里规定的属性和方法就可以。相对于面向对象，其耦合性更低，维护和扩展更灵活。其次其正好可以解决面向对象的三大缺陷问题。\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"/// 定义前缀类型\\nstruct FCF\u003cBase\u003e {\\n    var base: Base\\n    init(_ base: Base) {\\n        self.base = base\\n    }\\n}\\n/// 利用前缀扩展前缀属性\\nprotocol FCFCompatible {\\n    var fcf: FCF\u003cSelf\u003e {\\n        set{}\\n        get{ FCF\u003cself\u003e }\\n    }\\n    static var fcf: FCF\u003cSelf\u003e.Type {\\n        set{}\\n        get{ FCF\u003cSelf\u003e.self }\\n    }\\n}\\n\\n// 给String.fcf、String().fcf 前缀扩展功能\\nextension FCF where Base: ExpressibleByStringLiteral {\\n\\t// 扩展一个字符串数字个数的实例方法\\n\\tvar numCount: Int {\\n        var count = 0\\n        for c in (base as String) where (\\\"0\\\"...\\\"9\\\").contains(c) {\\n            count += 1\\n        }\\n        return count\\n    }\\n    \\n    // 扩展一个类方法\\n    static func test() { }\\n    \\n    // 扩展一个mutating方法\\n    mutating func test1() { }\\n}\\n\\n\\n// 让String、NSString拥有前缀属性\\nextension String: FCFCompatible {}\\nextension NSString: FCFCompatible {}\\n\\n// 使用\\nvar str1 = \\\"123\\\"\\nvar str2: NSString = \\\"123\\\"\\nvar str3: NSMutableString = \\\"123\\\"\\nprint(str1.fcf.numCount)\\nprint(str2.fcf.numCount)\\nprint(str3.fcf.numCount)\\n\"}]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"响应式编程\\n响应式编程(Reactive Programming， RP)， 也是一种编程范式，可以简化异步编程，提供更优雅的数据绑定。比较成熟的响应式框架：ReactiveCocoa（简称RAC，有OC和Swift版本）、ReactiveX（简称Rx, 很多语言都有Rx版本，比如RxJave、RxKotlin、RxGo、RxSwift等）。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"RxSwift 包含两部分RxSwift和RxCocoa。RxSwift是Rx标准API的Swift实现，不包括任何iOS相关内容；RxCocoa是基于RxSwift给iOS UI控件扩展了很多Rx特性。\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"Observable: 负责发送事件(Event)\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"Observer: 负责订阅（subscribe）Observable，监听Observable发送的事件（3种Event: next(携带具体数据)\\\\error(携带错误信息，表明Observable终止，不会再发出事件)\\\\completed(表明Observable终止，不会再发出事件)）；\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/swift-common-algorithms-collection\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Swift 手写 LRU 缓存、链表与二分查找常用代码\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/stress-test-memory-spike-and-wda-leak\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Monkey 压测内存持续上涨排查记录\"}]]}]}]]}]]}],false]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

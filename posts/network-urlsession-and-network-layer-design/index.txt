@@ -1,0 +1,392 @@
+1:"$Sreact.fragment"
+2:I[7555,[],""]
+3:I[1295,[],""]
+5:I[9665,[],"OutletBoundary"]
+8:I[4911,[],"AsyncMetadataOutlet"]
+a:I[9665,[],"ViewportBoundary"]
+c:I[9665,[],"MetadataBoundary"]
+e:I[6614,[],""]
+:HL["/fcfblog/_next/static/css/0ae5dd793e516608.css","style"]
+0:{"P":null,"b":"bCC3fH8ggorFQfQxoj4EU","p":"/fcfblog","c":["","posts","network-urlsession-and-network-layer-design",""],"i":false,"f":[[["",{"children":["posts",{"children":[["slug","network-urlsession-and-network-layer-design","d"],{"children":["__PAGE__",{}]}]}]},"$undefined","$undefined",true],["",["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/fcfblog/_next/static/css/0ae5dd793e516608.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]],["$","html",null,{"lang":"zh-CN","children":["$","body",null,{"children":["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]],"forbidden":"$undefined","unauthorized":"$undefined"}]}]}]]}],{"children":["posts",["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":[["slug","network-urlsession-and-network-layer-design","d"],["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":["__PAGE__",["$","$1","c",{"children":["$L4",null,["$","$L5",null,{"children":["$L6","$L7",["$","$L8",null,{"promise":"$@9"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],["$","$1","h",{"children":[null,["$","$1","cGTEUnEtozFUv0IgdZ9h8v",{"children":[["$","$La",null,{"children":"$Lb"}],null]}],["$","$Lc",null,{"children":"$Ld"}]]}],false]],"m":"$undefined","G":["$e","$undefined"],"s":false,"S":true}
+f:"$Sreact.suspense"
+10:I[4911,[],"AsyncMetadata"]
+12:I[6874,["874","static/chunks/874-7618c3fad5f7ba4a.js","858","static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js"],""]
+d:["$","div",null,{"hidden":true,"children":["$","$f",null,{"fallback":null,"children":["$","$L10",null,{"promise":"$@11"}]}]}]
+13:T478,// 1. 创建 Background Configuration
+let config = URLSessionConfiguration.background(withIdentifier: "com.example.background")
+
+// 2. 创建 Session
+let session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+
+// 3. 创建下载任务
+let task = session.downloadTask(with: url)
+task.resume()
+
+// 4. AppDelegate 中保存 completionHandler
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    var backgroundCompletionHandler: (() -> Void)?
+
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        backgroundCompletionHandler = completionHandler
+    }
+}
+
+// 5. 下载完成后调用
+extension ViewController: URLSessionTaskDelegate {
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        DispatchQueue.main.async {
+            guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+                  let completionHandler = appDelegate.backgroundCompletionHandler else {
+                return
+            }
+            completionHandler()
+        }
+    }
+}
+14:T55f,class DownloadManager {
+    private var session: URLSession?
+    private var downloadTask: URLSessionDownloadTask?
+    private var resumeData: Data?
+
+    func startDownload(url: URL) {
+        let config = URLSessionConfiguration.background(withIdentifier: "download")
+        session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+
+        if let resumeData = resumeData {
+            // 恢复下载
+            downloadTask = session?.downloadTask(withResumeData: resumeData)
+        } else {
+            // 新下载
+            downloadTask = session?.downloadTask(with: url)
+        }
+
+        downloadTask?.resume()
+    }
+
+    func pauseDownload() {
+        downloadTask?.cancel { resumeData in
+            self.resumeData = resumeData
+            self.downloadTask = nil
+        }
+    }
+}
+
+extension DownloadManager: URLSessionDownloadDelegate {
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // 移动文件到持久位置
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let destinationURL = documentsURL.appendingPathComponent("downloaded_file")
+
+        try? FileManager.default.removeItem(at: destinationURL)
+        try? FileManager.default.copyItem(at: location, to: destinationURL)
+    }
+}
+15:T8ed,class NetworkDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate, URLSessionDownloadDelegate {
+
+    // MARK: - URLSessionDelegate
+
+    // Session 完成时调用
+    func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
+        if let error = error {
+            print("Session invalid: \(error)")
+        }
+    }
+
+    // 收到服务器挑战（证书验证）
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if let serverTrust = challenge.protectionSpace.serverTrust {
+            let credential = URLCredential(trust: serverTrust)
+            completionHandler(.useCredential, credential)
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+
+    // MARK: - URLSessionTaskDelegate
+
+    // Task 完成
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            print("Task completed with error: \(error)")
+        }
+    }
+
+    // 收到响应
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    //    print("Status code: \((response as! HTTPURLResponse).statusCode)")
+        completionHandler(.allow) // 允许继续接收数据
+    }
+
+    // MARK: - URLSessionDataDelegate
+
+    // 接收数据
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        // 累积数据
+    }
+
+    // MARK: - URLSessionDownloadDelegate
+
+    // 下载进度
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        print("下载进度: \(progress * 100)%")
+    }
+
+    // 下载完成
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        print("下载完成，临时文件: \(location)")
+    }
+}
+16:T6f9,struct NetworkRequest {
+    let endpoint: String
+    let method: HTTPMethod
+    let parameters: [String: Any]?
+    let headers: [String: String]?
+    let body: Data?
+
+    enum HTTPMethod: String {
+        case GET, POST, PUT, DELETE, PATCH
+    }
+}
+
+protocol RequestBuilding {
+    func build(request: NetworkRequest, baseURL: String) -> URLRequest
+}
+
+class RequestBuilder: RequestBuilding {
+    func build(request: NetworkRequest, baseURL: String) -> URLRequest {
+        guard let url = URL(string: baseURL + request.endpoint) else {
+            fatalError("Invalid URL")
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = request.method.rawValue
+
+        // 添加公共 Headers
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("iOS/1.0", forHTTPHeaderField: "User-Agent")
+
+        // 添加自定义 Headers
+        request.headers?.forEach { key, value in
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+
+        // 添加 Parameters
+        if let parameters = request.parameters {
+            switch request.method {
+            case .GET:
+                var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+                components.queryItems = parameters.map { key, value in
+                    URLQueryItem(name: key, value: "\(value)")
+                }
+                urlRequest.url = components.url
+            case .POST, .PUT, .PATCH, .DELETE:
+                let body = try? JSONSerialization.data(withJSONObject: parameters, options: [])
+                urlRequest.httpBody = body
+            }
+        }
+
+        return urlRequest
+    }
+}
+17:T802,protocol Networking {
+    @discardableResult
+    func request<T: Decodable>(
+        _ request: NetworkRequest,
+        responseType: T.Type,
+        completion: @escaping (Result<T, NetworkError>) -> Void
+    ) -> URLSessionDataTask?
+}
+
+class NetworkManager: Networking {
+    let session: URLSession
+    let requestBuilder: RequestBuilding
+    let baseURL: String
+
+    init(
+        session: URLSession = .shared,
+        requestBuilder: RequestBuilder = RequestBuilder(),
+        baseURL: String = "https://api.example.com"
+    ) {
+        self.session = session
+        self.requestBuilder = requestBuilder
+        self.baseURL = baseURL
+    }
+
+    func request<T: Decodable>(
+        _ request: NetworkRequest,
+        responseType: T.Type,
+        completion: @escaping (Result<T, NetworkError>) -> Void
+    ) -> URLSessionDataTask? {
+        let urlRequest = requestBuilder.build(request: request, baseURL: baseURL)
+
+        let task = session.dataTask(with: urlRequest) { data, response, error in
+            if let error = error {
+                completion(.failure(.networkError(error)))
+                return
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(.invalidResponse))
+                return
+            }
+
+            guard 200...299 ~= httpResponse.statusCode else {
+                completion(.failure(.httpError(httpResponse.statusCode)))
+                return
+            }
+
+            guard let data = data else {
+                completion(.failure(.noData))
+                return
+            }
+
+            do {
+                let decoded = try JSONDecoder().decode(T.self, from: data)
+                completion(.success(decoded))
+            } catch {
+                completion(.failure(.decodingError(error)))
+            }
+        }
+
+        task.resume()
+        return task
+    }
+}
+
+enum NetworkError: Error {
+    case networkError(Error)
+    case invalidResponse
+    case httpError(Int)
+    case noData
+    case decodingError(Error)
+}
+18:T430,protocol UserAPIType {
+    func fetchUsers(completion: @escaping (Result<[User], NetworkError>) -> Void)
+    func fetchUser(id: Int, completion: @escaping (Result<User, NetworkError>) -> Void)
+}
+
+class UserAPI: UserAPIType {
+    let network: Networking
+
+    init(network: Networking = NetworkManager()) {
+        self.network = network
+    }
+
+    func fetchUsers(completion: @escaping (Result<[User], NetworkError>) -> Void) {
+        let request = NetworkRequest(
+            endpoint: "/users",
+            method: .GET,
+            parameters: nil,
+            headers: nil,
+            body: nil
+        )
+
+        network.request(request, responseType: [User].self, completion: completion)
+    }
+
+    func fetchUser(id: Int, completion: @escaping (Result<User, NetworkError>) -> Void) {
+        let request = NetworkRequest(
+            endpoint: "/users/\(id)",
+            method: .GET,
+            parameters: nil,
+            headers: nil,
+            body: nil
+        )
+
+        network.request(request, responseType: User.self, completion: completion)
+    }
+}
+19:T4d4,class RetryNetworkManager: Networking {
+    let network: Networking
+    let maxRetries: Int
+
+    init(network: Networking, maxRetries: Int = 3) {
+        self.network = network
+        self.maxRetries = maxRetries
+    }
+
+    func request<T>(
+        _ request: NetworkRequest,
+        responseType: T.Type,
+        completion: @escaping (Result<T, NetworkError>) -> Void
+    ) -> URLSessionDataTask? {
+        var retries = 0
+
+        func attempt() {
+            _ = network.request(request, responseType: responseType) { result in
+                if case .failure(let error) = result,
+                   retries < self.maxRetries,
+                   self.isRetryable(error) {
+                    retries += 1
+                    attempt() // 重试
+                } else {
+                    completion(result)
+                }
+            }
+        }
+
+        attempt()
+        return nil
+    }
+
+    private func isRetryable(_ error: NetworkError) -> Bool {
+        switch error {
+        case .httpError(let code):
+            return 500...599 ~= code || code == 429 // 服务器错误或限流
+        case .networkError:
+            return true // 网络错误重试
+        default:
+            return false
+        }
+    }
+}
+1a:T5d5,class CachedNetworkManager: Networking {
+    let network: Networking
+    let cache: URLCache
+
+    init(network: Networking, cache: URLCache = .shared) {
+        self.network = network
+        self.cache = cache
+    }
+
+    func request<T>(
+        _ request: NetworkRequest,
+        responseType: T.Type,
+        completion: @escaping (Result<T, NetworkError>) -> Void
+    ) -> URLSessionDataTask? {
+        let urlRequest = URLRequest(url: URL(string: request.endpoint)!)
+
+        // 检查缓存
+        if let cachedResponse = cache.cachedResponse(for: urlRequest) {
+            do {
+                let decoded = try JSONDecoder().decode(T.self, from: cachedResponse.data)
+                completion(.success(decoded))
+                return nil
+            } catch {
+                // 缓存解析失败，继续网络请求
+            }
+        }
+
+        // 网络请求
+        return network.request(request, responseType: responseType) { [weak self] result in
+            guard let self = self else { return }
+
+            if case .success(let data) = result,
+               let jsonData = try? JSONEncoder().encode(data),
+               let response = HTTPURLResponse(url: urlRequest.url!, statusCode: 200, httpVersion: nil, headerFields: nil) {
+                let cachedResponse = CachedURLResponse(response: response, data: jsonData)
+                self.cache.storeCachedResponse(cachedResponse, for: urlRequest)
+            }
+
+            completion(result)
+        }
+    }
+}
+4:["$","div",null,{"className":"blog-shell","children":[["$","header",null,{"className":"masthead","children":["$","div",null,{"className":"masthead-inner","children":[["$","$L12",null,{"href":"/","className":"brand-title","children":"Caifan's Notes"}],["$","nav",null,{"className":"top-nav","children":["$","$L12",null,{"href":"/","className":"nav-link","children":"← 返回列表"}]}]]}]}],["$","div",null,{"className":"article-page-wrap","children":[["$","article",null,{"className":"article-main","children":[["$","header",null,{"className":"article-header","children":[["$","h1",null,{"className":"article-title","children":"URLSession 核心机制与客户端网络层封装实践"}],["$","div",null,{"className":"article-meta","children":[["$","time",null,{"children":"2025-04-06"}],["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"children":"计算机基础与网络"}],[["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"className":"article-tags","children":"URLSession / HTTPDNS / 网络安全"}]]]}]]}],["$","div",null,{"className":"markdown-body","children":[["$","p","p-0",{"children":"URLSession 是 iOS 原生异步网络栈；在其上封装 Session 配置、拦截链、缓存与重试策略，构成可测试的业务网络层。"}],"\n",["$","hr","hr-0",{}],"\n",["$","h2","h2-0",{"id":"5-ios-网络层架构设计","children":"5. iOS 网络层架构设计"}],"\n",["$","h3","h3-0",{"id":"51-urlsession-完全指南","children":"5.1 URLSession 完全指南"}],"\n",["$","h4","h4-0",{"children":"5.1.1 URLSession 的组成"}],"\n",["$","p","p-1",{"children":[["$","strong","strong-0",{"children":"URLSession 的三个核心组件"}],"："]}],"\n",["$","pre","pre-0",{"children":["$","code","code-0",{"children":"1. URLSessionConfiguration：配置会话\n2. URLSession：会话对象\n3. URLSessionTask：任务对象\n"}]}],"\n",["$","h4","h4-1",{"children":"5.1.2 URLSessionConfiguration"}],"\n",["$","p","p-2",{"children":[["$","strong","strong-0",{"children":"三种预定义配置"}],"："]}],"\n",["$","pre","pre-1",{"children":["$","code","code-0",{"className":"language-swift","children":"// 1. Default Session（默认）\n// - 使用磁盘持久化缓存\n// - 存储证书到钥匙串\nlet config = URLSessionConfiguration.default\n\n// 2. Ephemeral Session（临时）\n// - 不存储任何数据到磁盘\n// - 不缓存、不存储 Cookie、不存储证书\nlet config = URLSessionConfiguration.ephemeral\n\n// 3. Background Session（后台）\n// - 在后台运行上传/下载任务\n// - 需要提供 identifier\nlet config = URLSessionConfiguration.background(withIdentifier: \"com.example.background\")\n"}]}],"\n",["$","p","p-3",{"children":[["$","strong","strong-0",{"children":"自定义配置"}],"："]}],"\n",["$","pre","pre-2",{"children":["$","code","code-0",{"className":"language-swift","children":"let config = URLSessionConfiguration.default\n\n// 超时时间\nconfig.timeoutIntervalForRequest = 30.0\nconfig.timeoutIntervalForResource = 604800.0 // 7 天\n\n// 缓存策略\nconfig.requestCachePolicy = .returnCacheDataElseLoad\nconfig.urlCache = URLCache(memoryCapacity: 20 * 1024 * 1024,   // 20 MB\n                         diskCapacity: 100 * 1024 * 1024)      // 100 MB\n\n// Cookie\nconfig.httpShouldSetCookies = true\nconfig.httpCookieAcceptPolicy = .always\n\n// 安全策略\nconfig.tlsMinimumSupportedProtocolVersion = .TLSv12\nconfig.urlCredentialStorage = URLCredentialStorage.shared\n\n// 代理\nconfig.connectionProxyDictionary = [\"HTTPEnable\": 1, \"HTTPProxy\": \"proxy.example.com:8080\"]\n\n// 网络服务类型（QoS）\nconfig.networkServiceType = .background // .default, .voip, .video, etc.\n\n// 等待\nconfig.waitsForConnectivity = true\n\n// 是否允许蜂窝网络\nconfig.allowsCellularAccess = true\n\n// 创建 Session\nlet session = URLSession(configuration: config)\n"}]}],"\n",["$","h4","h4-2",{"children":"5.1.3 URLSessionTask 的四种类型"}],"\n",["$","p","p-4",{"children":["$","strong","strong-0",{"children":"1. URLSessionDataTask（数据任务）"}]}],"\n",["$","pre","pre-3",{"children":["$","code","code-0",{"className":"language-swift","children":"// 用于接收数据到内存\nlet task = session.dataTask(with: url) { data, response, error in\n    // 处理数据\n}\ntask.resume()\n"}]}],"\n",["$","p","p-5",{"children":["$","strong","strong-0",{"children":"2. URLSessionUploadTask（上传任务）"}]}],"\n",["$","pre","pre-4",{"children":["$","code","code-0",{"className":"language-swift","children":"// 方式 1：从 Data 上传\nlet data = UIImagePNGRepresentation(image)!\nlet task = session.uploadTask(with: request, from: data) { data, response, error in\n    // 上传完成\n}\n\n// 方式 2：从 File 上传\nlet fileURL = URL(fileURLWithPath: \"/path/to/file\")\nlet task = session.uploadTask(with: request, fromFile: fileURL) { data, response, error in\n    // 上传完成\n}\n\n// 监听上传进度\ntask = session.uploadTask(with: request, from: data)\nsession.delegate = self\ntask.resume()\n\n// URLSessionTaskDelegate\nfunc urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {\n    let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)\n    print(\"上传进度: \\(progress * 100)%\")\n}\n"}]}],"\n",["$","p","p-6",{"children":["$","strong","strong-0",{"children":"3. URLSessionDownloadTask（下载任务）"}]}],"\n",["$","pre","pre-5",{"children":["$","code","code-0",{"className":"language-swift","children":"// 简单下载\nlet task = session.downloadTask(with: url) { tempURL, response, error in\n    if let tempURL = tempURL {\n        // 临时文件需要移动到持久位置\n        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]\n        let destinationURL = documentsURL.appendingPathComponent(\"image.jpg\")\n\n        try? FileManager.default.removeItem(at: destinationURL)\n        try? FileManager.default.moveItem(at: tempURL, to: destinationURL)\n    }\n}\ntask.resume()\n\n// 监听下载进度\nsession.delegate = self\n\nfunc urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {\n    let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)\n    print(\"下载进度: \\(progress * 100)%\")\n}\n\nfunc urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {\n    // 下载完成，移动文件\n}\n"}]}],"\n",["$","p","p-7",{"children":["$","strong","strong-0",{"children":"4. URLSessionStreamTask（流任务）"}]}],"\n",["$","pre","pre-6",{"children":["$","code","code-0",{"className":"language-swift","children":"// 用于建立 TCP/IP 连接（用于自定义协议）\nlet task = session.streamTask(withHostName: \"example.com\", port: 80)\ntask.resume()\n"}]}],"\n",["$","h4","h4-3",{"children":"5.1.4 后台下载与断点续传"}],"\n",["$","p","p-8",{"children":[["$","strong","strong-0",{"children":"后台下载"}],"："]}],"\n",["$","pre","pre-7",{"children":["$","code","code-0",{"className":"language-swift","children":"$13"}]}],"\n",["$","p","p-9",{"children":[["$","strong","strong-0",{"children":"断点续传"}],"："]}],"\n",["$","pre","pre-8",{"children":["$","code","code-0",{"className":"language-swift","children":"$14"}]}],"\n",["$","h4","h4-4",{"children":"5.1.5 URLSessionDelegate"}],"\n",["$","p","p-10",{"children":[["$","strong","strong-0",{"children":"完整 Delegate 实现"}],"："]}],"\n",["$","pre","pre-9",{"children":["$","code","code-0",{"className":"language-swift","children":"$15"}]}],"\n",["$","h4","h4-5",{"children":"5.1.6 AFNetworking vs Alamofire"}],"\n",["$","p","p-11",{"children":[["$","strong","strong-0",{"children":"AFNetworking（Objective-C）"}],"："]}],"\n",["$","pre","pre-10",{"children":["$","code","code-0",{"className":"language-objective-c","children":"// 请求管理\nAFHTTPSessionManager *manager = [[AFHTTPSessionManager alloc] initWithBaseURL:[NSURL URLWithString:@\"https://api.example.com\"]];\n\n// 设置请求序列化\nmanager.requestSerializer = [AFJSONRequestSerializer serializer];\nmanager.requestSerializer.timeoutInterval = 30;\n\n// 设置响应序列化\nmanager.responseSerializer = [AFJSONResponseSerializer serializer];\n\n// 发起 GET 请求\n[manager GET:@\"users\" parameters:nil progress:nil success:^(NSURLSessionDataTask *task, id responseObject) {\n    NSLog(@\"Success: %@\", responseObject);\n} failure:^(NSURLSessionDataTask *task, NSError *error) {\n    NSLog(@\"Error: %@\", error);\n}];\n"}]}],"\n",["$","p","p-12",{"children":[["$","strong","strong-0",{"children":"Alamofire（Swift）"}],"："]}],"\n",["$","pre","pre-11",{"children":["$","code","code-0",{"className":"language-swift","children":"import Alamofire\n\n// 简单请求\nAF.request(\"https://api.example.com/users\")\n    .validate()\n    .responseJSON { response in\n        switch response.result {\n        case .success(let value):\n            print(\"Success: \\(value)\")\n        case .failure(let error):\n            print(\"Error: \\(error)\")\n        }\n    }\n\n// 带参数和 Headers\nAF.request(\"https://api.example.com/users\",\n           method: .post,\n           parameters: [\"name\": \"John\", \"age\": 30],\n           encoding: JSONEncoding.default,\n           headers: [\"Authorization\": \"Bearer xxx\"])\n    .validate()\n    .responseJSON { response in\n        debugPrint(response)\n    }\n\n// 下载\nAF.download(\"https://example.com/file.zip\")\n    .downloadProgress { progress in\n        print(\"下载进度: \\(progress.fractionCompleted * 100)%\")\n    }\n    .validate()\n    .responseJSON { response in\n        if let fileURL = response.fileURL {\n            print(\"下载完成: \\(fileURL)\")\n        }\n    }\n"}]}],"\n",["$","h3","h3-1",{"id":"52-网络层架构设计","children":"5.2 网络层架构设计"}],"\n",["$","p","p-13",{"children":[["$","strong","strong-0",{"children":"分层架构"}],"："]}],"\n",["$","pre","pre-12",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────┐\n│      Service Layer（业务层）         │\n│  UserService, ProductService, ...   │\n└──────────────┬──────────────────────┘\n               │\n┌──────────────▼──────────────────────┐\n│      API Layer（接口层）             │\n│  UserAPI, ProductAPI, ...           │\n└──────────────┬──────────────────────┘\n               │\n┌──────────────▼──────────────────────┐\n│   Network Layer（网络层）            │\n│  NetworkManager, RequestBuilder     │\n└──────────────┬──────────────────────┘\n               │\n┌──────────────▼──────────────────────┐\n│   URLSession + Extension            │\n└─────────────────────────────────────┘\n"}]}],"\n",["$","p","p-14",{"children":[["$","strong","strong-0",{"children":"Request Builder"}],"："]}],"\n",["$","pre","pre-13",{"children":["$","code","code-0",{"className":"language-swift","children":"$16"}]}],"\n",["$","p","p-15",{"children":[["$","strong","strong-0",{"children":"Network Manager"}],"："]}],"\n",["$","pre","pre-14",{"children":["$","code","code-0",{"className":"language-swift","children":"$17"}]}],"\n",["$","p","p-16",{"children":[["$","strong","strong-0",{"children":"API Layer"}],"："]}],"\n",["$","pre","pre-15",{"children":["$","code","code-0",{"className":"language-swift","children":"$18"}]}],"\n",["$","p","p-17",{"children":[["$","strong","strong-0",{"children":"Service Layer"}],"："]}],"\n",["$","pre","pre-16",{"children":["$","code","code-0",{"className":"language-swift","children":"protocol UserServiceType {\n    func fetchUsers(completion: @escaping (Result<[User], Error>) -> Void)\n    func fetchUser(id: Int, completion: @escaping (Result<User, Error>) -> Void)\n}\n\nclass UserService: UserServiceType {\n    let api: UserAPIType\n\n    init(api: UserAPIType = UserAPI()) {\n        self.api = api\n    }\n\n    func fetchUsers(completion: @escaping (Result<[User], Error>) -> Void) {\n        api.fetchUsers { result in\n            // 业务逻辑处理\n            switch result {\n            case .success(let users):\n                // 缓存、过滤、排序等\n                completion(.success(users))\n            case .failure(let error):\n                completion(.failure(error))\n            }\n        }\n    }\n\n    func fetchUser(id: Int, completion: @escaping (Result<User, Error>) -> Void) {\n        api.fetchUser(id: id, completion: completion)\n    }\n}\n"}]}],"\n",["$","h3","h3-2",{"id":"53-高级特性","children":"5.3 高级特性"}],"\n",["$","p","p-18",{"children":[["$","strong","strong-0",{"children":"重试机制"}],"："]}],"\n",["$","pre","pre-17",{"children":["$","code","code-0",{"className":"language-swift","children":"$19"}]}],"\n",["$","p","p-19",{"children":[["$","strong","strong-0",{"children":"缓存策略"}],"："]}],"\n",["$","pre","pre-18",{"children":["$","code","code-0",{"className":"language-swift","children":"$1a"}]}],"\n",["$","hr","hr-1",{}],"\n",["$","hr","hr-2",{}],"\n",["$","h3","h3-3",{"id":"74-ios-网络层设计","children":"7.4 iOS 网络层设计"}],"\n",["$","div","div-0",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"问题"}],["$","th","th-1",{"children":"答案要点"}],["$","th","th-2",{"children":"难度"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"如何设计一个网络层？"}],["$","td","td-1",{"children":"分层架构、Request Builder、Network Manager、API Layer"}],["$","td","td-2",{"children":"⭐⭐⭐⭐"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"如何处理重试？"}],["$","td","td-1",{"children":"判断错误类型、指数退避、最大重试次数"}],["$","td","td-2",{"children":"⭐⭐⭐"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"如何实现缓存？"}],["$","td","td-1",{"children":"URLCache、Cache-Control、ETag"}],["$","td","td-2",{"children":"⭐⭐⭐"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"弱网优化策略？"}],["$","td","td-1",{"children":"HTTPDNS、减少请求、压缩、超时重试"}],["$","td","td-2",{"children":"⭐⭐⭐⭐"}]]}]]}]]}]}],"\n",["$","hr","hr-3",{}],"\n",["$","hr","hr-4",{}],"\n",["$","h2","h2-1",{"id":"8-参考资料","children":"8. 参考资料"}],"\n",["$","h3","h3-4",{"id":"优质文章","children":"优质文章"}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":["$","a","a-0",{"href":"https://medium.com/@hosseinnejati/http-2-http-3-and-quic-the-protocol-evolution-that-affects-your-architecture-b28b006b20e9","children":"HTTP/2, HTTP/3, and QUIC: The Protocol Evolution"}]}],"\n",["$","li","li-1",{"children":["$","a","a-0",{"href":"https://www.catchpoint.com/http3-vs-http2","children":"HTTP3 vs HTTP2: Performance Comparison"}]}],"\n",["$","li","li-2",{"children":["$","a","a-0",{"href":"https://blog.cloudflare.com/http-3-vs-http-2/","children":"HTTP/3 vs HTTP/2: Cloudflare Performance"}]}],"\n",["$","li","li-3",{"children":["$","a","a-0",{"href":"https://medium.com/@dhruvinbhalodiya752/ios-interview-guide-how-to-build-a-scalable-networking-layer-2420324806f5","children":"iOS Interview Guide: Networking Layer Design"}]}],"\n",["$","li","li-4",{"children":["$","a","a-0",{"href":"https://www.zignuts.com/blog/mastering-api-architecture-in-ios","children":"Mastering API Architecture in iOS: 2026 Guide"}]}],"\n",["$","li","li-5",{"children":["$","a","a-0",{"href":"https://medium.com/@shubhamsanghavi100/designing-resilient-networking-data-layers-in-swift-ios-offline-support-retry-logic-5973dd723b9d","children":"Designing Resilient Networking Layers in Swift"}]}],"\n"]}],"\n",["$","h3","h3-5",{"id":"协议文档","children":"协议文档"}],"\n",["$","ul","ul-1",{"children":["\n",["$","li","li-0",{"children":["$","a","a-0",{"href":"https://httpwg.org/specs/rfc9114.html","children":"RFC 9114 - HTTP/3"}]}],"\n",["$","li","li-1",{"children":["$","a","a-0",{"href":"https://quicwg.org/base-drafts/rfc9000.html","children":"RFC 9000 - QUIC Protocol"}]}],"\n",["$","li","li-2",{"children":["$","a","a-0",{"href":"https://tlswg.org/rfc8446/","children":"RFC 8446 - TLS 1.3"}]}],"\n"]}],"\n",["$","h3","h3-6",{"id":"开源项目","children":"开源项目"}],"\n",["$","ul","ul-2",{"children":["\n",["$","li","li-0",{"children":[["$","a","a-0",{"href":"https://github.com/Alamofire/Alamofire","children":"Alamofire"}]," - Swift 网络库"]}],"\n",["$","li","li-1",{"children":[["$","a","a-0",{"href":"https://github.com/Moya/Moya","children":"Moya"}]," - 网络层抽象"]}],"\n"]}],"\n",["$","hr","hr-5",{}],"\n",["$","p","p-20",{"children":[["$","strong","strong-0",{"children":"最后更新"}],"：2026-04-07\n",["$","strong","strong-1",{"children":"状态"}],"： 已完成"]}],"\n",["$","p","p-21",{"children":["$","strong","strong-0",{"children":"Sources:"}]}],"\n",["$","ul","ul-3",{"children":["\n",["$","li","li-0",{"children":["$","a","a-0",{"href":"https://medium.com/@hosseinnejati/http-2-http-3-and-quic-the-protocol-evolution-that-affects-your-architecture-b28b006b20e9","children":"HTTP/2, HTTP/3, and QUIC: The Protocol Evolution"}]}],"\n",["$","li","li-1",{"children":["$","a","a-0",{"href":"https://blog.cloudflare.com/http-3-vs-http-2/","children":"HTTP/3 vs HTTP/2: Cloudflare Performance"}]}],"\n",["$","li","li-2",{"children":["$","a","a-0",{"href":"https://medium.com/@dhruvinbhalodiya752/ios-interview-guide-how-to-build-a-scalable-networking-layer-2420324806f5","children":"iOS Interview Guide: Networking Layer Design"}]}],"\n",["$","li","li-3",{"children":["$","a","a-0",{"href":"https://www.zignuts.com/blog/mastering-api-architecture-in-ios","children":"Mastering API Architecture in iOS: 2026 Guide"}]}],"\n"]}]]}],["$","footer",null,{"className":"article-pager","children":[["$","div",null,{"className":"pager-item","children":["$","$L12",null,{"href":"/posts/avfoundation-audio-video-basics","children":[["$","span",null,{"className":"pager-hint","children":"上一篇"}],["$","span",null,{"className":"pager-title","children":"AVFoundation 音视频基础整理：播放、采集与硬编解码"}]]}]}],["$","div",null,{"className":"pager-item right","children":["$","$L12",null,{"href":"/posts/ios-memory-management-complete-guide","children":[["$","span",null,{"className":"pager-hint","children":"下一篇"}],["$","span",null,{"className":"pager-title","children":"iOS 内存管理深入整理：Tagged Pointer、SideTable、weak 与 AutoreleasePool"}]]}]}]]}]]}],["$","aside",null,{"className":"article-toc","children":["$","div",null,{"className":"toc-sticky","children":[["$","div",null,{"className":"toc-heading","children":"本文目录"}],["$","ul",null,{"className":"toc-list","children":[["$","li","5-ios-网络层架构设计-0",{"className":"toc-level-2","children":["$","a",null,{"href":"#5-ios-网络层架构设计","children":"5. iOS 网络层架构设计"}]}],["$","li","51-urlsession-完全指南-1",{"className":"toc-level-3","children":["$","a",null,{"href":"#51-urlsession-完全指南","children":"5.1 URLSession 完全指南"}]}],["$","li","52-网络层架构设计-2",{"className":"toc-level-3","children":["$","a",null,{"href":"#52-网络层架构设计","children":"5.2 网络层架构设计"}]}],["$","li","53-高级特性-3",{"className":"toc-level-3","children":["$","a",null,{"href":"#53-高级特性","children":"5.3 高级特性"}]}],["$","li","74-ios-网络层设计-4",{"className":"toc-level-3","children":["$","a",null,{"href":"#74-ios-网络层设计","children":"7.4 iOS 网络层设计"}]}],["$","li","8-参考资料-5",{"className":"toc-level-2","children":["$","a",null,{"href":"#8-参考资料","children":"8. 参考资料"}]}],["$","li","优质文章-6",{"className":"toc-level-3","children":["$","a",null,{"href":"#优质文章","children":"优质文章"}]}],["$","li","协议文档-7",{"className":"toc-level-3","children":["$","a",null,{"href":"#协议文档","children":"协议文档"}]}],["$","li","开源项目-8",{"className":"toc-level-3","children":["$","a",null,{"href":"#开源项目","children":"开源项目"}]}]]}]]}]}]]}],["$","footer",null,{"className":"site-footer","children":["$","span",null,{"children":"© 2022–2026 FengCaifan"}]}]]}]
+7:null
+b:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
+6:null
+9:{"metadata":[["$","title","0",{"children":"Caifan's Notes"}],["$","meta","1",{"name":"description","content":"个人开发与学习笔记"}],["$","link","2",{"rel":"icon","href":"/fcfblog/favicon.ico","type":"image/x-icon","sizes":"16x16"}]],"error":null,"digest":"$undefined"}
+11:{"metadata":"$9:metadata","error":null,"digest":"$undefined"}

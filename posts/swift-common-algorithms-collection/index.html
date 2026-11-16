@@ -1,0 +1,241 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">Swift 手写 LRU 缓存、链表与二分查找常用代码</h1><div class="article-meta"><time>2024-04-14</time><span class="meta-sep">·</span><span>数据结构与算法</span><span class="meta-sep">·</span><span class="article-tags">Swift / LRU / 链表 / 二分查找</span></div></header><div class="markdown-body"><h2 id="算法初见">算法初见</h2>
+<p>常用算法可以按 <strong>类型</strong> 来分，我给你列一份比较全的清单（不分语言，都是通用的算法思想）：</p>
+<hr/>
+<h3 id="一排序算法">一、排序算法</h3>
+<ul>
+<li>冒泡排序（Bubble Sort）</li>
+<li>选择排序（Selection Sort）</li>
+<li>插入排序（Insertion Sort）</li>
+<li>希尔排序（Shell Sort）</li>
+<li>快速排序（Quick Sort）</li>
+<li>归并排序（Merge Sort）</li>
+<li>堆排序（Heap Sort）</li>
+<li>计数排序（Counting Sort）</li>
+<li>桶排序（Bucket Sort）</li>
+<li>基数排序（Radix Sort）</li>
+</ul>
+<hr/>
+<h3 id="二查找与搜索算法">二、查找与搜索算法</h3>
+<ul>
+<li>线性查找（Linear Search）</li>
+<li>二分查找（Binary Search）</li>
+<li>插值查找（Interpolation Search）</li>
+<li>三分查找（Ternary Search）</li>
+<li>深度优先搜索（DFS）</li>
+<li>广度优先搜索（BFS）</li>
+<li>双向 BFS（Bidirectional BFS）</li>
+<li>A* 搜索（A* Search）</li>
+<li>Dijkstra 最短路径算法</li>
+<li>Bellman-Ford 算法</li>
+<li>Floyd-Warshall 全源最短路径</li>
+<li>Johnson 算法</li>
+</ul>
+<hr/>
+<h3 id="三图论相关">三、图论相关</h3>
+<ul>
+<li>并查集（Union-Find / Disjoint Set Union, DSU）</li>
+<li>Kruskal 最小生成树算法</li>
+<li>Prim 最小生成树算法</li>
+<li>拓扑排序（Topological Sort）</li>
+<li>二分图匹配（匈牙利算法、Hopcroft–Karp 算法）</li>
+<li>Tarjan 强连通分量（SCC）</li>
+<li>Kosaraju 强连通分量</li>
+<li>最小割 / 最大流（Ford–Fulkerson、Edmonds–Karp、Dinic）</li>
+</ul>
+<hr/>
+<h3 id="四动态规划dp">四、动态规划（DP）</h3>
+<ul>
+<li>背包问题（0-1 背包、完全背包、多重背包）</li>
+<li>最长公共子序列（LCS）</li>
+<li>最长上升子序列（LIS）</li>
+<li>编辑距离（Edit Distance / Levenshtein Distance）</li>
+<li>矩阵链乘（Matrix Chain Multiplication）</li>
+<li>股票买卖问题（Best Time to Buy and Sell Stock）</li>
+<li>最大子数组和（Kadane’s Algorithm）</li>
+<li>区间 DP</li>
+<li>状态压缩 DP</li>
+</ul>
+<hr/>
+<h3 id="五分治与贪心">五、分治与贪心</h3>
+<ul>
+<li>分治法（Divide and Conquer）</li>
+<li>贪心算法（Greedy Algorithm）</li>
+<li>霍夫曼编码（Huffman Coding）</li>
+<li>活动选择（Activity Selection）</li>
+</ul>
+<hr/>
+<h3 id="六数学与数论">六、数学与数论</h3>
+<ul>
+<li>欧几里得算法（GCD）</li>
+<li>扩展欧几里得算法（Extended GCD）</li>
+<li>埃拉托斯特尼筛法（Sieve of Eratosthenes）</li>
+<li>快速幂（Fast Power / Binary Exponentiation）</li>
+<li>快速乘（Fast Multiplication）</li>
+<li>模逆元（Modular Inverse）</li>
+<li>组合数计算（Combinations）</li>
+<li>中国剩余定理（CRT）</li>
+<li>Miller–Rabin 素性测试</li>
+<li>Pollard Rho 因数分解</li>
+</ul>
+<hr/>
+<h3 id="七数据结构相关算法">七、数据结构相关算法</h3>
+<ul>
+<li>栈 / 队列 基本操作</li>
+<li>优先队列（Priority Queue / Heap）</li>
+<li>线段树（Segment Tree）</li>
+<li>树状数组（Binary Indexed Tree, Fenwick Tree）</li>
+<li>跳表（Skip List）</li>
+<li>Trie 树（前缀树）</li>
+<li>KMP 字符串匹配</li>
+<li>Rabin–Karp 字符串匹配</li>
+<li>Z-Algorithm</li>
+<li>Manacher 回文串算法</li>
+<li>AC 自动机（Aho–Corasick Automaton）</li>
+</ul>
+<h2 id="排序算法">排序算法</h2>
+<h3 id="1-冒泡排序bubble-sort">1. 冒泡排序（Bubble Sort）</h3>
+<pre><code class="language-python">def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+            if arr[j] &gt; arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+    return arr
+
+print(bubble_sort([5, 3, 8, 4, 2]))
+# [2, 3, 4, 5, 8]
+</code></pre>
+<h3 id="2-插入排序insertion-sort">2. 插入排序（Insertion Sort）</h3>
+<pre><code class="language-python">def insertion_sort(arr):
+    n = len(arr)
+    for i in range(1, n):
+        key = arr[i]
+        j = i - 1
+        while j &gt;= 0 and arr[j] &gt; key:
+            arr[j + 1] = arr[j]
+            j -= 1
+        arr[j + 1] = key
+    return arr
+
+print(insertion_sort([5, 3, 8, 4, 2]))
+# [2, 3, 4, 5, 8]
+
+</code></pre>
+<h3 id="3-快速排序quick-sort">3. 快速排序（Quick Sort）</h3>
+<pre><code class="language-python">def quick_sort(arr):
+    if len(arr) &lt;= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x &lt; pivot]
+    mid = [x for x in arr if x == pivot]
+    right = [x for x in arr if x &gt; pivot]
+    return quick_sort(left) + mid + quick_sort(right)
+
+print(quick_sort([5, 3, 8, 4, 2]))
+# [2, 3, 4, 5, 8]
+
+</code></pre>
+<h3 id="4-归并排序merge-sort">4. 归并排序（Merge Sort）</h3>
+<pre><code class="language-python">def merge_sort(arr):
+    if len(arr) &lt;= 1:
+        return arr
+    mid = len(arr) // 2
+    left = merge_sort(arr[:mid])
+    right = merge_sort(arr[mid:])
+    return merge(left, right)
+
+def merge(left, right):
+    result = []
+    i = j = 0
+    while i &lt; len(left) and j &lt; len(right):
+        if left[i] &lt;= right[j]:
+            result.append(left[i])
+            i += 1
+        else:
+            result.append(right[j])
+            j += 1
+    result.extend(left[i:])
+    result.extend(right[j:])
+    return result
+
+print(merge_sort([5, 3, 8, 4, 2]))
+# [2, 3, 4, 5, 8]
+</code></pre>
+<h3 id="5-堆排序">5. 堆排序</h3>
+<pre><code class="language-python">def heapify(arr, n, i):
+    &quot;&quot;&quot;维护最大堆&quot;&quot;&quot;
+    largest = i
+    left = 2 * i + 1
+    right = 2 * i + 2
+
+    # 如果左子节点比当前节点大
+    if left &lt; n and arr[left] &gt; arr[largest]:
+        largest = left
+
+    # 如果右子节点比当前节点大
+    if right &lt; n and arr[right] &gt; arr[largest]:
+        largest = right
+
+    # 如果最大值不是当前节点，交换并继续下沉
+    if largest != i:
+        arr[i], arr[largest] = arr[largest], arr[i]
+        heapify(arr, n, largest)
+
+def heap_sort(arr):
+    n = len(arr)
+
+    # 构建最大堆
+    for i in range(n // 2 - 1, -1, -1):
+        heapify(arr, n, i)
+
+    # 逐个取出堆顶元素，放到数组末尾
+    for i in range(n - 1, 0, -1):
+        arr[0], arr[i] = arr[i], arr[0]  # 交换堆顶和最后一个元素
+        heapify(arr, i, 0)  # 调整剩余的堆
+
+    return arr
+
+# 示例
+nums = [5, 3, 8, 4, 2, 7, 1]
+print(heap_sort(nums))  # [1, 2, 3, 4, 5, 7, 8]
+
+</code></pre>
+<h3 id="6-二分查找">6. 二分查找</h3>
+<ol>
+<li>迭代版</li>
+</ol>
+<pre><code class="language-python">def binary_search_iter(arr, target):
+    left, right = 0, len(arr) - 1
+    while left &lt;= right:
+        mid = (left + right) // 2
+        if arr[mid] == target:
+            return mid   # 找到返回索引
+        elif arr[mid] &lt; target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return -1   # 没找到返回 -1
+
+nums = [2, 3, 4, 5, 8]
+print(binary_search_iter(nums, 4))  # 2
+print(binary_search_iter(nums, 7))  # -1
+</code></pre>
+<ol start="2">
+<li>递归版</li>
+</ol>
+<pre><code class="language-python">def binary_search_rec(arr, target, left, right):
+    if left &gt; right:
+        return -1
+    mid = (left + right) // 2
+    if arr[mid] == target:
+        return mid
+    elif arr[mid] &lt; target:
+        return binary_search_rec(arr, target, mid + 1, right)
+    else:
+        return binary_search_rec(arr, target, left, mid - 1)
+
+nums = [2, 3, 4, 5, 8]
+print(binary_search_rec(nums, 4, 0, len(nums) - 1))  # 2
+print(binary_search_rec(nums, 7, 0, len(nums) - 1))  # -1
+
+</code></pre></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/algorithm-problem-solving-methodology/"><span class="pager-hint">上一篇</span><span class="pager-title">算法刷题常见套路总结：二叉树、双指针与动态规划</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/swift-advanced-programming-notes/"><span class="pager-hint">下一篇</span><span class="pager-title">Swift 进阶学习笔记：值类型、协议扩展与闭包</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#算法初见">算法初见</a></li><li class="toc-level-3"><a href="#一排序算法">一、排序算法</a></li><li class="toc-level-3"><a href="#二查找与搜索算法">二、查找与搜索算法</a></li><li class="toc-level-3"><a href="#三图论相关">三、图论相关</a></li><li class="toc-level-3"><a href="#四动态规划dp">四、动态规划（DP）</a></li><li class="toc-level-3"><a href="#五分治与贪心">五、分治与贪心</a></li><li class="toc-level-3"><a href="#六数学与数论">六、数学与数论</a></li><li class="toc-level-3"><a href="#七数据结构相关算法">七、数据结构相关算法</a></li><li class="toc-level-2"><a href="#排序算法">排序算法</a></li><li class="toc-level-3"><a href="#1-冒泡排序bubble-sort">1. 冒泡排序（Bubble Sort）</a></li><li class="toc-level-3"><a href="#2-插入排序insertion-sort">2. 插入排序（Insertion Sort）</a></li><li class="toc-level-3"><a href="#3-快速排序quick-sort">3. 快速排序（Quick Sort）</a></li><li class="toc-level-3"><a href="#4-归并排序merge-sort">4. 归并排序（Merge Sort）</a></li><li class="toc-level-3"><a href="#5-堆排序">5. 堆排序</a></li><li class="toc-level-3"><a href="#6-二分查找">6. 二分查找</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"swift-common-algorithms-collection\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"swift-common-algorithms-collection\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"swift-common-algorithms-collection\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"54cOXJQIp__LEecs_PR8Rv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"Swift 手写 LRU 缓存、链表与二分查找常用代码\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2024-04-14\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"数据结构与算法\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"Swift / LRU / 链表 / 二分查找\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"h2\",\"h2-0\",{\"id\":\"算法初见\",\"children\":\"算法初见\"}],\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"常用算法可以按 \",[\"$\",\"strong\",\"strong-0\",{\"children\":\"类型\"}],\" 来分，我给你列一份比较全的清单（不分语言，都是通用的算法思想）：\"]}],\"\\n\",[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"一排序算法\",\"children\":\"一、排序算法\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"冒泡排序（Bubble Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"选择排序（Selection Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"插入排序（Insertion Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"希尔排序（Shell Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"快速排序（Quick Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":\"归并排序（Merge Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":\"堆排序（Heap Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":\"计数排序（Counting Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-8\",{\"children\":\"桶排序（Bucket Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-9\",{\"children\":\"基数排序（Radix Sort）\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-1\",{}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"二查找与搜索算法\",\"children\":\"二、查找与搜索算法\"}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"线性查找（Linear Search）\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"二分查找（Binary Search）\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"插值查找（Interpolation Search）\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"三分查找（Ternary Search）\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"深度优先搜索（DFS）\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":\"广度优先搜索（BFS）\"}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":\"双向 BFS（Bidirectional BFS）\"}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":\"A* 搜索（A* Search）\"}],\"\\n\",[\"$\",\"li\",\"li-8\",{\"children\":\"Dijkstra 最短路径算法\"}],\"\\n\",[\"$\",\"li\",\"li-9\",{\"children\":\"Bellman-Ford 算法\"}],\"\\n\",[\"$\",\"li\",\"li-10\",{\"children\":\"Floyd-Warshall 全源最短路径\"}],\"\\n\",[\"$\",\"li\",\"li-11\",{\"children\":\"Johnson 算法\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-2\",{}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"三图论相关\",\"children\":\"三、图论相关\"}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"并查集（Union-Find / Disjoint Set Union, DSU）\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"Kruskal 最小生成树算法\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"Prim 最小生成树算法\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"拓扑排序（Topological Sort）\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"二分图匹配（匈牙利算法、Hopcroft–Karp 算法）\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":\"Tarjan 强连通分量（SCC）\"}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":\"Kosaraju 强连通分量\"}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":\"最小割 / 最大流（Ford–Fulkerson、Edmonds–Karp、Dinic）\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-3\",{}],\"\\n\",[\"$\",\"h3\",\"h3-3\",{\"id\":\"四动态规划dp\",\"children\":\"四、动态规划（DP）\"}],\"\\n\",[\"$\",\"ul\",\"ul-3\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"背包问题（0-1 背包、完全背包、多重背包）\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"最长公共子序列（LCS）\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"最长上升子序列（LIS）\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"编辑距离（Edit Distance / Levenshtein Distance）\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"矩阵链乘（Matrix Chain Multiplication）\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":\"股票买卖问题（Best Time to Buy and Sell Stock）\"}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":\"最大子数组和（Kadane’s Algorithm）\"}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":\"区间 DP\"}],\"\\n\",[\"$\",\"li\",\"li-8\",{\"children\":\"状态压缩 DP\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-4\",{}],\"\\n\",[\"$\",\"h3\",\"h3-4\",{\"id\":\"五分治与贪心\",\"children\":\"五、分治与贪心\"}],\"\\n\",[\"$\",\"ul\",\"ul-4\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"分治法（Divide and Conquer）\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"贪心算法（Greedy Algorithm）\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"霍夫曼编码（Huffman Coding）\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"活动选择（Activity Selection）\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-5\",{}],\"\\n\",[\"$\",\"h3\",\"h3-5\",{\"id\":\"六数学与数论\",\"children\":\"六、数学与数论\"}],\"\\n\",[\"$\",\"ul\",\"ul-5\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"欧几里得算法（GCD）\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"扩展欧几里得算法（Extended GCD）\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"埃拉托斯特尼筛法（Sieve of Eratosthenes）\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"快速幂（Fast Power / Binary Exponentiation）\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"快速乘（Fast Multiplication）\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":\"模逆元（Modular Inverse）\"}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":\"组合数计算（Combinations）\"}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":\"中国剩余定理（CRT）\"}],\"\\n\",[\"$\",\"li\",\"li-8\",{\"children\":\"Miller–Rabin 素性测试\"}],\"\\n\",[\"$\",\"li\",\"li-9\",{\"children\":\"Pollard Rho 因数分解\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-6\",{}],\"\\n\",[\"$\",\"h3\",\"h3-6\",{\"id\":\"七数据结构相关算法\",\"children\":\"七、数据结构相关算法\"}],\"\\n\",[\"$\",\"ul\",\"ul-6\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"栈 / 队列 基本操作\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"优先队列（Priority Queue / Heap）\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"线段树（Segment Tree）\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"树状数组（Binary Indexed Tree, Fenwick Tree）\"}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":\"跳表（Skip List）\"}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":\"Trie 树（前缀树）\"}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":\"KMP 字符串匹配\"}],\"\\n\",[\"$\",\"li\",\"li-7\",{\"children\":\"Rabin–Karp 字符串匹配\"}],\"\\n\",[\"$\",\"li\",\"li-8\",{\"children\":\"Z-Algorithm\"}],\"\\n\",[\"$\",\"li\",\"li-9\",{\"children\":\"Manacher 回文串算法\"}],\"\\n\",[\"$\",\"li\",\"li-10\",{\"children\":\"AC 自动机（Aho–Corasick Automaton）\"}],\"\\n\"]}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"排序算法\",\"children\":\"排序算法\"}],\"\\n\",[\"$\",\"h3\",\"h3-7\",{\"id\":\"1-冒泡排序bubble-sort\",\"children\":\"1. 冒泡排序（Bubble Sort）\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-python\",\"children\":\"def bubble_sort(arr):\\n    n = len(arr)\\n    for i in range(n):\\n        for j in range(0, n - i - 1):\\n            if arr[j] \u003e arr[j + 1]:\\n                arr[j], arr[j + 1] = arr[j + 1], arr[j]\\n    return arr\\n\\nprint(bubble_sort([5, 3, 8, 4, 2]))\\n# [2, 3, 4, 5, 8]\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-8\",{\"id\":\"2-插入排序insertion-sort\",\"children\":\"2. 插入排序（Insertion Sort）\"}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-python\",\"children\":\"def insertion_sort(arr):\\n    n = len(arr)\\n    for i in range(1, n):\\n        key = arr[i]\\n        j = i - 1\\n        while j \u003e= 0 and arr[j] \u003e key:\\n            arr[j + 1] = arr[j]\\n            j -= 1\\n        arr[j + 1] = key\\n    return arr\\n\\nprint(insertion_sort([5, 3, 8, 4, 2]))\\n# [2, 3, 4, 5, 8]\\n\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-9\",{\"id\":\"3-快速排序quick-sort\",\"children\":\"3. 快速排序（Quick Sort）\"}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-python\",\"children\":\"def quick_sort(arr):\\n    if len(arr) \u003c= 1:\\n        return arr\\n    pivot = arr[len(arr) // 2]\\n    left = [x for x in arr if x \u003c pivot]\\n    mid = [x for x in arr if x == pivot]\\n    right = [x for x in arr if x \u003e pivot]\\n    return quick_sort(left) + mid + quick_sort(right)\\n\\nprint(quick_sort([5, 3, 8, 4, 2]))\\n# [2, 3, 4, 5, 8]\\n\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-10\",{\"id\":\"4-归并排序merge-sort\",\"children\":\"4. 归并排序（Merge Sort）\"}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-python\",\"children\":\"def merge_sort(arr):\\n    if len(arr) \u003c= 1:\\n        return arr\\n    mid = len(arr) // 2\\n    left = merge_sort(arr[:mid])\\n    right = merge_sort(arr[mid:])\\n    return merge(left, right)\\n\\ndef merge(left, right):\\n    result = []\\n    i = j = 0\\n    while i \u003c len(left) and j \u003c len(right):\\n        if left[i] \u003c= right[j]:\\n            result.append(left[i])\\n            i += 1\\n        else:\\n            result.append(right[j])\\n            j += 1\\n    result.extend(left[i:])\\n    result.extend(right[j:])\\n    return result\\n\\nprint(merge_sort([5, 3, 8, 4, 2]))\\n# [2, 3, 4, 5, 8]\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-11\",{\"id\":\"5-堆排序\",\"children\":\"5. 堆排序\"}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-python\",\"children\":\"def heapify(arr, n, i):\\n    \\\"\\\"\\\"维护最大堆\\\"\\\"\\\"\\n    largest = i\\n    left = 2 * i + 1\\n    right = 2 * i + 2\\n\\n    # 如果左子节点比当前节点大\\n    if left \u003c n and arr[left] \u003e arr[largest]:\\n        largest = left\\n\\n    # 如果右子节点比当前节点大\\n    if right \u003c n and arr[right] \u003e arr[largest]:\\n        largest = right\\n\\n    # 如果最大值不是当前节点，交换并继续下沉\\n    if largest != i:\\n        arr[i], arr[largest] = arr[largest], arr[i]\\n        heapify(arr, n, largest)\\n\\ndef heap_sort(arr):\\n    n = len(arr)\\n\\n    # 构建最大堆\\n    for i in range(n // 2 - 1, -1, -1):\\n        heapify(arr, n, i)\\n\\n    # 逐个取出堆顶元素，放到数组末尾\\n    for i in range(n - 1, 0, -1):\\n        arr[0], arr[i] = arr[i], arr[0]  # 交换堆顶和最后一个元素\\n        heapify(arr, i, 0)  # 调整剩余的堆\\n\\n    return arr\\n\\n# 示例\\nnums = [5, 3, 8, 4, 2, 7, 1]\\nprint(heap_sort(nums))  # [1, 2, 3, 4, 5, 7, 8]\\n\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-12\",{\"id\":\"6-二分查找\",\"children\":\"6. 二分查找\"}],\"\\n\",[\"$\",\"ol\",\"ol-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"迭代版\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-5\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-python\",\"children\":\"def binary_search_iter(arr, target):\\n    left, right = 0, len(arr) - 1\\n    while left \u003c= right:\\n        mid = (left + right) // 2\\n        if arr[mid] == target:\\n            return mid   # 找到返回索引\\n        elif arr[mid] \u003c target:\\n            left = mid + 1\\n        else:\\n            right = mid - 1\\n    return -1   # 没找到返回 -1\\n\\nnums = [2, 3, 4, 5, 8]\\nprint(binary_search_iter(nums, 4))  # 2\\nprint(binary_search_iter(nums, 7))  # -1\\n\"}]}],\"\\n\",[\"$\",\"ol\",\"ol-1\",{\"start\":2,\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"递归版\"}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-6\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-python\",\"children\":\"def binary_search_rec(arr, target, left, right):\\n    if left \u003e right:\\n        return -1\\n    mid = (left + right) // 2\\n    if arr[mid] == target:\\n        return mid\\n    elif arr[mid] \u003c target:\\n        return binary_search_rec(arr, target, mid + 1, right)\\n    else:\\n        return binary_search_rec(arr, target, left, mid - 1)\\n\\nnums = [2, 3, 4, 5, 8]\\nprint(binary_search_rec(nums, 4, 0, len(nums) - 1))  # 2\\nprint(binary_search_rec(nums, 7, 0, len(nums) - 1))  # -1\\n\\n\"}]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/algorithm-problem-solving-methodology\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"算法刷题常见套路总结：二叉树、双指针与动态规划\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/swift-advanced-programming-notes\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Swift 进阶学习笔记：值类型、协议扩展与闭包\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"算法初见-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#算法初见\",\"children\":\"算法初见\"}]}],[\"$\",\"li\",\"一排序算法-1\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#一排序算法\",\"children\":\"一、排序算法\"}]}],[\"$\",\"li\",\"二查找与搜索算法-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#二查找与搜索算法\",\"children\":\"二、查找与搜索算法\"}]}],[\"$\",\"li\",\"三图论相关-3\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#三图论相关\",\"children\":\"三、图论相关\"}]}],[\"$\",\"li\",\"四动态规划dp-4\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#四动态规划dp\",\"children\":\"四、动态规划（DP）\"}]}],[\"$\",\"li\",\"五分治与贪心-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#五分治与贪心\",\"children\":\"五、分治与贪心\"}]}],[\"$\",\"li\",\"六数学与数论-6\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#六数学与数论\",\"children\":\"六、数学与数论\"}]}],[\"$\",\"li\",\"七数据结构相关算法-7\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#七数据结构相关算法\",\"children\":\"七、数据结构相关算法\"}]}],[\"$\",\"li\",\"排序算法-8\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#排序算法\",\"children\":\"排序算法\"}]}],[\"$\",\"li\",\"1-冒泡排序bubble-sort-9\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#1-冒泡排序bubble-sort\",\"children\":\"1. 冒泡排序（Bubble Sort）\"}]}],[\"$\",\"li\",\"2-插入排序insertion-sort-10\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#2-插入排序insertion-sort\",\"children\":\"2. 插入排序（Insertion Sort）\"}]}],[\"$\",\"li\",\"3-快速排序quick-sort-11\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#3-快速排序quick-sort\",\"children\":\"3. 快速排序（Quick Sort）\"}]}],[\"$\",\"li\",\"4-归并排序merge-sort-12\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#4-归并排序merge-sort\",\"children\":\"4. 归并排序（Merge Sort）\"}]}],[\"$\",\"li\",\"5-堆排序-13\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#5-堆排序\",\"children\":\"5. 堆排序\"}]}],[\"$\",\"li\",\"6-二分查找-14\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#6-二分查找\",\"children\":\"6. 二分查找\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

@@ -1,0 +1,918 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">iOS 常见崩溃类型分析与线上防护体系总结</h1><div class="article-meta"><time>2026-03-15</time><span class="meta-sep">·</span><span>性能优化与排查</span><span class="meta-sep">·</span><span class="article-tags">稳定性治理 / Crash防护 / Watchdog</span></div></header><div class="markdown-body"><p>Crash防护体系包含监控、捕获、分析、防护四个层次，通过异常捕获、信号处理、堆栈分析等技术手段，建立完整的崩溃治理体系。</p>
+<hr/>
+<h2 id="1-crash类型与原理">1. Crash类型与原理</h2>
+<h3 id="11-crash分类体系">1.1 Crash分类体系</h3>
+<pre><code>iOS崩溃类型：
+├── Mach内核异常
+│   ├── EXC_BAD_ACCESS (非法内存访问)
+│   ├── EXC_BAD_INSTRUCTION (非法指令)
+│   ├── EXC_ARITHMETIC (算术异常，如除零)
+│   └── EXC_BREAKPOINT (断点异常)
+├── POSIX信号 (Unix标准信号)
+│   ├── SIGSEGV (段错误)
+│   ├── SIGBUS (总线错误)
+│   ├── SIGABRT (程序中止)
+│   ├── SIGFPE (浮点异常)
+│   ├── SIGILL (非法指令)
+│   └── SIGPIPE (管道破裂)
+└── OC异常 (应用层异常)
+    ├── NSException (未捕获的OC异常)
+    ├── C++异常 (未捕获的C++异常)
+    └── 用户自定义异常
+</code></pre>
+<h3 id="12-常见crash场景分析">1.2 常见Crash场景分析</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>Crash类型</th><th>常见原因</th><th>检测方式</th></tr></thead><tbody><tr><td>野指针访问</td><td>访问已释放对象</td><td>SIGSEGV信号</td></tr><tr><td>数组越界</td><td>超出数组索引范围</td><td>SIGABRT信号</td></tr><tr><td>字典nil值</td><td>向字典添加nil对象</td><td>NSException</td></tr><tr><td>KVO未移除</td><td>观察者未正确移除</td><td>访问已释放对象</td></tr><tr><td>Main Thread Timeout</td><td>主线程卡顿超过阈值</td><td>系统强杀</td></tr><tr><td>Memory Warning</td><td>内存压力过大</td><td>Jetsam机制</td></tr><tr><td>后台超时</td><td>后台任务执行超时</td><td>系统强杀</td></tr></tbody></table></div>
+<hr/>
+<h2 id="13-crash-report-到根因标准排查流程核心">1.3 Crash Report 到根因：标准排查流程（核心）</h2>
+<blockquote>
+<p><strong>先读报告，再建假设，再线下验证。</strong> <code>EXC_BAD_ACCESS</code>、<code>SIGABRT</code>、<code>NSRangeException</code> 是异常呈现，不是根因名称。不要看到一个 signal 就直接说“野指针”“OOM”。</p>
+</blockquote>
+<h3 id="第-0-步确认报告完整性与优先级">第 0 步：确认报告完整性与优先级</h3>
+<pre><code class="language-text">确认 dSYM / UUID 符号化是否正确
+→ 看影响用户数、发生次数、首发版本、趋势
+→ 按核心路径、机型、系统、页面、业务场景分桶
+→ 优先处理影响大且证据完整、可复现的问题
+</code></pre>
+<h3 id="第-1-步按异常呈现进入不同的首查路径">第 1 步：按异常呈现进入不同的首查路径</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>Crash Report 呈现</th><th>首先看什么</th><th>常见假设</th><th>不能直接下的结论</th></tr></thead><tbody><tr><td>`NSRangeException`</td><td>reason、最后业务帧、下标/集合大小</td><td>数组/字符串/集合越界</td><td>“系统 Foundation 有 Bug”</td></tr><tr><td>`NSInvalidArgumentException`</td><td>reason、receiver/参数真实类型</td><td>nil/类型不对、错误参数、API 使用错误</td><td>“一定是野指针”</td></tr><tr><td>`NSInternalInconsistencyException`</td><td>reason、UIKit/AppKit 断言、调用时序</td><td>生命周期/API 使用前提不满足、布局/状态不一致</td><td>“只要吞异常即可”</td></tr><tr><td>`unrecognized selector`</td><td>receiver 实际类、selector、对象生命周期</td><td>类型边界错误、对象已被替换/释放、接口契约错误</td><td>“全局消息转发能修好”</td></tr><tr><td>`EXC_BAD_ACCESS` + `SIGSEGV` / `SIGBUS`</td><td>subtype、fault address、崩溃指令、最后业务帧、线程时序</td><td>非法内存访问、越界、桥接、C/C++、竞态</td><td>“一定是野指针”</td></tr><tr><td>`SIGABRT` / `EXC_CRASH`</td><td>exception reason、abort 前日志、最后业务帧</td><td>`abort()`、未处理 Exception、Swift fatal/precondition、断言</td><td>“一定是内存问题”</td></tr><tr><td>`EXC_BREAKPOINT` / `SIGTRAP`</td><td>reason、Swift Runtime/断言栈、业务断言</td><td>`fatalError`、`preconditionFailure`、Swift 运行时 trap、开发者断言</td><td>“用户点了断点”</td></tr><tr><td>`EXC_BAD_INSTRUCTION` / `SIGILL`</td><td>崩溃指令、Swift runtime 栈、业务 reason</td><td>非法指令、运行时 trap、错误函数指针/ABI</td><td>“一定是第三方 SDK”</td></tr><tr><td>`EXC_ARITHMETIC` / `SIGFPE`</td><td>指令、输入、数学计算路径</td><td>除零、溢出/算术异常（依语言/编译设置）</td><td>“一定是浮点问题”</td></tr><tr><td>`malloc` / `NSAllocateMemory` / `CGContext` 分配失败</td><td>footprint、资源尺寸、缓存、机型、场景</td><td>内存压力、峰值、堆损坏、资源过大</td><td>“一定是 OOM”</td></tr><tr><td>无普通 Crash Report、下次异常启动</td><td>运行标记、前后台、Crash/Watchdog/升级排除</td><td>Jetsam、Watchdog、疑似 FOOM 或其他退出</td><td>“一定是 FOOM”</td></tr></tbody></table></div>
+<blockquote>
+<p>用户常写成“<code>EXC_BAD_SEGV</code>”，准确写法通常是 <strong><code>EXC_BAD_ACCESS</code></strong>；它可能以 BSD signal <strong><code>SIGSEGV</code></strong> 或 <strong><code>SIGBUS</code></strong> 呈现。</p>
+</blockquote>
+<h3 id="第-2-步所有类型通用的证据链">第 2 步：所有类型通用的证据链</h3>
+<pre><code class="language-text">异常类型 / reason / signal
+→ 崩溃线程：从系统栈向下找最后一个业务帧
+→ 版本、机型、系统、页面、用户路径、发生时机
+→ 其他线程、对象创建/取消/释放、请求/任务回调时序
+→ 建立 2~3 个可验证假设
+→ 最小复现 + 对应工具验证
+→ 根因修复 + 测试 + 灰度 + 分桶回归
+</code></pre>
+<p><code>fault address</code> 只是证据之一，不是“必须先确认无效地址”的前置条件。对 <code>EXC_BAD_ACCESS</code>，系统已说明访问触发了内存异常；要并行看以下证据：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>`EXC_BAD_ACCESS` 证据</th><th>如何使用</th><th>不能证明什么</th></tr></thead><tbody><tr><td>`Exception Subtype: KERN_INVALID_ADDRESS`</td><td>常见于无效虚拟地址访问</td><td>不能区分野指针、空指针、越界、堆损坏或 race</td></tr><tr><td>`Exception Subtype: KERN_PROTECTION_FAILURE`</td><td>地址/页可能存在，但读写执行权限不符</td><td>不代表对象一定已释放</td></tr><tr><td>Fault Address 是 `0x0` / `0x8` / `0x10` 等</td><td>常提示 null 指针加成员偏移访问</td><td>地址形态不是根因证据</td></tr><tr><td>随机高地址 / 地址重复出现</td><td>可作为 use-after-free、越界、堆损坏的线索</td><td>地址会复用，不能仅凭地址定性</td></tr><tr><td>崩溃线程最后业务帧</td><td>找到是谁把调用带入 `objc_msgSend`、`malloc`、CoreGraphics 或 SDK</td><td>栈顶在系统库不代表系统库有 Bug</td></tr><tr><td>其他线程与页面退出/回调时序</td><td>建立生命周期错位或 data race 假设</td><td>多线程存在不等于已经证明 race</td></tr></tbody></table></div>
+<h3 id="第-3-步针对不同类别选择验证工具">第 3 步：针对不同类别选择验证工具</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>假设</th><th>最小复现方法</th><th>验证工具</th><th>能确认什么</th><th>常见修复</th></tr></thead><tbody><tr><td>ObjC 对象释放后仍收消息</td><td>进入页面→发起异步/Timer→立即退出→延迟回调</td><td>Zombie</td><td>已释放对象的类和访问调用点</td><td>明确 owner、取消任务、`invalidate`/`removeObserver`、弱引用与会话 ID 校验</td></tr><tr><td>C/C++/CF 越界、use-after-free、double free</td><td>压力路径、边界输入、图片/音视频处理</td><td>ASan</td><td>被插桩代码的典型越界/释放后访问</td><td>边界检查、所有权、正确 bridge、释放后置空</td></tr><tr><td>无同步并发读写</td><td>延迟/并发压力回放、重复操作</td><td>TSan</td><td>data race</td><td>actor/锁/串行队列、线程封闭、不可变快照</td></tr><tr><td>业务 Exception</td><td>用 reason 与业务参数还原输入</td><td>断点、单测、断言、日志</td><td>业务状态/参数违反 API 前提</td><td>修调用方、边界检查、状态机、测试</td></tr><tr><td>内存峰值 / 分配失败</td><td>低端机、超大资源、列表/页面压力</td><td>Allocations、VM Tracker、Memory Graph</td><td>分配曲线、峰值、大户、泄漏线索</td><td>降采样、缓存限额、分页、退场清理</td></tr></tbody></table></div>
+<p>工具边界：Zombie 不能线上常开；ASan/TSan 开销大，通常用于 Debug/CI；Memory Graph/Leaks 找的是持有关系或泄漏，不能验证野指针。</p>
+<h3 id="第-4-步修复止血与回归">第 4 步：修复、止血与回归</h3>
+<pre><code class="language-text">根因修复优先：所有权 / 生命周期 / 线程同步 / 业务边界 / 资源峰值
+→ 单测、压力回放、静态分析 / Sanitizer
+→ 灰度发布，按版本/机型/场景观察同类 Issue
+→ 告警、Code Review 规则、防回归测试
+</code></pre>
+<p>Runtime 防护仅适用于<strong>高频、边界明确、可安全降级且已有证据</strong>的问题；必须白名单、开关、日志、灰度、回滚。禁止将全局吞 <code>EXC_BAD_ACCESS</code>、未知 selector 或业务 Exception 当成常规治理方案，否则可能把 Crash 转为数据错误。</p>
+<h3 id="面试回答模板从异常到治理">面试回答模板：从异常到治理</h3>
+<blockquote>
+<p>我先按 Crash Report 的呈现分类，而不按异常名直接下根因。例如业务 Exception 优先用 reason 和最后业务栈帧复现；对 <code>EXC_BAD_ACCESS</code> / signal，我会并行看 subtype、fault address、最后业务帧、页面与线程时序，形成生命周期、越界/bridge、C/C++ 或并发竞争等假设，再用 Zombie、ASan、TSan 或压力复现验证。修复时优先改所有权、取消/回调契约、同步边界或资源峰值；上线通过灰度和分桶观察同类 Issue 收敛。Runtime 防护只做少量可安全降级的白名单止血，不替代根因修复。</p>
+</blockquote>
+<h2 id="2-异常捕获机制">2. 异常捕获机制</h2>
+<h3 id="21-oc异常捕获">2.1 OC异常捕获</h3>
+<pre><code class="language-objective-c">#import &lt;Foundation/Foundation.h&gt;
+
+// 异常处理回调
+static void uncaughtExceptionHandler(NSException *exception) {
+    // 1. 获取异常信息
+    NSString *name = [exception name];
+    NSString *reason = [exception reason];
+    NSArray *stackTrace = [exception callStackSymbols];
+
+    // 2. 构建崩溃报告
+    NSString *crashReport = [NSString stringWithFormat:@&quot;Exception Name: %@\n&quot;
+                            &quot;Exception Reason: %@\n&quot;
+                            &quot;Stack Trace:\n%@&quot;,
+                            name, reason, [stackTrace componentsJoinedByString:@&quot;\n&quot;]];
+
+    NSLog(@&quot;Uncaught Exception: %@&quot;, crashReport);
+
+    // 3. 保存到本地文件
+    NSString *path = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+                     stringByAppendingPathComponent:@&quot;crash_report.txt&quot;];
+    [crashReport writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+
+    // 4. 上传到服务器（可选）
+    // [CrashReporter uploadCrashReport:crashReport];
+}
+
+// 安装异常处理器
+void installExceptionHandler() {
+    // 保存原有的处理器
+    NSUncaughtExceptionHandler *oldHandler = NSGetUncaughtExceptionHandler();
+
+    // 设置新的处理器
+    NSSetUncaughtExceptionHandler(&amp;uncaughtExceptionHandler);
+}
+
+// 使用示例
+- (BOOL)application:(UIApplication *)application
+ didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+
+    // 安装异常处理器
+    installExceptionHandler();
+
+    return YES;
+}
+</code></pre>
+<h3 id="22-信号处理器">2.2 信号处理器</h3>
+<pre><code class="language-objective-c">#import &lt;signal.h&gt;
+#include &lt;execinfo.h&gt;
+
+// 信号处理回调
+static void signalHandler(int signal) {
+    // 1. 获取堆栈信息
+    void *callstack[128];
+    int frames = backtrace(callstack, 128);
+    char **strs = backtrace_symbols(callstack, frames);
+
+    // 2. 构建崩溃报告
+    NSMutableString *crashReport = [NSMutableString string];
+    [crashReport appendString:@&quot;Signal Handler:\n&quot;];
+
+    // 信号类型
+    NSString *signalName = @&quot;&quot;;
+    switch (signal) {
+        case SIGSEGV:
+            signalName = @&quot;SIGSEGV (Segmentation Fault)&quot;;
+            break;
+        case SIGBUS:
+            signalName = @&quot;SIGBUS (Bus Error)&quot;;
+            break;
+        case SIGABRT:
+            signalName = @&quot;SIGABRT (Abort)&quot;;
+            break;
+        case SIGFPE:
+            signalName = @&quot;SIGFPE (Floating Point Exception)&quot;;
+            break;
+        case SIGILL:
+            signalName = @&quot;SIGILL (Illegal Instruction)&quot;;
+            break;
+        case SIGPIPE:
+            signalName = @&quot;SIGPIPE (Broken Pipe)&quot;;
+            break;
+        default:
+            signalName = [NSString stringWithFormat:@&quot;Signal %d&quot;, signal];
+            break;
+    }
+
+    [crashReport appendFormat:@&quot;Signal: %@\n&quot;, signalName];
+
+    // 堆栈信息
+    [crashReport appendString:@&quot;Stack Trace:\n&quot;];
+    for (int i = 0; i &lt; frames; i++) {
+        [crashReport appendFormat:@&quot;%s\n&quot;, strs[i]];
+    }
+
+    NSLog(@&quot;Signal Crash: %@&quot;, crashReport);
+
+    // 3. 清理资源
+    free(strs);
+
+    // 4. 保存并上报
+    // [CrashReporter uploadCrashReport:crashReport];
+
+    // 5. 调用默认信号处理（通常会导致进程退出）
+    signal(signal, SIG_DFL);
+    raise(signal);
+}
+
+// 安装信号处理器
+void installSignalHandler() {
+    signal(SIGSEGV, signalHandler);
+    signal(SIGBUS, signalHandler);
+    signal(SIGABRT, signalHandler);
+    signal(SIGFPE, signalHandler);
+    signal(SIGILL, signalHandler);
+    signal(SIGPIPE, signalHandler);
+    signal(SIGHUP, signalHandler);
+    signal(SIGINT, signalHandler);
+    signal(SIGQUIT, signalHandler);
+}
+</code></pre>
+<h3 id="23-完整的crash捕获框架">2.3 完整的Crash捕获框架</h3>
+<pre><code class="language-objective-c">// CrashReporter.h
+#import &lt;Foundation/Foundation.h&gt;
+
+@interface CrashReporter : NSObject
+
++ (instancetype)sharedInstance;
+
+// 安装Crash监控
+- (void)installCrashHandler;
+
+// 上传Crash报告
+- (void)uploadCrashReports;
+
+@end
+
+// CrashReporter.m
+#import &quot;CrashReporter.h&quot;
+#import &lt;sys/signal.h&gt;
+#include &lt;execinfo.h&gt;
+
+@interface CrashReporter ()
+@property (nonatomic, strong) NSMutableArray *pendingCrashReports;
+@property (nonatomic, assign) NSUncaughtExceptionHandler *previousExceptionHandler;
+@end
+
+@implementation CrashReporter
+
++ (instancetype)sharedInstance {
+    static CrashReporter *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&amp;onceToken, ^{
+        instance = [[CrashReporter alloc] init];
+    });
+    return instance;
+}
+
+- (instancetype)init {
+    if (self = [super init]) {
+        _pendingCrashReports = [NSMutableArray array];
+    }
+    return self;
+}
+
+- (void)installCrashHandler {
+    // 1. 安装OC异常处理器
+    [self installExceptionHandler];
+
+    // 2. 安装信号处理器
+    [self installSignalHandler];
+
+    // 3. 检查是否有未上传的Crash
+    [self loadPendingCrashReports];
+}
+
+#pragma mark - OC异常处理
+
+- (void)installExceptionHandler {
+    // 保存原有处理器
+    self.previousExceptionHandler = NSGetUncaughtExceptionHandler();
+
+    // 设置新处理器
+    NSSetUncaughtExceptionHandler(&amp;handleException);
+}
+
+static void handleException(NSException *exception) {
+    // 获取异常信息
+    NSDictionary *crashInfo = @{
+        @&quot;type&quot;: @&quot;NSException&quot;,
+        @&quot;name&quot;: [exception name],
+        @&quot;reason&quot;: [exception reason],
+        @&quot;stackTrace&quot;: [exception callStackSymbols],
+        @&quot;timestamp&quot;: [NSDate date],
+        @&quot;appVersion&quot;: [[NSBundle mainBundle] objectForInfoDictionaryKey:@&quot;CFBundleShortVersionString&quot;],
+        @&quot;deviceModel&quot;: [self getDeviceModel],
+        @&quot;systemVersion&quot;: [[UIDevice currentDevice] systemVersion]
+    };
+
+    // 保存Crash信息
+    [[CrashReporter sharedInstance] saveCrashReport:crashInfo];
+
+    // 调用原有处理器（如果有）
+    if ([CrashReporter sharedInstance].previousExceptionHandler) {
+        [CrashReporter sharedInstance].previousExceptionHandler(exception);
+    }
+}
+
+#pragma mark - 信号处理
+
+- (void)installSignalHandler {
+    signal(SIGSEGV, handleSignal);
+    signal(SIGBUS, handleSignal);
+    signal(SIGABRT, handleSignal);
+    signal(SIGFPE, handleSignal);
+    signal(SIGILL, handleSignal);
+    signal(SIGPIPE, handleSignal);
+}
+
+static void handleSignal(int signal) {
+    // 获取堆栈
+    void *callstack[128];
+    int frames = backtrace(callstack, 128);
+    char **strs = backtrace_symbols(callstack, frames);
+
+    // 转换堆栈为数组
+    NSMutableArray *stackTrace = [NSMutableArray arrayWithCapacity:frames];
+    for (int i = 0; i &lt; frames; i++) {
+        [stackTrace addObject:[NSString stringWithUTF8String:strs[i]]];
+    }
+    free(strs);
+
+    // 获取信号名称
+    NSString *signalName = [CrashReporter getSignalName:signal];
+
+    // 构建Crash信息
+    NSDictionary *crashInfo = @{
+        @&quot;type&quot;: @&quot;Signal&quot;,
+        @&quot;signal&quot;: signalName,
+        @&quot;signalCode&quot;: @(signal),
+        @&quot;stackTrace&quot;: stackTrace,
+        @&quot;timestamp&quot;: [NSDate date],
+        @&quot;appVersion&quot;: [[NSBundle mainBundle] objectForInfoDictionaryKey:@&quot;CFBundleShortVersionString&quot;],
+        @&quot;deviceModel&quot;: [self getDeviceModel],
+        @&quot;systemVersion&quot;: [[UIDevice currentDevice] systemVersion]
+    };
+
+    // 保存Crash信息
+    [[CrashReporter sharedInstance] saveCrashReport:crashInfo];
+
+    // 调用默认处理
+    signal(signal, SIG_DFL);
+    raise(signal);
+}
+
+#pragma mark - 辅助方法
+
++ (NSString *)getSignalName:(int)signal {
+    switch (signal) {
+        case SIGSEGV: return @&quot;SIGSEGV (Segmentation Fault)&quot;;
+        case SIGBUS: return @&quot;SIGBUS (Bus Error)&quot;;
+        case SIGABRT: return @&quot;SIGABRT (Abort)&quot;;
+        case SIGFPE: return @&quot;SIGFPE (Floating Point Exception)&quot;;
+        case SIGILL: return @&quot;SIGILL (Illegal Instruction)&quot;;
+        case SIGPIPE: return @&quot;SIGPIPE (Broken Pipe)&quot;;
+        default: return [NSString stringWithFormat:@&quot;Signal %d&quot;, signal];
+    }
+}
+
++ (NSString *)getDeviceModel {
+    struct utsname systemInfo;
+    uname(&amp;systemInfo);
+    return [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];
+}
+
+#pragma mark - 报告管理
+
+- (void)saveCrashReport:(NSDictionary *)crashInfo {
+    NSString *fileName = [NSString stringWithFormat:@&quot;crash_%@.plist&quot;, [[NSDate date] description]];
+    NSString *path = [self crashReportsPath];
+    NSString *filePath = [path stringByAppendingPathComponent:fileName];
+
+    [crashInfo writeToFile:filePath atomically:YES];
+    [self.pendingCrashReports addObject:filePath];
+
+    NSLog(@&quot;Crash report saved: %@&quot;, filePath);
+}
+
+- (NSString *)crashReportsPath {
+    NSString *path = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+                     stringByAppendingPathComponent:@&quot;CrashReports&quot;];
+
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        [[NSFileManager defaultManager] createDirectoryAtPath:path
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:nil];
+    }
+
+    return path;
+}
+
+- (void)loadPendingCrashReports {
+    NSString *path = [self crashReportsPath];
+    NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:nil];
+
+    for (NSString *file in files) {
+        if ([file hasPrefix:@&quot;crash_&quot;]) {
+            NSString *filePath = [path stringByAppendingPathComponent:file];
+            [self.pendingCrashReports addObject:filePath];
+        }
+    }
+
+    NSLog(@&quot;Loaded %ld pending crash reports&quot;, (long)self.pendingCrashReports.count);
+}
+
+- (void)uploadCrashReports {
+    if (self.pendingCrashReports.count == 0) {
+        return;
+    }
+
+    for (NSString *filePath in self.pendingCrashReports) {
+        NSDictionary *crashInfo = [NSDictionary dictionaryWithContentsOfFile:filePath];
+
+        if (crashInfo) {
+            // 上传到服务器
+            [self uploadSingleCrashReport:crashInfo completion:^{
+                // 上传成功后删除本地文件
+                [[NSFileManager defaultManager] removeItemAtPath:filePath error:nil];
+            }];
+        }
+    }
+
+    [self.pendingCrashReports removeAllObjects];
+}
+
+- (void)uploadSingleCrashReport:(NSDictionary *)crashInfo
+                     completion:(void(^)(void))completion {
+    // 实现具体的上传逻辑
+    // 使用NSURLSession或你的网络框架
+
+    NSLog(@&quot;Uploading crash report: %@&quot;, crashInfo);
+
+    // 模拟上传
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSLog(@&quot;Crash report uploaded successfully&quot;);
+        if (completion) {
+            completion();
+        }
+    });
+}
+
+@end
+</code></pre>
+<hr/>
+<h2 id="3-crash防护策略">3. Crash防护策略</h2>
+<h3 id="31-常见crash防护">3.1 常见Crash防护</h3>
+<h4>3.1.1 野指针防护</h4>
+<pre><code class="language-objective-c">// 使用Zombie Objects检测（仅开发环境）
+#ifdef DEBUG
+    [NSSet set setValue:@YES forKey:@&quot;NSZombieEnabled&quot;];
+#endif
+
+// 安全的封装方法
+@interface NSArray (SafeExtension)
+
++ (instancetype)safeArrayWithObject:(id)object {
+    if (object == nil) {
+        return [self array]; // 返回空数组而不是崩溃
+    }
+    return [self arrayWithObject:object];
+}
+
+- (id)safeObjectAtIndex:(NSUInteger)index {
+    if (index &gt;= self.count) {
+        NSLog(@&quot;Array index out of bounds: %lu &gt;= %lu&quot;, (unsigned long)index, (unsigned long)self.count);
+        return nil;
+    }
+    return [self objectAtIndex:index];
+}
+
+@end
+
+@implementation NSMutableArray (SafeExtension)
+
+- (void)safeAddObject:(id)object {
+    if (object == nil) {
+        NSLog(@&quot;Attempt to add nil object to array&quot;);
+        return;
+    }
+    [self addObject:object];
+}
+
+@end
+</code></pre>
+<h4>3.1.2 字典防护</h4>
+<pre><code class="language-objective-c">@implementation NSMutableDictionary (SafeExtension)
+
+- (void)safeSetObject:(id)object forKey:(id&lt;NSCopying&gt;)key {
+    if (object == nil) {
+        NSLog(@&quot;Attempt to set nil object for key: %@&quot;, key);
+        return;
+    }
+
+    if (key == nil) {
+        NSLog(@&quot;Attempt to use nil key&quot;);
+        return;
+    }
+
+    [self setObject:object forKey:key];
+}
+
+- (void)safeSetValue:(id)value forKey:(NSString *)key {
+    if (key == nil) {
+        NSLog(@&quot;Attempt to set value for nil key&quot;);
+        return;
+    }
+
+    // setValue:forKey: 允许value为nil，会调用removeObjectForKey:
+    [self setValue:value forKey:key];
+}
+
+@end
+</code></pre>
+<h4>3.1.3 KVO防护</h4>
+<pre><code class="language-objective-c">@interface SafeKVOObserver : NSObject
+
+@property (nonatomic, weak) NSObject *observedObject;
+@property (nonatomic, copy) NSString *keyPath;
+@property (nonatomic, copy) void (^observationBlock)(id changes);
+
+- (instancetype)initWithObservedObject:(NSObject *)object
+                               keyPath:(NSString *)keyPath
+                       observationBlock:(void (^)(id changes))block;
+
+@end
+
+@implementation SafeKVOObserver
+
+- (instancetype)initWithObservedObject:(NSObject *)object
+                               keyPath:(NSString *)keyPath
+                       observationBlock:(void (^)(id))block {
+    if (self = [super init]) {
+        _observedObject = object;
+        _keyPath = [keyPath copy];
+        _observationBlock = [block copy];
+
+        // 添加观察
+        [object addObserver:self
+                forKeyPath:keyPath
+                   options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld
+                   context:nil];
+    }
+    return self;
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary&lt;NSKeyValueChangeKey,id&gt; *)change
+                       context:(void *)context {
+    if (self.observationBlock) {
+        self.observationBlock(change);
+    }
+}
+
+- (void)dealloc {
+    // 自动移除观察
+    @try {
+        [_observedObject removeObserver:self forKeyPath:_keyPath];
+    } @catch (NSException *exception) {
+        NSLog(@&quot;Failed to remove observer: %@&quot;, exception);
+    }
+}
+
+@end
+</code></pre>
+<h3 id="32-方法不存在防护">3.2 方法不存在防护</h3>
+<pre><code class="language-objective-c">// 使用消息转发机制
+@interface NSObject (SafeMethodInvocation)
+
+@end
+
+@implementation NSObject (SafeMethodInvocation)
+
++ (void)load {
+    // 交换方法实现
+    static dispatch_once_t onceToken;
+    dispatch_once(&amp;onceToken, ^{
+        Class class = [self class];
+
+        SEL originalSelector = @selector(methodSignatureForSelector:);
+        SEL swizzledSelector = @selector(safe_methodSignatureForSelector:);
+
+        Method originalMethod = class_getInstanceMethod(class, originalSelector);
+        Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+
+        BOOL didAddMethod = class_addMethod(class,
+                                            originalSelector,
+                                            method_getImplementation(swizzledMethod),
+                                            method_getTypeEncoding(swizzledMethod));
+
+        if (didAddMethod) {
+            class_replaceMethod(class,
+                              swizzledSelector,
+                              method_getImplementation(originalMethod),
+                              method_getTypeEncoding(originalMethod));
+        } else {
+            method_exchangeImplementations(originalMethod, swizzledMethod);
+        }
+    });
+}
+
+#pragma mark - Method Implementation
+
+- (NSMethodSignature *)safe_methodSignatureForSelector:(SEL)selector {
+    // 先调用原始方法
+    NSMethodSignature *signature = [self safe_methodSignatureForSelector:selector];
+
+    if (signature != nil) {
+        return signature;
+    }
+
+    // 方法不存在时，返回一个默认签名
+    NSLog(@&quot;Method not found: %@ in class %@&quot;, NSStringFromSelector(selector), [self class]);
+
+    // 返回一个void类型的签名，避免崩溃
+    return [NSMethodSignature signatureWithObjCTypes:&quot;v@:&quot;];
+}
+
+- (void)forwardInvocation:(NSInvocation *)anInvocation {
+    NSLog(@&quot;Invoking unimplemented method: %@ on %@&quot;, NSStringFromSelector(anInvocation.selector), [self class]);
+
+    // 不调用原有实现，避免崩溃
+    // 可以在这里添加降级逻辑或上报
+}
+
+@end
+</code></pre>
+<hr/>
+<h2 id="4-系统级crash监控">4. 系统级Crash监控</h2>
+<h3 id="41-主线程卡顿监控">4.1 主线程卡顿监控</h3>
+<pre><code class="language-objective-c">@interface MainThreadWatchDog : NSObject
+
+@property (nonatomic, strong) dispatch_semaphore_t semaphore;
+@property (nonatomic, assign) NSTimeInterval timeout;
+@property (nonatomic, strong) NSThread *watchThread;
+
+- (void)startWatching;
+- (void)stopWatching;
+
+@end
+
+@implementation MainThreadWatchDog
+
+- (instancetype)initWithTimeout:(NSTimeInterval)timeout {
+    if (self = [super init]) {
+        _timeout = timeout;
+        _semaphore = dispatch_semaphore_create(0);
+    }
+    return self;
+}
+
+- (void)startWatching {
+    self.watchThread = [[NSThread alloc] initWithTarget:self
+                                             selector:@selector(watchDogThread)
+                                               object:nil];
+    [self.watchThread start];
+}
+
+- (void)watchDogThread {
+    @autoreleasepool {
+        while (!self.watchThread.isCancelled) {
+            // 在主线程发送信号
+            dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_semaphore_signal(self.semaphore);
+            });
+
+            // 等待信号
+            dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(self.timeout * NSEC_PER_SEC));
+            intptr_t result = dispatch_semaphore_wait(self.semaphore, timeout);
+
+            if (result != 0) {
+                // 超时，主线程被阻塞
+                [self handleMainThreadBlock];
+            }
+
+            // 睡眠一段时间再检测
+            [NSThread sleepForTimeInterval:self.timeout / 2];
+        }
+    }
+}
+
+- (void)handleMainThreadBlock {
+    NSLog(@&quot; Main thread blocked for %.2f seconds&quot;, self.timeout);
+
+    // 获取主线程堆栈
+    NSArray *stackTrace = [self getMainThreadStackTrace];
+
+    // 上报卡顿信息
+    NSDictionary *lagInfo = @{
+        @&quot;type&quot;: @&quot;MainThreadBlock&quot;,
+        @&quot;duration&quot;: @(self.timeout),
+        @&quot;stackTrace&quot;: stackTrace,
+        @&quot;timestamp&quot;: [NSDate date]
+    };
+
+    // [CrashReporter uploadLagReport:lagInfo];
+}
+
+- (NSArray *)getMainThreadStackTrace {
+    pthread_t mainThread = pthread_main_thread_np();
+    char buffer[256];
+    NSArray *stackTrace = @[];
+
+    // 这里应该使用更复杂的堆栈获取方法
+    // 简化示例
+    return stackTrace;
+}
+
+- (void)stopWatching {
+    [self.watchThread cancel];
+}
+
+@end
+</code></pre>
+<h3 id="42-内存压力监控">4.2 内存压力监控</h3>
+<pre><code class="language-objective-c">@interface MemoryPressureMonitor : NSObject
+
+- (void)startMonitoring;
+- (void)stopMonitoring;
+
+@end
+
+@implementation MemoryPressureMonitor
+
+- (void)startMonitoring {
+    // 监听内存警告通知
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleMemoryWarning)
+                                                 name:UIApplicationDidReceiveMemoryWarningNotification
+                                               object:nil];
+}
+
+- (void)handleMemoryWarning {
+    NSLog(@&quot; Memory warning received&quot;);
+
+    // 获取当前内存使用情况
+    NSDictionary *memoryInfo = [self getCurrentMemoryUsage];
+
+    // 上报内存压力
+    NSDictionary *pressureInfo = @{
+        @&quot;type&quot;: @&quot;MemoryWarning&quot;,
+        @&quot;memoryUsage&quot;: memoryInfo,
+        @&quot;timestamp&quot;: [NSDate date]
+    };
+
+    // [CrashReporter uploadMemoryPressure:pressureInfo];
+
+    // 清理缓存
+    [self clearMemoryCache];
+}
+
+- (NSDictionary *)getCurrentMemoryUsage {
+    // 获取内存使用情况
+    struct mach_task_basic_info info;
+    mach_msg_type_number_t size = MACH_TASK_BASIC_INFO_COUNT;
+    kern_return_t kerr = task_info(mach_task_self(),
+                                   MACH_TASK_BASIC_INFO,
+                                   (task_info_t)&amp;info,
+                                   &amp;size);
+
+    if (kerr == KERN_SUCCESS) {
+        return @{
+            @&quot;residentSize&quot;: @(info.resident_size),
+            @&quot;virtualSize&quot;: @(info.virtual_size),
+            @&quot;maxMemory&quot;: @([self getDeviceMemory])
+        };
+    }
+
+    return @{};
+}
+
+- (NSUInteger)getDeviceMemory {
+    return [NSProcessInfo processInfo].physicalMemory;
+}
+
+- (void)clearMemoryCache {
+    // 清理图片缓存
+    // [[SDImageCache sharedImageCache] clearMemory];
+
+    // 清理其他缓存
+    // ...
+}
+
+- (void)stopMonitoring {
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                     name:UIApplicationDidReceiveMemoryWarningNotification
+                                                   object:nil];
+}
+
+@end
+</code></pre>
+<hr/>
+<h2 id="5-crash分析与符号化">5. Crash分析与符号化</h2>
+<h3 id="51-崩溃日志分析">5.1 崩溃日志分析</h3>
+<pre><code class="language-bash"># 典型的崩溃日志格式
+Incident Identifier: [唯一标识]
+CrashReporter Key:   [设备标识]
+Hardware Model:      iPhone12,1
+Process:             MyApp [123]
+Path:                /var/containers/Bundle/Application/XXX/MyApp.app
+Identifier:          com.example.myapp
+Version:             1.0.0 (123)
+Code Type:           ARM-64
+Parent Process:      launchd [1]
+
+Date/Time:           2026-06-03 10:30:45.000 +0800
+Launch Time:         2026-06-03 10:25:00.000 +0800
+OS Version:          iPhone OS 15.0 (19A346)
+Report Type:         [崩溃类型]
+
+Exception Type:  EXC_BAD_ACCESS (SIGSEGV)
+Exception Codes: 0x0000000000000000 at 0x0000000123456789
+Crashed Thread:  0
+
+Thread 0 name:  Dispatch queue: com.apple.main-thread
+Thread 0 Crashed:
+0   MyApp                         0x0000000100041234 main + 100
+1   libdispatch.dylib            0x0000000184567890 _dispatch_call_block_and_release + 24
+2   libdispatch.dylib            0x0000000184567891 _dispatch_client_callout + 16
+</code></pre>
+<h3 id="52-符号化工具使用">5.2 符号化工具使用</h3>
+<pre><code class="language-bash"># 使用Xcode的symbolicatecrash工具
+
+# 1. 找到symbolicatecrash工具
+find /Applications/Xcode.app -name symbolicatecrash -type f
+
+# 2. 设置环境变量
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+
+# 3. 准备文件
+# 将.crash文件、.dSYM文件、.app文件放在同一目录下
+
+# 4. 执行符号化
+./symbolicatecrash MyApp.crash MyApp.dSYM &gt; MyApp_symbolicated.crash
+
+# 使用atos工具符号化单个地址
+atos -o MyApp.app/MyApp -arch arm64 -l 0x100000000 0x0000000100041234
+</code></pre>
+<h3 id="53-符号化脚本">5.3 符号化脚本</h3>
+<pre><code class="language-bash">#!/bin/bash
+# automate_symbolicate.sh
+
+# 设置变量
+CRASH_FILE=$1
+DSYM_FILE=$2
+APP_FILE=$3
+
+# 检查参数
+if [ &quot;$#&quot; -ne 3 ]; then
+    echo &quot;Usage: $0 &lt;crash_file&gt; &lt;dsym_file&gt; &lt;app_file&gt;&quot;
+    exit 1
+fi
+
+# 设置环境变量
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+
+# 查找symbolicatecrash工具
+SYMBOLICATE_PATH=$(find /Applications/Xcode.app -name symbolicatecrash -type f | head -n 1)
+
+if [ -z &quot;$SYMBOLICATE_PATH&quot; ]; then
+    echo &quot;Error: symbolicatecrash not found!&quot;
+    exit 1
+fi
+
+echo &quot;Using symbolicatecrash: $SYMBOLICATE_PATH&quot;
+
+# 执行符号化
+&quot;$SYMBOLICATE_PATH&quot; &quot;$CRASH_FILE&quot; &quot;$DSYM_FILE&quot; &gt; &quot;${CRASH_FILE}_symbolicated.txt&quot;
+
+echo &quot;Symbolication complete: ${CRASH_FILE}_symbolicated.txt&quot;
+</code></pre>
+<hr/>
+<h2 id="6-最佳实践总结">6. 最佳实践总结</h2>
+<h3 id="61-crash防护体系架构">6.1 Crash防护体系架构</h3>
+<pre><code>┌─────────────────────────────────────┐
+│      Crash防护体系架构              │
+├─────────────────────────────────────┤
+│  监控层：                            │
+│  - FPS监控                           │
+│  - 主线程卡顿监控                    │
+│  - 内存压力监控                      │
+├─────────────────────────────────────┤
+│  捕获层：                            │
+│  - OC异常捕获                        │
+│  - 信号处理                         │
+│  - Mach异常处理                     │
+├─────────────────────────────────────┤
+│  分析层：                            │
+│  - 堆栈收集                         │
+│  - 符号化处理                       │
+│  - 统计分析                         │
+├─────────────────────────────────────┤
+│  防护层：                            │
+│  - 代码防护                         │
+│  - 运行时检查                       │
+│  - 降级策略                         │
+└─────────────────────────────────────┘
+</code></pre>
+<h3 id="62-建立完整的crash处理流程">6.2 建立完整的Crash处理流程</h3>
+<pre><code>1. 开发阶段
+   - 启用 Zombie Objects
+   - 使用 Address Sanitizer
+   - 开启 Thread Sanitizer
+   - 使用静态分析工具
+
+2. 测试阶段
+   - 内测用户安装Crash监控SDK
+   - 收集真实场景的Crash
+   - 建立Crash优先级分类
+
+3. 生产环境
+   - 实时监控Crash率
+   - 及时处理高优先级Crash
+   - 定期分析Crash趋势
+
+4. 持续改进
+   - 建立Crash知识库
+   - 总结常见问题模式
+   - 改进代码质量
+</code></pre>
+<hr/>
+<h2 id="7-参考资料">7. 参考资料</h2>
+<h3 id="优质文章">优质文章</h3>
+<ul>
+<li><a href="https://juejin.cn/post/6844903900728610829">iOS Crash捕获与防护</a></li>
+<li><a href="https://github.com/microsoft/plcrashreporter">PLCrashReporter使用指南</a></li>
+<li><a href="https://github.com/kstenerud/KSCrash">KSCrash框架解析</a></li>
+<li><a href="https://bugly.qq.com/docs/">Bugly iOS接入指南</a></li>
+</ul>
+<h3 id="开源项目">开源项目</h3>
+<ul>
+<li><a href="https://github.com/microsoft/plcrashreporter">PLCrashReporter</a> - 微软崩溃报告框架</li>
+<li><a href="https://github.com/kstenerud/KSCrash">KSCrash</a> - 强大的崩溃处理库</li>
+<li><a href="https://bugly.qq.com/">Bugly</a> - 腾讯崩溃监控服务</li>
+<li><a href="https://firebase.google.com/docs/crashlytics">Firebase Crashlytics</a> - Google崩溃分析</li>
+</ul>
+<h3 id="apple官方文档">Apple官方文档</h3>
+<ul>
+<li><a href="https://developer.apple.com/library/archive/technotes/tn/tn2123/_index.html">Technical Note TN2123 - Exception Handling in Cocoa</a></li>
+<li><a href="https://developer.apple.com/library/archive/documentation/DeveloperTools/Conceptual/debugging_with_gdb/">Debugging in macOS</a></li>
+</ul></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/apm-crash-collection-and-symbolication/"><span class="pager-hint">上一篇</span><span class="pager-title">iOS 崩溃收集原理（Mach Exception / Signal）与 dSYM 符号化还原</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/startup-optimization-pre-main-and-post-main/"><span class="pager-hint">下一篇</span><span class="pager-title">iOS 冷启动优化笔记：pre-main、Clang 插桩二进制重排与启动项分级</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#1-crash类型与原理">1. Crash类型与原理</a></li><li class="toc-level-3"><a href="#11-crash分类体系">1.1 Crash分类体系</a></li><li class="toc-level-3"><a href="#12-常见crash场景分析">1.2 常见Crash场景分析</a></li><li class="toc-level-2"><a href="#13-crash-report-到根因标准排查流程核心">1.3 Crash Report 到根因：标准排查流程（核心）</a></li><li class="toc-level-3"><a href="#第-0-步确认报告完整性与优先级">第 0 步：确认报告完整性与优先级</a></li><li class="toc-level-3"><a href="#第-1-步按异常呈现进入不同的首查路径">第 1 步：按异常呈现进入不同的首查路径</a></li><li class="toc-level-3"><a href="#第-2-步所有类型通用的证据链">第 2 步：所有类型通用的证据链</a></li><li class="toc-level-3"><a href="#第-3-步针对不同类别选择验证工具">第 3 步：针对不同类别选择验证工具</a></li><li class="toc-level-3"><a href="#第-4-步修复止血与回归">第 4 步：修复、止血与回归</a></li><li class="toc-level-3"><a href="#面试回答模板从异常到治理">面试回答模板：从异常到治理</a></li><li class="toc-level-2"><a href="#2-异常捕获机制">2. 异常捕获机制</a></li><li class="toc-level-3"><a href="#21-oc异常捕获">2.1 OC异常捕获</a></li><li class="toc-level-3"><a href="#22-信号处理器">2.2 信号处理器</a></li><li class="toc-level-3"><a href="#23-完整的crash捕获框架">2.3 完整的Crash捕获框架</a></li><li class="toc-level-2"><a href="#3-crash防护策略">3. Crash防护策略</a></li><li class="toc-level-3"><a href="#31-常见crash防护">3.1 常见Crash防护</a></li><li class="toc-level-3"><a href="#32-方法不存在防护">3.2 方法不存在防护</a></li><li class="toc-level-2"><a href="#4-系统级crash监控">4. 系统级Crash监控</a></li><li class="toc-level-3"><a href="#41-主线程卡顿监控">4.1 主线程卡顿监控</a></li><li class="toc-level-3"><a href="#42-内存压力监控">4.2 内存压力监控</a></li><li class="toc-level-2"><a href="#5-crash分析与符号化">5. Crash分析与符号化</a></li><li class="toc-level-3"><a href="#51-崩溃日志分析">5.1 崩溃日志分析</a></li><li class="toc-level-3"><a href="#52-符号化工具使用">5.2 符号化工具使用</a></li><li class="toc-level-3"><a href="#53-符号化脚本">5.3 符号化脚本</a></li><li class="toc-level-2"><a href="#6-最佳实践总结">6. 最佳实践总结</a></li><li class="toc-level-3"><a href="#61-crash防护体系架构">6.1 Crash防护体系架构</a></li><li class="toc-level-3"><a href="#62-建立完整的crash处理流程">6.2 建立完整的Crash处理流程</a></li><li class="toc-level-2"><a href="#7-参考资料">7. 参考资料</a></li><li class="toc-level-3"><a href="#优质文章">优质文章</a></li><li class="toc-level-3"><a href="#开源项目">开源项目</a></li><li class="toc-level-3"><a href="#apple官方文档">Apple官方文档</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"crash-capture-and-defense-system\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"crash-capture-and-defense-system\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"crash-capture-and-defense-system\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"XVanEzJ2IzY7cZS8Jg6Vlv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n13:T5ef,#import \u003cFoundation/Foundation.h\u003e\n\n// 异常处理回调\nstatic void uncaughtExceptionHandler(NSException *exception) {\n    // 1. 获取异常信息\n    NSString *name = [exception name];\n    NSString *reason = [exception reason];\n    NSArray *stackTrace = [exception callStackSymbols];\n\n    // 2. 构建崩溃报告\n    NSString *crashReport = [NSString stringWithFormat:@\"Exception Name: %@\\n\"\n                            \"Exception Reason: %@\\n\"\n                            \"Stack Trace:\\n%@\",\n                            name, reason, [stackTrace componentsJoinedByString:@\"\\n\"]];\n\n    NSLog(@\"Uncaught Exception: %@\", crashReport);\n\n    // 3. 保存到本地文件\n    NSString *path = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject\n                     stringByAppendingPathComponent:@\"crash_report.txt\"];\n    [crashReport writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];\n\n    // 4. 上传到服务器（可选）\n    // [CrashReporter uploadCrashReport:crashReport];\n}\n\n// 安装异常处理器\nvoid installExceptionHandler() {\n    // 保存原有的处理器\n    NSUncaughtExceptionHandler *oldHandler = NSGetUncaughtExceptionHandler();\n\n    // 设置新的处理器\n    NSSetUncaughtExceptionHandler(\u0026uncaughtExceptionHandler);\n}\n\n// 使用示例\n- (BOOL)application:(UIApplication *)application\n didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {\n\n    // 安装异常处理器\n    installExceptionHandler();\n\n    return YES;\n}\n14:T806,"])</script><script>self.__next_f.push([1,"#import \u003csignal.h\u003e\n#include \u003cexecinfo.h\u003e\n\n// 信号处理回调\nstatic void signalHandler(int signal) {\n    // 1. 获取堆栈信息\n    void *callstack[128];\n    int frames = backtrace(callstack, 128);\n    char **strs = backtrace_symbols(callstack, frames);\n\n    // 2. 构建崩溃报告\n    NSMutableString *crashReport = [NSMutableString string];\n    [crashReport appendString:@\"Signal Handler:\\n\"];\n\n    // 信号类型\n    NSString *signalName = @\"\";\n    switch (signal) {\n        case SIGSEGV:\n            signalName = @\"SIGSEGV (Segmentation Fault)\";\n            break;\n        case SIGBUS:\n            signalName = @\"SIGBUS (Bus Error)\";\n            break;\n        case SIGABRT:\n            signalName = @\"SIGABRT (Abort)\";\n            break;\n        case SIGFPE:\n            signalName = @\"SIGFPE (Floating Point Exception)\";\n            break;\n        case SIGILL:\n            signalName = @\"SIGILL (Illegal Instruction)\";\n            break;\n        case SIGPIPE:\n            signalName = @\"SIGPIPE (Broken Pipe)\";\n            break;\n        default:\n            signalName = [NSString stringWithFormat:@\"Signal %d\", signal];\n            break;\n    }\n\n    [crashReport appendFormat:@\"Signal: %@\\n\", signalName];\n\n    // 堆栈信息\n    [crashReport appendString:@\"Stack Trace:\\n\"];\n    for (int i = 0; i \u003c frames; i++) {\n        [crashReport appendFormat:@\"%s\\n\", strs[i]];\n    }\n\n    NSLog(@\"Signal Crash: %@\", crashReport);\n\n    // 3. 清理资源\n    free(strs);\n\n    // 4. 保存并上报\n    // [CrashReporter uploadCrashReport:crashReport];\n\n    // 5. 调用默认信号处理（通常会导致进程退出）\n    signal(signal, SIG_DFL);\n    raise(signal);\n}\n\n// 安装信号处理器\nvoid installSignalHandler() {\n    signal(SIGSEGV, signalHandler);\n    signal(SIGBUS, signalHandler);\n    signal(SIGABRT, signalHandler);\n    signal(SIGFPE, signalHandler);\n    signal(SIGILL, signalHandler);\n    signal(SIGPIPE, signalHandler);\n    signal(SIGHUP, signalHandler);\n    signal(SIGINT, signalHandler);\n    signal(SIGQUIT, signalHandler);\n}\n"])</script><script>self.__next_f.push([1,"15:T1b3a,"])</script><script>self.__next_f.push([1,"// CrashReporter.h\n#import \u003cFoundation/Foundation.h\u003e\n\n@interface CrashReporter : NSObject\n\n+ (instancetype)sharedInstance;\n\n// 安装Crash监控\n- (void)installCrashHandler;\n\n// 上传Crash报告\n- (void)uploadCrashReports;\n\n@end\n\n// CrashReporter.m\n#import \"CrashReporter.h\"\n#import \u003csys/signal.h\u003e\n#include \u003cexecinfo.h\u003e\n\n@interface CrashReporter ()\n@property (nonatomic, strong) NSMutableArray *pendingCrashReports;\n@property (nonatomic, assign) NSUncaughtExceptionHandler *previousExceptionHandler;\n@end\n\n@implementation CrashReporter\n\n+ (instancetype)sharedInstance {\n    static CrashReporter *instance = nil;\n    static dispatch_once_t onceToken;\n    dispatch_once(\u0026onceToken, ^{\n        instance = [[CrashReporter alloc] init];\n    });\n    return instance;\n}\n\n- (instancetype)init {\n    if (self = [super init]) {\n        _pendingCrashReports = [NSMutableArray array];\n    }\n    return self;\n}\n\n- (void)installCrashHandler {\n    // 1. 安装OC异常处理器\n    [self installExceptionHandler];\n\n    // 2. 安装信号处理器\n    [self installSignalHandler];\n\n    // 3. 检查是否有未上传的Crash\n    [self loadPendingCrashReports];\n}\n\n#pragma mark - OC异常处理\n\n- (void)installExceptionHandler {\n    // 保存原有处理器\n    self.previousExceptionHandler = NSGetUncaughtExceptionHandler();\n\n    // 设置新处理器\n    NSSetUncaughtExceptionHandler(\u0026handleException);\n}\n\nstatic void handleException(NSException *exception) {\n    // 获取异常信息\n    NSDictionary *crashInfo = @{\n        @\"type\": @\"NSException\",\n        @\"name\": [exception name],\n        @\"reason\": [exception reason],\n        @\"stackTrace\": [exception callStackSymbols],\n        @\"timestamp\": [NSDate date],\n        @\"appVersion\": [[NSBundle mainBundle] objectForInfoDictionaryKey:@\"CFBundleShortVersionString\"],\n        @\"deviceModel\": [self getDeviceModel],\n        @\"systemVersion\": [[UIDevice currentDevice] systemVersion]\n    };\n\n    // 保存Crash信息\n    [[CrashReporter sharedInstance] saveCrashReport:crashInfo];\n\n    // 调用原有处理器（如果有）\n    if ([CrashReporter sharedInstance].previousExceptionHandler) {\n        [CrashReporter sharedInstance].previousExceptionHandler(exception);\n    }\n}\n\n#pragma mark - 信号处理\n\n- (void)installSignalHandler {\n    signal(SIGSEGV, handleSignal);\n    signal(SIGBUS, handleSignal);\n    signal(SIGABRT, handleSignal);\n    signal(SIGFPE, handleSignal);\n    signal(SIGILL, handleSignal);\n    signal(SIGPIPE, handleSignal);\n}\n\nstatic void handleSignal(int signal) {\n    // 获取堆栈\n    void *callstack[128];\n    int frames = backtrace(callstack, 128);\n    char **strs = backtrace_symbols(callstack, frames);\n\n    // 转换堆栈为数组\n    NSMutableArray *stackTrace = [NSMutableArray arrayWithCapacity:frames];\n    for (int i = 0; i \u003c frames; i++) {\n        [stackTrace addObject:[NSString stringWithUTF8String:strs[i]]];\n    }\n    free(strs);\n\n    // 获取信号名称\n    NSString *signalName = [CrashReporter getSignalName:signal];\n\n    // 构建Crash信息\n    NSDictionary *crashInfo = @{\n        @\"type\": @\"Signal\",\n        @\"signal\": signalName,\n        @\"signalCode\": @(signal),\n        @\"stackTrace\": stackTrace,\n        @\"timestamp\": [NSDate date],\n        @\"appVersion\": [[NSBundle mainBundle] objectForInfoDictionaryKey:@\"CFBundleShortVersionString\"],\n        @\"deviceModel\": [self getDeviceModel],\n        @\"systemVersion\": [[UIDevice currentDevice] systemVersion]\n    };\n\n    // 保存Crash信息\n    [[CrashReporter sharedInstance] saveCrashReport:crashInfo];\n\n    // 调用默认处理\n    signal(signal, SIG_DFL);\n    raise(signal);\n}\n\n#pragma mark - 辅助方法\n\n+ (NSString *)getSignalName:(int)signal {\n    switch (signal) {\n        case SIGSEGV: return @\"SIGSEGV (Segmentation Fault)\";\n        case SIGBUS: return @\"SIGBUS (Bus Error)\";\n        case SIGABRT: return @\"SIGABRT (Abort)\";\n        case SIGFPE: return @\"SIGFPE (Floating Point Exception)\";\n        case SIGILL: return @\"SIGILL (Illegal Instruction)\";\n        case SIGPIPE: return @\"SIGPIPE (Broken Pipe)\";\n        default: return [NSString stringWithFormat:@\"Signal %d\", signal];\n    }\n}\n\n+ (NSString *)getDeviceModel {\n    struct utsname systemInfo;\n    uname(\u0026systemInfo);\n    return [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];\n}\n\n#pragma mark - 报告管理\n\n- (void)saveCrashReport:(NSDictionary *)crashInfo {\n    NSString *fileName = [NSString stringWithFormat:@\"crash_%@.plist\", [[NSDate date] description]];\n    NSString *path = [self crashReportsPath];\n    NSString *filePath = [path stringByAppendingPathComponent:fileName];\n\n    [crashInfo writeToFile:filePath atomically:YES];\n    [self.pendingCrashReports addObject:filePath];\n\n    NSLog(@\"Crash report saved: %@\", filePath);\n}\n\n- (NSString *)crashReportsPath {\n    NSString *path = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject\n                     stringByAppendingPathComponent:@\"CrashReports\"];\n\n    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {\n        [[NSFileManager defaultManager] createDirectoryAtPath:path\n                                  withIntermediateDirectories:YES\n                                                   attributes:nil\n                                                        error:nil];\n    }\n\n    return path;\n}\n\n- (void)loadPendingCrashReports {\n    NSString *path = [self crashReportsPath];\n    NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:nil];\n\n    for (NSString *file in files) {\n        if ([file hasPrefix:@\"crash_\"]) {\n            NSString *filePath = [path stringByAppendingPathComponent:file];\n            [self.pendingCrashReports addObject:filePath];\n        }\n    }\n\n    NSLog(@\"Loaded %ld pending crash reports\", (long)self.pendingCrashReports.count);\n}\n\n- (void)uploadCrashReports {\n    if (self.pendingCrashReports.count == 0) {\n        return;\n    }\n\n    for (NSString *filePath in self.pendingCrashReports) {\n        NSDictionary *crashInfo = [NSDictionary dictionaryWithContentsOfFile:filePath];\n\n        if (crashInfo) {\n            // 上传到服务器\n            [self uploadSingleCrashReport:crashInfo completion:^{\n                // 上传成功后删除本地文件\n                [[NSFileManager defaultManager] removeItemAtPath:filePath error:nil];\n            }];\n        }\n    }\n\n    [self.pendingCrashReports removeAllObjects];\n}\n\n- (void)uploadSingleCrashReport:(NSDictionary *)crashInfo\n                     completion:(void(^)(void))completion {\n    // 实现具体的上传逻辑\n    // 使用NSURLSession或你的网络框架\n\n    NSLog(@\"Uploading crash report: %@\", crashInfo);\n\n    // 模拟上传\n    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{\n        NSLog(@\"Crash report uploaded successfully\");\n        if (completion) {\n            completion();\n        }\n    });\n}\n\n@end\n"])</script><script>self.__next_f.push([1,"16:T5fa,@interface SafeKVOObserver : NSObject\n\n@property (nonatomic, weak) NSObject *observedObject;\n@property (nonatomic, copy) NSString *keyPath;\n@property (nonatomic, copy) void (^observationBlock)(id changes);\n\n- (instancetype)initWithObservedObject:(NSObject *)object\n                               keyPath:(NSString *)keyPath\n                       observationBlock:(void (^)(id changes))block;\n\n@end\n\n@implementation SafeKVOObserver\n\n- (instancetype)initWithObservedObject:(NSObject *)object\n                               keyPath:(NSString *)keyPath\n                       observationBlock:(void (^)(id))block {\n    if (self = [super init]) {\n        _observedObject = object;\n        _keyPath = [keyPath copy];\n        _observationBlock = [block copy];\n\n        // 添加观察\n        [object addObserver:self\n                forKeyPath:keyPath\n                   options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld\n                   context:nil];\n    }\n    return self;\n}\n\n- (void)observeValueForKeyPath:(NSString *)keyPath\n                      ofObject:(id)object\n                        change:(NSDictionary\u003cNSKeyValueChangeKey,id\u003e *)change\n                       context:(void *)context {\n    if (self.observationBlock) {\n        self.observationBlock(change);\n    }\n}\n\n- (void)dealloc {\n    // 自动移除观察\n    @try {\n        [_observedObject removeObserver:self forKeyPath:_keyPath];\n    } @catch (NSException *exception) {\n        NSLog(@\"Failed to remove observer: %@\", exception);\n    }\n}\n\n@end\n17:T816,"])</script><script>self.__next_f.push([1,"// 使用消息转发机制\n@interface NSObject (SafeMethodInvocation)\n\n@end\n\n@implementation NSObject (SafeMethodInvocation)\n\n+ (void)load {\n    // 交换方法实现\n    static dispatch_once_t onceToken;\n    dispatch_once(\u0026onceToken, ^{\n        Class class = [self class];\n\n        SEL originalSelector = @selector(methodSignatureForSelector:);\n        SEL swizzledSelector = @selector(safe_methodSignatureForSelector:);\n\n        Method originalMethod = class_getInstanceMethod(class, originalSelector);\n        Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);\n\n        BOOL didAddMethod = class_addMethod(class,\n                                            originalSelector,\n                                            method_getImplementation(swizzledMethod),\n                                            method_getTypeEncoding(swizzledMethod));\n\n        if (didAddMethod) {\n            class_replaceMethod(class,\n                              swizzledSelector,\n                              method_getImplementation(originalMethod),\n                              method_getTypeEncoding(originalMethod));\n        } else {\n            method_exchangeImplementations(originalMethod, swizzledMethod);\n        }\n    });\n}\n\n#pragma mark - Method Implementation\n\n- (NSMethodSignature *)safe_methodSignatureForSelector:(SEL)selector {\n    // 先调用原始方法\n    NSMethodSignature *signature = [self safe_methodSignatureForSelector:selector];\n\n    if (signature != nil) {\n        return signature;\n    }\n\n    // 方法不存在时，返回一个默认签名\n    NSLog(@\"Method not found: %@ in class %@\", NSStringFromSelector(selector), [self class]);\n\n    // 返回一个void类型的签名，避免崩溃\n    return [NSMethodSignature signatureWithObjCTypes:\"v@:\"];\n}\n\n- (void)forwardInvocation:(NSInvocation *)anInvocation {\n    NSLog(@\"Invoking unimplemented method: %@ on %@\", NSStringFromSelector(anInvocation.selector), [self class]);\n\n    // 不调用原有实现，避免崩溃\n    // 可以在这里添加降级逻辑或上报\n}\n\n@end\n"])</script><script>self.__next_f.push([1,"18:T8d9,"])</script><script>self.__next_f.push([1,"@interface MainThreadWatchDog : NSObject\n\n@property (nonatomic, strong) dispatch_semaphore_t semaphore;\n@property (nonatomic, assign) NSTimeInterval timeout;\n@property (nonatomic, strong) NSThread *watchThread;\n\n- (void)startWatching;\n- (void)stopWatching;\n\n@end\n\n@implementation MainThreadWatchDog\n\n- (instancetype)initWithTimeout:(NSTimeInterval)timeout {\n    if (self = [super init]) {\n        _timeout = timeout;\n        _semaphore = dispatch_semaphore_create(0);\n    }\n    return self;\n}\n\n- (void)startWatching {\n    self.watchThread = [[NSThread alloc] initWithTarget:self\n                                             selector:@selector(watchDogThread)\n                                               object:nil];\n    [self.watchThread start];\n}\n\n- (void)watchDogThread {\n    @autoreleasepool {\n        while (!self.watchThread.isCancelled) {\n            // 在主线程发送信号\n            dispatch_async(dispatch_get_main_queue(), ^{\n                dispatch_semaphore_signal(self.semaphore);\n            });\n\n            // 等待信号\n            dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(self.timeout * NSEC_PER_SEC));\n            intptr_t result = dispatch_semaphore_wait(self.semaphore, timeout);\n\n            if (result != 0) {\n                // 超时，主线程被阻塞\n                [self handleMainThreadBlock];\n            }\n\n            // 睡眠一段时间再检测\n            [NSThread sleepForTimeInterval:self.timeout / 2];\n        }\n    }\n}\n\n- (void)handleMainThreadBlock {\n    NSLog(@\" Main thread blocked for %.2f seconds\", self.timeout);\n\n    // 获取主线程堆栈\n    NSArray *stackTrace = [self getMainThreadStackTrace];\n\n    // 上报卡顿信息\n    NSDictionary *lagInfo = @{\n        @\"type\": @\"MainThreadBlock\",\n        @\"duration\": @(self.timeout),\n        @\"stackTrace\": stackTrace,\n        @\"timestamp\": [NSDate date]\n    };\n\n    // [CrashReporter uploadLagReport:lagInfo];\n}\n\n- (NSArray *)getMainThreadStackTrace {\n    pthread_t mainThread = pthread_main_thread_np();\n    char buffer[256];\n    NSArray *stackTrace = @[];\n\n    // 这里应该使用更复杂的堆栈获取方法\n    // 简化示例\n    return stackTrace;\n}\n\n- (void)stopWatching {\n    [self.watchThread cancel];\n}\n\n@end\n"])</script><script>self.__next_f.push([1,"19:T82f,"])</script><script>self.__next_f.push([1,"@interface MemoryPressureMonitor : NSObject\n\n- (void)startMonitoring;\n- (void)stopMonitoring;\n\n@end\n\n@implementation MemoryPressureMonitor\n\n- (void)startMonitoring {\n    // 监听内存警告通知\n    [[NSNotificationCenter defaultCenter] addObserver:self\n                                             selector:@selector(handleMemoryWarning)\n                                                 name:UIApplicationDidReceiveMemoryWarningNotification\n                                               object:nil];\n}\n\n- (void)handleMemoryWarning {\n    NSLog(@\" Memory warning received\");\n\n    // 获取当前内存使用情况\n    NSDictionary *memoryInfo = [self getCurrentMemoryUsage];\n\n    // 上报内存压力\n    NSDictionary *pressureInfo = @{\n        @\"type\": @\"MemoryWarning\",\n        @\"memoryUsage\": memoryInfo,\n        @\"timestamp\": [NSDate date]\n    };\n\n    // [CrashReporter uploadMemoryPressure:pressureInfo];\n\n    // 清理缓存\n    [self clearMemoryCache];\n}\n\n- (NSDictionary *)getCurrentMemoryUsage {\n    // 获取内存使用情况\n    struct mach_task_basic_info info;\n    mach_msg_type_number_t size = MACH_TASK_BASIC_INFO_COUNT;\n    kern_return_t kerr = task_info(mach_task_self(),\n                                   MACH_TASK_BASIC_INFO,\n                                   (task_info_t)\u0026info,\n                                   \u0026size);\n\n    if (kerr == KERN_SUCCESS) {\n        return @{\n            @\"residentSize\": @(info.resident_size),\n            @\"virtualSize\": @(info.virtual_size),\n            @\"maxMemory\": @([self getDeviceMemory])\n        };\n    }\n\n    return @{};\n}\n\n- (NSUInteger)getDeviceMemory {\n    return [NSProcessInfo processInfo].physicalMemory;\n}\n\n- (void)clearMemoryCache {\n    // 清理图片缓存\n    // [[SDImageCache sharedImageCache] clearMemory];\n\n    // 清理其他缓存\n    // ...\n}\n\n- (void)stopMonitoring {\n    [[NSNotificationCenter defaultCenter] removeObserver:self\n                                                     name:UIApplicationDidReceiveMemoryWarningNotification\n                                                   object:nil];\n}\n\n@end\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"iOS 常见崩溃类型分析与线上防护体系总结\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2026-03-15\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"性能优化与排查\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"稳定性治理 / Crash防护 / Watchdog\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"p\",\"p-0\",{\"children\":\"Crash防护体系包含监控、捕获、分析、防护四个层次，通过异常捕获、信号处理、堆栈分析等技术手段，建立完整的崩溃治理体系。\"}],\"\\n\",[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h2\",\"h2-0\",{\"id\":\"1-crash类型与原理\",\"children\":\"1. Crash类型与原理\"}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"11-crash分类体系\",\"children\":\"1.1 Crash分类体系\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"iOS崩溃类型：\\n├── Mach内核异常\\n│   ├── EXC_BAD_ACCESS (非法内存访问)\\n│   ├── EXC_BAD_INSTRUCTION (非法指令)\\n│   ├── EXC_ARITHMETIC (算术异常，如除零)\\n│   └── EXC_BREAKPOINT (断点异常)\\n├── POSIX信号 (Unix标准信号)\\n│   ├── SIGSEGV (段错误)\\n│   ├── SIGBUS (总线错误)\\n│   ├── SIGABRT (程序中止)\\n│   ├── SIGFPE (浮点异常)\\n│   ├── SIGILL (非法指令)\\n│   └── SIGPIPE (管道破裂)\\n└── OC异常 (应用层异常)\\n    ├── NSException (未捕获的OC异常)\\n    ├── C++异常 (未捕获的C++异常)\\n    └── 用户自定义异常\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"12-常见crash场景分析\",\"children\":\"1.2 常见Crash场景分析\"}],\"\\n\",[\"$\",\"div\",\"div-0\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"Crash类型\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"常见原因\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"检测方式\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"野指针访问\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"访问已释放对象\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"SIGSEGV信号\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"数组越界\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"超出数组索引范围\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"SIGABRT信号\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"字典nil值\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"向字典添加nil对象\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"NSException\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"KVO未移除\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"观察者未正确移除\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"访问已释放对象\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Main Thread Timeout\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"主线程卡顿超过阈值\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"系统强杀\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Memory Warning\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"内存压力过大\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"Jetsam机制\"}]]}],[\"$\",\"tr\",\"tr-6\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"后台超时\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"后台任务执行超时\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"系统强杀\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"hr\",\"hr-1\",{}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"13-crash-report-到根因标准排查流程核心\",\"children\":\"1.3 Crash Report 到根因：标准排查流程（核心）\"}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"先读报告，再建假设，再线下验证。\"}],\" \",[\"$\",\"code\",\"code-0\",{\"children\":\"EXC_BAD_ACCESS\"}],\"、\",[\"$\",\"code\",\"code-1\",{\"children\":\"SIGABRT\"}],\"、\",[\"$\",\"code\",\"code-2\",{\"children\":\"NSRangeException\"}],\" 是异常呈现，不是根因名称。不要看到一个 signal 就直接说“野指针”“OOM”。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"第-0-步确认报告完整性与优先级\",\"children\":\"第 0 步：确认报告完整性与优先级\"}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-text\",\"children\":\"确认 dSYM / UUID 符号化是否正确\\n→ 看影响用户数、发生次数、首发版本、趋势\\n→ 按核心路径、机型、系统、页面、业务场景分桶\\n→ 优先处理影响大且证据完整、可复现的问题\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-3\",{\"id\":\"第-1-步按异常呈现进入不同的首查路径\",\"children\":\"第 1 步：按异常呈现进入不同的首查路径\"}],\"\\n\",[\"$\",\"div\",\"div-1\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"Crash Report 呈现\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"首先看什么\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"常见假设\"}],[\"$\",\"th\",\"th-3\",{\"children\":\"不能直接下的结论\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`NSRangeException`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"reason、最后业务帧、下标/集合大小\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"数组/字符串/集合越界\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“系统 Foundation 有 Bug”\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`NSInvalidArgumentException`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"reason、receiver/参数真实类型\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"nil/类型不对、错误参数、API 使用错误\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“一定是野指针”\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`NSInternalInconsistencyException`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"reason、UIKit/AppKit 断言、调用时序\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"生命周期/API 使用前提不满足、布局/状态不一致\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“只要吞异常即可”\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`unrecognized selector`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"receiver 实际类、selector、对象生命周期\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"类型边界错误、对象已被替换/释放、接口契约错误\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“全局消息转发能修好”\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`EXC_BAD_ACCESS` + `SIGSEGV` / `SIGBUS`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"subtype、fault address、崩溃指令、最后业务帧、线程时序\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"非法内存访问、越界、桥接、C/C++、竞态\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“一定是野指针”\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`SIGABRT` / `EXC_CRASH`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"exception reason、abort 前日志、最后业务帧\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"`abort()`、未处理 Exception、Swift fatal/precondition、断言\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“一定是内存问题”\"}]]}],[\"$\",\"tr\",\"tr-6\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`EXC_BREAKPOINT` / `SIGTRAP`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"reason、Swift Runtime/断言栈、业务断言\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"`fatalError`、`preconditionFailure`、Swift 运行时 trap、开发者断言\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“用户点了断点”\"}]]}],[\"$\",\"tr\",\"tr-7\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`EXC_BAD_INSTRUCTION` / `SIGILL`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"崩溃指令、Swift runtime 栈、业务 reason\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"非法指令、运行时 trap、错误函数指针/ABI\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“一定是第三方 SDK”\"}]]}],[\"$\",\"tr\",\"tr-8\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`EXC_ARITHMETIC` / `SIGFPE`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"指令、输入、数学计算路径\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"除零、溢出/算术异常（依语言/编译设置）\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“一定是浮点问题”\"}]]}],[\"$\",\"tr\",\"tr-9\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`malloc` / `NSAllocateMemory` / `CGContext` 分配失败\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"footprint、资源尺寸、缓存、机型、场景\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"内存压力、峰值、堆损坏、资源过大\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“一定是 OOM”\"}]]}],[\"$\",\"tr\",\"tr-10\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"无普通 Crash Report、下次异常启动\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"运行标记、前后台、Crash/Watchdog/升级排除\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"Jetsam、Watchdog、疑似 FOOM 或其他退出\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"“一定是 FOOM”\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"用户常写成“\",[\"$\",\"code\",\"code-0\",{\"children\":\"EXC_BAD_SEGV\"}],\"”，准确写法通常是 \",[\"$\",\"strong\",\"strong-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"EXC_BAD_ACCESS\"}]}],\"；它可能以 BSD signal \",[\"$\",\"strong\",\"strong-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"SIGSEGV\"}]}],\" 或 \",[\"$\",\"strong\",\"strong-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"SIGBUS\"}]}],\" 呈现。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-4\",{\"id\":\"第-2-步所有类型通用的证据链\",\"children\":\"第 2 步：所有类型通用的证据链\"}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-text\",\"children\":\"异常类型 / reason / signal\\n→ 崩溃线程：从系统栈向下找最后一个业务帧\\n→ 版本、机型、系统、页面、用户路径、发生时机\\n→ 其他线程、对象创建/取消/释放、请求/任务回调时序\\n→ 建立 2~3 个可验证假设\\n→ 最小复现 + 对应工具验证\\n→ 根因修复 + 测试 + 灰度 + 分桶回归\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"fault address\"}],\" 只是证据之一，不是“必须先确认无效地址”的前置条件。对 \",[\"$\",\"code\",\"code-1\",{\"children\":\"EXC_BAD_ACCESS\"}],\"，系统已说明访问触发了内存异常；要并行看以下证据：\"]}],\"\\n\",[\"$\",\"div\",\"div-2\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"`EXC_BAD_ACCESS` 证据\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"如何使用\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"不能证明什么\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`Exception Subtype: KERN_INVALID_ADDRESS`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"常见于无效虚拟地址访问\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"不能区分野指针、空指针、越界、堆损坏或 race\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`Exception Subtype: KERN_PROTECTION_FAILURE`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"地址/页可能存在，但读写执行权限不符\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"不代表对象一定已释放\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Fault Address 是 `0x0` / `0x8` / `0x10` 等\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"常提示 null 指针加成员偏移访问\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"地址形态不是根因证据\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"随机高地址 / 地址重复出现\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"可作为 use-after-free、越界、堆损坏的线索\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"地址会复用，不能仅凭地址定性\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"崩溃线程最后业务帧\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"找到是谁把调用带入 `objc_msgSend`、`malloc`、CoreGraphics 或 SDK\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"栈顶在系统库不代表系统库有 Bug\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"其他线程与页面退出/回调时序\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"建立生命周期错位或 data race 假设\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"多线程存在不等于已经证明 race\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h3\",\"h3-5\",{\"id\":\"第-3-步针对不同类别选择验证工具\",\"children\":\"第 3 步：针对不同类别选择验证工具\"}],\"\\n\",[\"$\",\"div\",\"div-3\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"假设\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"最小复现方法\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"验证工具\"}],[\"$\",\"th\",\"th-3\",{\"children\":\"能确认什么\"}],[\"$\",\"th\",\"th-4\",{\"children\":\"常见修复\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"ObjC 对象释放后仍收消息\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"进入页面→发起异步/Timer→立即退出→延迟回调\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"Zombie\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"已释放对象的类和访问调用点\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"明确 owner、取消任务、`invalidate`/`removeObserver`、弱引用与会话 ID 校验\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"C/C++/CF 越界、use-after-free、double free\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"压力路径、边界输入、图片/音视频处理\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"ASan\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"被插桩代码的典型越界/释放后访问\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"边界检查、所有权、正确 bridge、释放后置空\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"无同步并发读写\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"延迟/并发压力回放、重复操作\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"TSan\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"data race\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"actor/锁/串行队列、线程封闭、不可变快照\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"业务 Exception\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"用 reason 与业务参数还原输入\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"断点、单测、断言、日志\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"业务状态/参数违反 API 前提\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"修调用方、边界检查、状态机、测试\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"内存峰值 / 分配失败\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"低端机、超大资源、列表/页面压力\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"Allocations、VM Tracker、Memory Graph\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"分配曲线、峰值、大户、泄漏线索\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"降采样、缓存限额、分页、退场清理\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":\"工具边界：Zombie 不能线上常开；ASan/TSan 开销大，通常用于 Debug/CI；Memory Graph/Leaks 找的是持有关系或泄漏，不能验证野指针。\"}],\"\\n\",[\"$\",\"h3\",\"h3-6\",{\"id\":\"第-4-步修复止血与回归\",\"children\":\"第 4 步：修复、止血与回归\"}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-text\",\"children\":\"根因修复优先：所有权 / 生命周期 / 线程同步 / 业务边界 / 资源峰值\\n→ 单测、压力回放、静态分析 / Sanitizer\\n→ 灰度发布，按版本/机型/场景观察同类 Issue\\n→ 告警、Code Review 规则、防回归测试\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":[\"Runtime 防护仅适用于\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"高频、边界明确、可安全降级且已有证据\"}],\"的问题；必须白名单、开关、日志、灰度、回滚。禁止将全局吞 \",[\"$\",\"code\",\"code-0\",{\"children\":\"EXC_BAD_ACCESS\"}],\"、未知 selector 或业务 Exception 当成常规治理方案，否则可能把 Crash 转为数据错误。\"]}],\"\\n\",[\"$\",\"h3\",\"h3-7\",{\"id\":\"面试回答模板从异常到治理\",\"children\":\"面试回答模板：从异常到治理\"}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"我先按 Crash Report 的呈现分类，而不按异常名直接下根因。例如业务 Exception 优先用 reason 和最后业务栈帧复现；对 \",[\"$\",\"code\",\"code-0\",{\"children\":\"EXC_BAD_ACCESS\"}],\" / signal，我会并行看 subtype、fault address、最后业务帧、页面与线程时序，形成生命周期、越界/bridge、C/C++ 或并发竞争等假设，再用 Zombie、ASan、TSan 或压力复现验证。修复时优先改所有权、取消/回调契约、同步边界或资源峰值；上线通过灰度和分桶观察同类 Issue 收敛。Runtime 防护只做少量可安全降级的白名单止血，不替代根因修复。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"2-异常捕获机制\",\"children\":\"2. 异常捕获机制\"}],\"\\n\",[\"$\",\"h3\",\"h3-8\",{\"id\":\"21-oc异常捕获\",\"children\":\"2.1 OC异常捕获\"}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$13\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-9\",{\"id\":\"22-信号处理器\",\"children\":\"2.2 信号处理器\"}],\"\\n\",[\"$\",\"pre\",\"pre-5\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$14\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-10\",{\"id\":\"23-完整的crash捕获框架\",\"children\":\"2.3 完整的Crash捕获框架\"}],\"\\n\",[\"$\",\"pre\",\"pre-6\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$15\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-2\",{}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"3-crash防护策略\",\"children\":\"3. Crash防护策略\"}],\"\\n\",[\"$\",\"h3\",\"h3-11\",{\"id\":\"31-常见crash防护\",\"children\":\"3.1 常见Crash防护\"}],\"\\n\",[\"$\",\"h4\",\"h4-0\",{\"children\":\"3.1.1 野指针防护\"}],\"\\n\",[\"$\",\"pre\",\"pre-7\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 使用Zombie Objects检测（仅开发环境）\\n#ifdef DEBUG\\n    [NSSet set setValue:@YES forKey:@\\\"NSZombieEnabled\\\"];\\n#endif\\n\\n// 安全的封装方法\\n@interface NSArray (SafeExtension)\\n\\n+ (instancetype)safeArrayWithObject:(id)object {\\n    if (object == nil) {\\n        return [self array]; // 返回空数组而不是崩溃\\n    }\\n    return [self arrayWithObject:object];\\n}\\n\\n- (id)safeObjectAtIndex:(NSUInteger)index {\\n    if (index \u003e= self.count) {\\n        NSLog(@\\\"Array index out of bounds: %lu \u003e= %lu\\\", (unsigned long)index, (unsigned long)self.count);\\n        return nil;\\n    }\\n    return [self objectAtIndex:index];\\n}\\n\\n@end\\n\\n@implementation NSMutableArray (SafeExtension)\\n\\n- (void)safeAddObject:(id)object {\\n    if (object == nil) {\\n        NSLog(@\\\"Attempt to add nil object to array\\\");\\n        return;\\n    }\\n    [self addObject:object];\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-1\",{\"children\":\"3.1.2 字典防护\"}],\"\\n\",[\"$\",\"pre\",\"pre-8\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"@implementation NSMutableDictionary (SafeExtension)\\n\\n- (void)safeSetObject:(id)object forKey:(id\u003cNSCopying\u003e)key {\\n    if (object == nil) {\\n        NSLog(@\\\"Attempt to set nil object for key: %@\\\", key);\\n        return;\\n    }\\n\\n    if (key == nil) {\\n        NSLog(@\\\"Attempt to use nil key\\\");\\n        return;\\n    }\\n\\n    [self setObject:object forKey:key];\\n}\\n\\n- (void)safeSetValue:(id)value forKey:(NSString *)key {\\n    if (key == nil) {\\n        NSLog(@\\\"Attempt to set value for nil key\\\");\\n        return;\\n    }\\n\\n    // setValue:forKey: 允许value为nil，会调用removeObjectForKey:\\n    [self setValue:value forKey:key];\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-2\",{\"children\":\"3.1.3 KVO防护\"}],\"\\n\",[\"$\",\"pre\",\"pre-9\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$16\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-12\",{\"id\":\"32-方法不存在防护\",\"children\":\"3.2 方法不存在防护\"}],\"\\n\",[\"$\",\"pre\",\"pre-10\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$17\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-3\",{}],\"\\n\",[\"$\",\"h2\",\"h2-4\",{\"id\":\"4-系统级crash监控\",\"children\":\"4. 系统级Crash监控\"}],\"\\n\",[\"$\",\"h3\",\"h3-13\",{\"id\":\"41-主线程卡顿监控\",\"children\":\"4.1 主线程卡顿监控\"}],\"\\n\",[\"$\",\"pre\",\"pre-11\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$18\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-14\",{\"id\":\"42-内存压力监控\",\"children\":\"4.2 内存压力监控\"}],\"\\n\",[\"$\",\"pre\",\"pre-12\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$19\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-4\",{}],\"\\n\",[\"$\",\"h2\",\"h2-5\",{\"id\":\"5-crash分析与符号化\",\"children\":\"5. Crash分析与符号化\"}],\"\\n\",[\"$\",\"h3\",\"h3-15\",{\"id\":\"51-崩溃日志分析\",\"children\":\"5.1 崩溃日志分析\"}],\"\\n\",[\"$\",\"pre\",\"pre-13\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-bash\",\"children\":\"# 典型的崩溃日志格式\\nIncident Identifier: [唯一标识]\\nCrashReporter Key:   [设备标识]\\nHardware Model:      iPhone12,1\\nProcess:             MyApp [123]\\nPath:                /var/containers/Bundle/Application/XXX/MyApp.app\\nIdentifier:          com.example.myapp\\nVersion:             1.0.0 (123)\\nCode Type:           ARM-64\\nParent Process:      launchd [1]\\n\\nDate/Time:           2026-06-03 10:30:45.000 +0800\\nLaunch Time:         2026-06-03 10:25:00.000 +0800\\nOS Version:          iPhone OS 15.0 (19A346)\\nReport Type:         [崩溃类型]\\n\\nException Type:  EXC_BAD_ACCESS (SIGSEGV)\\nException Codes: 0x0000000000000000 at 0x0000000123456789\\nCrashed Thread:  0\\n\\nThread 0 name:  Dispatch queue: com.apple.main-thread\\nThread 0 Crashed:\\n0   MyApp                         0x0000000100041234 main + 100\\n1   libdispatch.dylib            0x0000000184567890 _dispatch_call_block_and_release + 24\\n2   libdispatch.dylib            0x0000000184567891 _dispatch_client_callout + 16\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-16\",{\"id\":\"52-符号化工具使用\",\"children\":\"5.2 符号化工具使用\"}],\"\\n\",[\"$\",\"pre\",\"pre-14\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-bash\",\"children\":\"# 使用Xcode的symbolicatecrash工具\\n\\n# 1. 找到symbolicatecrash工具\\nfind /Applications/Xcode.app -name symbolicatecrash -type f\\n\\n# 2. 设置环境变量\\nexport DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer\\n\\n# 3. 准备文件\\n# 将.crash文件、.dSYM文件、.app文件放在同一目录下\\n\\n# 4. 执行符号化\\n./symbolicatecrash MyApp.crash MyApp.dSYM \u003e MyApp_symbolicated.crash\\n\\n# 使用atos工具符号化单个地址\\natos -o MyApp.app/MyApp -arch arm64 -l 0x100000000 0x0000000100041234\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-17\",{\"id\":\"53-符号化脚本\",\"children\":\"5.3 符号化脚本\"}],\"\\n\",[\"$\",\"pre\",\"pre-15\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-bash\",\"children\":\"#!/bin/bash\\n# automate_symbolicate.sh\\n\\n# 设置变量\\nCRASH_FILE=$1\\nDSYM_FILE=$2\\nAPP_FILE=$3\\n\\n# 检查参数\\nif [ \\\"$#\\\" -ne 3 ]; then\\n    echo \\\"Usage: $0 \u003ccrash_file\u003e \u003cdsym_file\u003e \u003capp_file\u003e\\\"\\n    exit 1\\nfi\\n\\n# 设置环境变量\\nexport DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer\\n\\n# 查找symbolicatecrash工具\\nSYMBOLICATE_PATH=$(find /Applications/Xcode.app -name symbolicatecrash -type f | head -n 1)\\n\\nif [ -z \\\"$SYMBOLICATE_PATH\\\" ]; then\\n    echo \\\"Error: symbolicatecrash not found!\\\"\\n    exit 1\\nfi\\n\\necho \\\"Using symbolicatecrash: $SYMBOLICATE_PATH\\\"\\n\\n# 执行符号化\\n\\\"$SYMBOLICATE_PATH\\\" \\\"$CRASH_FILE\\\" \\\"$DSYM_FILE\\\" \u003e \\\"${CRASH_FILE}_symbolicated.txt\\\"\\n\\necho \\\"Symbolication complete: ${CRASH_FILE}_symbolicated.txt\\\"\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-5\",{}],\"\\n\",[\"$\",\"h2\",\"h2-6\",{\"id\":\"6-最佳实践总结\",\"children\":\"6. 最佳实践总结\"}],\"\\n\",[\"$\",\"h3\",\"h3-18\",{\"id\":\"61-crash防护体系架构\",\"children\":\"6.1 Crash防护体系架构\"}],\"\\n\",[\"$\",\"pre\",\"pre-16\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"┌─────────────────────────────────────┐\\n│      Crash防护体系架构              │\\n├─────────────────────────────────────┤\\n│  监控层：                            │\\n│  - FPS监控                           │\\n│  - 主线程卡顿监控                    │\\n│  - 内存压力监控                      │\\n├─────────────────────────────────────┤\\n│  捕获层：                            │\\n│  - OC异常捕获                        │\\n│  - 信号处理                         │\\n│  - Mach异常处理                     │\\n├─────────────────────────────────────┤\\n│  分析层：                            │\\n│  - 堆栈收集                         │\\n│  - 符号化处理                       │\\n│  - 统计分析                         │\\n├─────────────────────────────────────┤\\n│  防护层：                            │\\n│  - 代码防护                         │\\n│  - 运行时检查                       │\\n│  - 降级策略                         │\\n└─────────────────────────────────────┘\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-19\",{\"id\":\"62-建立完整的crash处理流程\",\"children\":\"6.2 建立完整的Crash处理流程\"}],\"\\n\",[\"$\",\"pre\",\"pre-17\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. 开发阶段\\n   - 启用 Zombie Objects\\n   - 使用 Address Sanitizer\\n   - 开启 Thread Sanitizer\\n   - 使用静态分析工具\\n\\n2. 测试阶段\\n   - 内测用户安装Crash监控SDK\\n   - 收集真实场景的Crash\\n   - 建立Crash优先级分类\\n\\n3. 生产环境\\n   - 实时监控Crash率\\n   - 及时处理高优先级Crash\\n   - 定期分析Crash趋势\\n\\n4. 持续改进\\n   - 建立Crash知识库\\n   - 总结常见问题模式\\n   - 改进代码质量\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-6\",{}],\"\\n\",[\"$\",\"h2\",\"h2-7\",{\"id\":\"7-参考资料\",\"children\":\"7. 参考资料\"}],\"\\n\",[\"$\",\"h3\",\"h3-20\",{\"id\":\"优质文章\",\"children\":\"优质文章\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://juejin.cn/post/6844903900728610829\",\"children\":\"iOS Crash捕获与防护\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/microsoft/plcrashreporter\",\"children\":\"PLCrashReporter使用指南\"}]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/kstenerud/KSCrash\",\"children\":\"KSCrash框架解析\"}]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://bugly.qq.com/docs/\",\"children\":\"Bugly iOS接入指南\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-21\",{\"id\":\"开源项目\",\"children\":\"开源项目\"}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/microsoft/plcrashreporter\",\"children\":\"PLCrashReporter\"}],\" - 微软崩溃报告框架\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/kstenerud/KSCrash\",\"children\":\"KSCrash\"}],\" - 强大的崩溃处理库\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://bugly.qq.com/\",\"children\":\"Bugly\"}],\" - 腾讯崩溃监控服务\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://firebase.google.com/docs/crashlytics\",\"children\":\"Firebase Crashlytics\"}],\" - Google崩溃分析\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-22\",{\"id\":\"apple官方文档\",\"children\":\"Apple官方文档\"}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/library/archive/technotes/tn/tn2123/_index.html\",\"children\":\"Technical Note TN2123 - Exception Handling in Cocoa\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/library/archive/documentation/DeveloperTools/Conceptual/debugging_with_gdb/\",\"children\":\"Debugging in macOS\"}]}],\"\\n\"]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/apm-crash-collection-and-symbolication\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"iOS 崩溃收集原理（Mach Exception / Signal）与 dSYM 符号化还原\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/startup-optimization-pre-main-and-post-main\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"iOS 冷启动优化笔记：pre-main、Clang 插桩二进制重排与启动项分级\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"1-crash类型与原理-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#1-crash类型与原理\",\"children\":\"1. Crash类型与原理\"}]}],[\"$\",\"li\",\"11-crash分类体系-1\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#11-crash分类体系\",\"children\":\"1.1 Crash分类体系\"}]}],[\"$\",\"li\",\"12-常见crash场景分析-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#12-常见crash场景分析\",\"children\":\"1.2 常见Crash场景分析\"}]}],[\"$\",\"li\",\"13-crash-report-到根因标准排查流程核心-3\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#13-crash-report-到根因标准排查流程核心\",\"children\":\"1.3 Crash Report 到根因：标准排查流程（核心）\"}]}],[\"$\",\"li\",\"第-0-步确认报告完整性与优先级-4\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#第-0-步确认报告完整性与优先级\",\"children\":\"第 0 步：确认报告完整性与优先级\"}]}],[\"$\",\"li\",\"第-1-步按异常呈现进入不同的首查路径-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#第-1-步按异常呈现进入不同的首查路径\",\"children\":\"第 1 步：按异常呈现进入不同的首查路径\"}]}],[\"$\",\"li\",\"第-2-步所有类型通用的证据链-6\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#第-2-步所有类型通用的证据链\",\"children\":\"第 2 步：所有类型通用的证据链\"}]}],[\"$\",\"li\",\"第-3-步针对不同类别选择验证工具-7\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#第-3-步针对不同类别选择验证工具\",\"children\":\"第 3 步：针对不同类别选择验证工具\"}]}],[\"$\",\"li\",\"第-4-步修复止血与回归-8\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#第-4-步修复止血与回归\",\"children\":\"第 4 步：修复、止血与回归\"}]}],[\"$\",\"li\",\"面试回答模板从异常到治理-9\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#面试回答模板从异常到治理\",\"children\":\"面试回答模板：从异常到治理\"}]}],[\"$\",\"li\",\"2-异常捕获机制-10\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#2-异常捕获机制\",\"children\":\"2. 异常捕获机制\"}]}],[\"$\",\"li\",\"21-oc异常捕获-11\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#21-oc异常捕获\",\"children\":\"2.1 OC异常捕获\"}]}],[\"$\",\"li\",\"22-信号处理器-12\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#22-信号处理器\",\"children\":\"2.2 信号处理器\"}]}],[\"$\",\"li\",\"23-完整的crash捕获框架-13\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#23-完整的crash捕获框架\",\"children\":\"2.3 完整的Crash捕获框架\"}]}],[\"$\",\"li\",\"3-crash防护策略-14\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#3-crash防护策略\",\"children\":\"3. Crash防护策略\"}]}],[\"$\",\"li\",\"31-常见crash防护-15\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#31-常见crash防护\",\"children\":\"3.1 常见Crash防护\"}]}],[\"$\",\"li\",\"32-方法不存在防护-16\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#32-方法不存在防护\",\"children\":\"3.2 方法不存在防护\"}]}],[\"$\",\"li\",\"4-系统级crash监控-17\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#4-系统级crash监控\",\"children\":\"4. 系统级Crash监控\"}]}],[\"$\",\"li\",\"41-主线程卡顿监控-18\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#41-主线程卡顿监控\",\"children\":\"4.1 主线程卡顿监控\"}]}],[\"$\",\"li\",\"42-内存压力监控-19\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#42-内存压力监控\",\"children\":\"4.2 内存压力监控\"}]}],[\"$\",\"li\",\"5-crash分析与符号化-20\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#5-crash分析与符号化\",\"children\":\"5. Crash分析与符号化\"}]}],[\"$\",\"li\",\"51-崩溃日志分析-21\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#51-崩溃日志分析\",\"children\":\"5.1 崩溃日志分析\"}]}],[\"$\",\"li\",\"52-符号化工具使用-22\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#52-符号化工具使用\",\"children\":\"5.2 符号化工具使用\"}]}],[\"$\",\"li\",\"53-符号化脚本-23\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#53-符号化脚本\",\"children\":\"5.3 符号化脚本\"}]}],[\"$\",\"li\",\"6-最佳实践总结-24\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#6-最佳实践总结\",\"children\":\"6. 最佳实践总结\"}]}],[\"$\",\"li\",\"61-crash防护体系架构-25\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#61-crash防护体系架构\",\"children\":\"6.1 Crash防护体系架构\"}]}],[\"$\",\"li\",\"62-建立完整的crash处理流程-26\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#62-建立完整的crash处理流程\",\"children\":\"6.2 建立完整的Crash处理流程\"}]}],[\"$\",\"li\",\"7-参考资料-27\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#7-参考资料\",\"children\":\"7. 参考资料\"}]}],[\"$\",\"li\",\"优质文章-28\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#优质文章\",\"children\":\"优质文章\"}]}],[\"$\",\"li\",\"开源项目-29\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#开源项目\",\"children\":\"开源项目\"}]}],[\"$\",\"li\",\"apple官方文档-30\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#apple官方文档\",\"children\":\"Apple官方文档\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

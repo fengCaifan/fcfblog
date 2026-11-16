@@ -1,0 +1,247 @@
+1:"$Sreact.fragment"
+2:I[7555,[],""]
+3:I[1295,[],""]
+5:I[9665,[],"OutletBoundary"]
+8:I[4911,[],"AsyncMetadataOutlet"]
+a:I[9665,[],"ViewportBoundary"]
+c:I[9665,[],"MetadataBoundary"]
+e:I[6614,[],""]
+:HL["/fcfblog/_next/static/css/0ae5dd793e516608.css","style"]
+0:{"P":null,"b":"bCC3fH8ggorFQfQxoj4EU","p":"/fcfblog","c":["","posts","snapkit-constraint-race-condition-superview-nil",""],"i":false,"f":[[["",{"children":["posts",{"children":[["slug","snapkit-constraint-race-condition-superview-nil","d"],{"children":["__PAGE__",{}]}]}]},"$undefined","$undefined",true],["",["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/fcfblog/_next/static/css/0ae5dd793e516608.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]],["$","html",null,{"lang":"zh-CN","children":["$","body",null,{"children":["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]],"forbidden":"$undefined","unauthorized":"$undefined"}]}]}]]}],{"children":["posts",["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":[["slug","snapkit-constraint-race-condition-superview-nil","d"],["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":["__PAGE__",["$","$1","c",{"children":["$L4",null,["$","$L5",null,{"children":["$L6","$L7",["$","$L8",null,{"promise":"$@9"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],["$","$1","h",{"children":[null,["$","$1","ML3bI4Wz6-aWC49pGqFS2v",{"children":[["$","$La",null,{"children":"$Lb"}],null]}],["$","$Lc",null,{"children":"$Ld"}]]}],false]],"m":"$undefined","G":["$e","$undefined"],"s":false,"S":true}
+f:"$Sreact.suspense"
+10:I[4911,[],"AsyncMetadata"]
+12:I[6874,["874","static/chunks/874-7618c3fad5f7ba4a.js","858","static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js"],""]
+d:["$","div",null,{"hidden":true,"children":["$","$f",null,{"fallback":null,"children":["$","$L10",null,{"promise":"$@11"}]}]}]
+13:T791,// 添加操作标记
+private var isAddingGuider = false
+private var isRemovingGuider = false
+
+private func addUserPremiumAvatarTrialGuider() {
+    guard userPremiumAvatarTrialViewGuideCanShow,
+          selectedIndex != MainTabBarIndex.user.rawValue,
+          userPremiumAvatarTrialGuider.superview == nil,
+          !isAddingGuider else {  //  防止重入
+        debugPrint("guide debug: guider add failed")
+        return
+    }
+    
+    isAddingGuider = true
+    defer { isAddingGuider = false }  //  确保执行完后重置
+    
+    debugPrint("guide debug: guider add success")
+    
+    let guideView = userPremiumAvatarTrialGuider
+    
+    //  完全同步执行，原子操作
+    tabBar.addSubview(guideView)
+    
+    let width = kScreenWidth / 5.0
+    guideView.snp.makeConstraints { make in
+        make.chain.top(-8.px).right().width(width).height(42.px)
+    }
+    
+    //  约束设置完成后立即更新
+    updateUserPremiumAvatarTrialGuider()
+}
+
+private func removeUserPremiumAvatarTrialGuider() {
+    guard !isRemovingGuider,
+          !isAddingGuider else {  //  添加过程中不允许移除
+        return
+    }
+    
+    isRemovingGuider = true
+    defer { isRemovingGuider = false }
+    
+    debugPrint("guide debug: remove guider")
+    if userPremiumAvatarTrialGuider.superview != nil {
+        userPremiumAvatarTrialGuider.snp.removeConstraints()
+        userPremiumAvatarTrialGuider.removeFromSuperview()
+    }
+}
+
+// 修复 lazy 属性闭包
+private lazy var userPremiumAvatarTrialGuider: UserAvatarGuideBubbleView = {
+    let view = UserAvatarGuideBubbleView()
+    //  使用 weak 引用，避免访问 lazy 属性
+    view.didClickPremiumAvatar = { [weak self, weak view] in
+        guard let self = self else { return }
+        self.selectedIndex = MainTabBarIndex.user.rawValue
+        view?.removeFromSuperview()  //  直接通过闭包捕获的 view
+    }
+    view.isHidden = true
+    return view
+}()
+14:T99a,// 定义视图状态
+private enum GuiderState {
+    case notAdded      // 未添加
+    case adding        // 正在添加
+    case visible       // 可见
+    case hidden        // 隐藏
+    case removing      // 正在移除
+}
+
+private var guiderState: GuiderState = .notAdded
+
+private func addUserPremiumAvatarTrialGuider() {
+    guard userPremiumAvatarTrialViewGuideCanShow,
+          selectedIndex != MainTabBarIndex.user.rawValue,
+          guiderState == .notAdded else {  //  只在未添加状态才添加
+        debugPrint("guide debug: guider add failed, state: \(guiderState)")
+        return
+    }
+    
+    guiderState = .adding
+    debugPrint("guide debug: guider add success")
+    
+    let guideView = userPremiumAvatarTrialGuider
+    tabBar.addSubview(guideView)
+    
+    let width = kScreenWidth / 5.0
+    guideView.snp.makeConstraints { make in
+        make.chain.top(-8.px).right().width(width).height(42.px)
+    }
+    
+    guiderState = .visible
+    updateUserPremiumAvatarTrialGuider()
+}
+
+func updateUserPremiumAvatarTrialGuider() {
+    guard userPremiumAvatarTrialViewGuideCanShow,
+          userPremiumAvatarTrialGuider.superview != nil,
+          guiderState != .adding,    //  添加过程中不更新
+          guiderState != .removing else {  //  移除过程中不更新
+        setUserNormalTabBarImage()
+        return
+    }
+    
+    if selectedIndex == MainTabBarIndex.user.rawValue {
+        debugPrint("guide debug: guider hide")
+        guiderState = .hidden
+        userPremiumAvatarTrialGuider.setVisible(false)
+        setUserNormalTabBarImage()
+    } else {
+        debugPrint("guide debug: guider show")
+        guiderState = .visible
+        tabBar.bringSubviewToFront(userPremiumAvatarTrialGuider)
+        userPremiumAvatarTrialGuider.setVisible(true)
+        userCenterVC?.navigationController?.tabBarItem.image = nil
+        userCenterVC?.navigationController?.tabBarItem.selectedImage = nil
+    }
+    
+    tabBar.setNeedsLayout()
+    tabBar.layoutIfNeeded()
+}
+
+private func removeUserPremiumAvatarTrialGuider() {
+    guard guiderState != .notAdded,
+          guiderState != .removing else {
+        return
+    }
+    
+    guiderState = .removing
+    debugPrint("guide debug: remove guider")
+    
+    if userPremiumAvatarTrialGuider.superview != nil {
+        userPremiumAvatarTrialGuider.snp.removeConstraints()
+        userPremiumAvatarTrialGuider.removeFromSuperview()
+    }
+    
+    guiderState = .notAdded
+}
+15:Taae,// MARK: - Properties
+private var isAddingGuider = false
+private var isRemovingGuider = false
+
+private lazy var userPremiumAvatarTrialGuider: UserAvatarGuideBubbleView = {
+    let view = UserAvatarGuideBubbleView()
+    view.didClickPremiumAvatar = { [weak self, weak view] in
+        guard let self = self else { return }
+        self.selectedIndex = MainTabBarIndex.user.rawValue
+        view?.removeFromSuperview()
+    }
+    view.isHidden = true
+    return view
+}()
+
+// MARK: - Add/Remove Methods
+private func addUserPremiumAvatarTrialGuider() {
+    guard userPremiumAvatarTrialViewGuideCanShow,
+          selectedIndex != MainTabBarIndex.user.rawValue,
+          userPremiumAvatarTrialGuider.superview == nil,
+          !isAddingGuider else {
+        debugPrint("guide debug: guider add failed")
+        return
+    }
+    
+    isAddingGuider = true
+    defer { isAddingGuider = false }
+    
+    debugPrint("guide debug: guider add success")
+    
+    let guideView = userPremiumAvatarTrialGuider
+    tabBar.addSubview(guideView)
+    
+    let width = kScreenWidth / 5.0
+    guideView.snp.makeConstraints { make in
+        make.chain.top(-8.px).right().width(width).height(42.px)
+    }
+    
+    updateUserPremiumAvatarTrialGuider()
+}
+
+private func removeUserPremiumAvatarTrialGuider() {
+    guard !isRemovingGuider,
+          !isAddingGuider else {
+        return
+    }
+    
+    isRemovingGuider = true
+    defer { isRemovingGuider = false }
+    
+    debugPrint("guide debug: remove guider")
+    if userPremiumAvatarTrialGuider.superview != nil {
+        userPremiumAvatarTrialGuider.snp.removeConstraints()
+        userPremiumAvatarTrialGuider.removeFromSuperview()
+    }
+}
+
+// MARK: - Update Method
+func updateUserPremiumAvatarTrialGuider() {
+    guard userPremiumAvatarTrialViewGuideCanShow,
+          userPremiumAvatarTrialGuider.superview != nil else {
+        setUserNormalTabBarImage()
+        return
+    }
+    
+    if selectedIndex == MainTabBarIndex.user.rawValue {
+        debugPrint("guide debug: guider remove")
+        userPremiumAvatarTrialGuider.removeFromSuperview()
+        setUserNormalTabBarImage()
+    } else {
+        debugPrint("guide debug: guider show")
+        tabBar.bringSubviewToFront(userPremiumAvatarTrialGuider)
+        userPremiumAvatarTrialGuider.setVisible(true)
+    }
+    
+    tabBar.setNeedsLayout()
+    tabBar.layoutIfNeeded()
+}
+
+// MARK: - Logout Handler
+private func binding() {
+    // 退出登录，清理引导视图
+    NotificationCenter.default.reactive
+        .notifications(forName: .user.logout)
+        .observeValues { [weak self] _ in
+            self?.stopUnreadMessageTimer()
+            self?.resetTabbarReddot()
+            self?.removeUserPremiumAvatarTrialGuider()
+        }
+}
+4:["$","div",null,{"className":"blog-shell","children":[["$","header",null,{"className":"masthead","children":["$","div",null,{"className":"masthead-inner","children":[["$","$L12",null,{"href":"/","className":"brand-title","children":"Caifan's Notes"}],["$","nav",null,{"className":"top-nav","children":["$","$L12",null,{"href":"/","className":"nav-link","children":"← 返回列表"}]}]]}]}],["$","div",null,{"className":"article-page-wrap","children":[["$","article",null,{"className":"article-main","children":[["$","header",null,{"className":"article-header","children":[["$","h1",null,{"className":"article-title","children":"SnapKit 约束激活时偶现 superview 为 nil 的崩溃分析"}],["$","div",null,{"className":"article-meta","children":[["$","time",null,{"children":"2025-10-29"}],["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"children":"性能优化与排查"}],[["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"className":"article-tags","children":"Crash排查 / SnapKit / AutoLayout"}]]]}]]}],["$","div",null,{"className":"markdown-body","children":[["$","h2","h2-0",{"id":"问题描述","children":"问题描述"}],"\n",["$","p","p-0",{"children":["在 ",["$","code","code-0",{"children":"MainTabBarController"}]," 中添加个人主页高级头像限时免费引导视图时，频繁出现约束崩溃。"]}],"\n",["$","h3","h3-0",{"id":"崩溃信息","children":"崩溃信息"}],"\n",["$","pre","pre-0",{"children":["$","code","code-0",{"children":"View hierarchy unprepared for constraint.\nConstraint: <SnapKit.LayoutConstraint:0x13f106c40@SnapKit+Chain.swift#44 \n    ExampleApp.UserAvatarGuideBubbleView:0x13f659dc0.top == \n    ExampleApp.MainTabBar:0x13c155500.top - 7.594202898550725>\n\nView not found in container hierarchy: \n    <ExampleApp.UserAvatarGuideBubbleView: 0x13f659dc0>\nThat view's superview: NO SUPERVIEW\n\n*** Terminating app due to uncaught exception 'NSGenericException', \nreason: 'Unable to install constraint on view. Does the constraint reference \nsomething from outside the subtree of the view? That's illegal.'\n"}]}],"\n",["$","h3","h3-1",{"id":"崩溃场景","children":"崩溃场景"}],"\n",["$","ol","ol-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"快速切换账号"}],"：退出登录后立即登录新账号"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"快速切换 Tab"}],"：频繁在个人主页和其他 Tab 之间切换"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"快速点击引导视图"}],"：用户点击引导视图触发跳转"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"网络请求回调时机"}],"：数据加载完成时视图状态已变化"]}],"\n"]}],"\n",["$","hr","hr-0",{}],"\n",["$","h2","h2-1",{"id":"根本原因分析","children":"根本原因分析"}],"\n",["$","h3","h3-2",{"id":"核心问题toctou-time-of-check-to-time-of-use-竞态条件","children":"核心问题：TOCTOU (Time-of-Check to Time-of-Use) 竞态条件"}],"\n",["$","p","p-1",{"children":["虽然所有代码都在主线程执行，但 ",["$","code","code-0",{"children":"DispatchQueue.main.async"}]," 引入了",["$","strong","strong-0",{"children":"异步时序问题"}],"。"]}],"\n",["$","h4","h4-0",{"children":"崩溃时序示例："}],"\n",["$","pre","pre-1",{"children":["$","code","code-0",{"children":"主线程 RunLoop 执行顺序：\n\nT1: addUserPremiumAvatarTrialGuider() 被调用\n    ↓\nT2: tabBar.addSubview(guideView)  ← 视图立即添加到 TabBar\n    ↓\nT3: DispatchQueue.main.async { ... }  ← 将约束设置代码加入队列末尾（不立即执行）\n    ↓ 返回，继续执行其他代码\n    \nT4: 【触发点】用户快速点击 / 切换 Tab / 切换账号\n    ↓\nT5: didClickPremiumAvatar 闭包触发\n    ↓\nT6: view?.removeFromSuperview()  ← 视图被同步移除，superview = nil\n    ↓\n    \nT7: 【RunLoop 下一个周期】执行之前加入队列的 async 闭包\n    ↓\nT8: guard self.userPremiumAvatarTrialGuider.superview != nil  ← 此时检查通过（但随后可能改变）\n    ↓\nT9: guideView.snp.makeConstraints { make in ... }\n    ↓\nT10: SnapKit 开始激活约束\n    ↓\nT11:  崩溃：约束激活时发现视图 superview = nil\n"}]}],"\n",["$","h3","h3-3",{"id":"关键问题点","children":"关键问题点"}],"\n",["$","ol","ol-1",{"children":["\n",["$","li","li-0",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"异步延迟执行"}],"：",["$","code","code-0",{"children":"DispatchQueue.main.async"}]," 把代码放到队列末尾，不保证立即执行"]}],"\n"]}],"\n",["$","li","li-1",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"检查与使用分离"}],"：检查 ",["$","code","code-0",{"children":"superview != nil"}]," 和实际使用约束之间有时间差"]}],"\n"]}],"\n",["$","li","li-2",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"SnapKit 约束激活机制"}],"： ",["$","strong","strong-1",{"children":"这是最核心的问题"}]]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":["约束在 ",["$","code","code-0",{"children":"makeConstraints"}]," 闭包执行",["$","strong","strong-0",{"children":"完成后"}],"才批量激活"]}],"\n",["$","li","li-1",{"children":["闭包执行完到约束激活之间有一个",["$","strong","strong-0",{"children":"微小但致命的时间窗口"}]]}],"\n",["$","li","li-2",{"children":["在这个窗口内，视图可能被 ",["$","code","code-0",{"children":"removeFromSuperview()"}]," 移除"]}],"\n",["$","li","li-3",{"children":"即使完全同步执行，这个问题依然存在"}],"\n"]}],"\n"]}],"\n",["$","li","li-3",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"lazy 属性多次访问"}],"：反复访问 ",["$","code","code-0",{"children":"userPremiumAvatarTrialGuider"}]," 可能触发重复初始化"]}],"\n"]}],"\n"]}],"\n",["$","h3","h3-4",{"id":"为什么同步执行也会崩溃","children":"为什么同步执行也会崩溃？"}],"\n",["$","p","p-2",{"children":["很多人以为去掉 ",["$","code","code-0",{"children":"DispatchQueue.main.async"}]," 改为同步执行就能解决问题，但实际上："]}],"\n",["$","pre","pre-2",{"children":["$","code","code-0",{"className":"language-swift","children":"// 即使是同步代码\ntabBar.addSubview(guideView)  // ← 同步\n\nguideView.snp.makeConstraints { make in  // ← 同步\n    make.chain.top(-8.px).right().width(width).height(42.px)\n}  // ← 闭包执行完，但约束还未激活！\n\n// 在这里有一个时间窗口：\n// - 约束对象已创建\n// - 但还没有激活（install to view）\n// - 如果此时 removeFromSuperview() 被调用\n// - 下一刻约束激活时发现视图没有 superview\n// →  崩溃！\n"}]}],"\n",["$","p","p-3",{"children":[["$","strong","strong-0",{"children":"SnapKit 内部机制"}],"："]}],"\n",["$","pre","pre-3",{"children":["$","code","code-0",{"children":"makeConstraints 闭包 {\n    make.xxx  → 创建 LayoutConstraint 对象\n    make.yyy  → 创建更多约束对象\n}  ← 闭包返回\n\n[微小的时间窗口 - 用户操作可能在这里插入]\n\nSnapKit 批量激活约束  ← 在这一步才真正添加约束到视图\n"}]}],"\n",["$","hr","hr-1",{}],"\n",["$","h2","h2-2",{"id":"涉及的源码","children":"涉及的源码"}],"\n",["$","h3","h3-5",{"id":"问题代码初版","children":"问题代码（初版）"}],"\n",["$","pre","pre-4",{"children":["$","code","code-0",{"className":"language-swift","children":"private func addUserPremiumAvatarTrialGuider() {\n    guard userPremiumAvatarTrialViewGuideCanShow,\n          selectedIndex != MainTabBarIndex.user.rawValue,\n          userPremiumAvatarTrialGuider.superview == nil else {\n        return\n    }\n    \n    tabBar.addSubview(userPremiumAvatarTrialGuider)\n    let width = kScreenWidth / 5.0\n    \n    //  问题：立即设置约束，可能与视图添加冲突\n    userPremiumAvatarTrialGuider.snp.makeConstraints { make in\n        make.chain.top(-8.px).right().width(width).height(42.px)\n    }\n    \n    updateUserPremiumAvatarTrialGuider()\n}\n"}]}],"\n",["$","h3","h3-6",{"id":"问题代码改进版1---使用-async-仍有问题","children":"问题代码（改进版1 - 使用 async 仍有问题）"}],"\n",["$","pre","pre-5",{"children":["$","code","code-0",{"className":"language-swift","children":"private func addUserPremiumAvatarTrialGuider() {\n    guard userPremiumAvatarTrialViewGuideCanShow,\n          selectedIndex != MainTabBarIndex.user.rawValue,\n          userPremiumAvatarTrialGuider.superview == nil else {\n        return\n    }\n    \n    tabBar.addSubview(userPremiumAvatarTrialGuider)\n    \n    //  使用 async，但引入了时序问题\n    DispatchQueue.main.async {\n        guard self.userPremiumAvatarTrialGuider.superview != nil else { return }\n        \n        let width = kScreenWidth / 5.0\n        //  在检查和约束激活之间，视图可能被移除\n        self.userPremiumAvatarTrialGuider.snp.makeConstraints { make in\n            make.chain.top(-8.px).right().width(width).height(42.px)\n        }\n        \n        self.updateUserPremiumAvatarTrialGuider()\n    }\n}\n"}]}],"\n",["$","h3","h3-7",{"id":"问题代码改进版2---去掉-async-仍崩溃","children":"问题代码（改进版2 - 去掉 async 仍崩溃）"}],"\n",["$","pre","pre-6",{"children":["$","code","code-0",{"className":"language-swift","children":"private func addUserPremiumAvatarTrialGuider() {\n    guard userPremiumAvatarTrialViewGuideCanShow,\n          selectedIndex != MainTabBarIndex.user.rawValue,\n          userPremiumAvatarTrialGuider.superview == nil else {\n        return\n    }\n    \n    //  改为同步执行\n    tabBar.addSubview(userPremiumAvatarTrialGuider)\n    \n    let width = kScreenWidth / 5.0\n    //  但如果在约束激活过程中，用户点击触发了 removeFromSuperview()\n    // 依然会崩溃\n    userPremiumAvatarTrialGuider.snp.makeConstraints { make in\n        make.chain.top(-8.px).right().width(width).height(42.px)\n    }\n    \n    updateUserPremiumAvatarTrialGuider()\n}\n"}]}],"\n",["$","p","p-4",{"children":["$","strong","strong-0",{"children":"为什么同步执行还会崩溃？"}]}],"\n",["$","p","p-5",{"children":"虽然代码是同步的，但 SnapKit 的约束激活机制是这样的："}],"\n",["$","ol","ol-2",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"makeConstraints"}]," 闭包执行时，创建约束对象"]}],"\n",["$","li","li-1",{"children":"闭包执行完后，SnapKit 批量激活所有约束"}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"在第2步激活约束时"}],"，如果用户快速点击触发了 ",["$","code","code-0",{"children":"view?.removeFromSuperview()"}]]}],"\n",["$","li","li-3",{"children":"视图被移除，但约束激活还在进行 →  崩溃"}],"\n"]}],"\n",["$","p","p-6",{"children":[["$","strong","strong-0",{"children":"时序示例"}],"："]}],"\n",["$","pre","pre-7",{"children":["$","code","code-0",{"children":"T1: makeConstraints 闭包开始执行\nT2: 创建约束对象 (constraint objects created)\nT3: 闭包执行完成\nT4: 【中断】用户点击 -> removeFromSuperview() 执行\nT5: 视图被移除，superview = nil\nT6: SnapKit 尝试激活约束 ->  崩溃\n"}]}],"\n",["$","h3","h3-8",{"id":"lazy-属性定义存在问题","children":"lazy 属性定义（存在问题）"}],"\n",["$","p","p-7",{"children":["$","strong","strong-0",{"children":"版本1：最初的错误代码"}]}],"\n",["$","pre","pre-8",{"children":["$","code","code-0",{"className":"language-swift","children":"private lazy var userPremiumAvatarTrialGuider: UserAvatarGuideBubbleView = {\n    let view = UserAvatarGuideBubbleView()\n    view.didClickPremiumAvatar = { [weak self] in\n        self?.selectedIndex = MainTabBarIndex.user.rawValue\n        //  通过 self 访问 lazy 属性，可能在 deinit 时触发初始化\n        self?.userPremiumAvatarTrialGuider.removeFromSuperview()\n    }\n    view.isHidden = true\n    return view\n}()\n"}]}],"\n",["$","p","p-8",{"children":["$","strong","strong-0",{"children":"版本2：改进后仍然有问题"}]}],"\n",["$","pre","pre-9",{"children":["$","code","code-0",{"className":"language-swift","children":"private lazy var userPremiumAvatarTrialGuider: UserAvatarGuideBubbleView = {\n    let view = UserAvatarGuideBubbleView()\n    view.didClickPremiumAvatar = { [weak self, weak view] in\n        guard let self = self else { return }\n        self.selectedIndex = MainTabBarIndex.user.rawValue\n        //  虽然捕获了 weak view，但如果在闭包执行时 view 还在视图层级中\n        // 而约束正在设置，依然会崩溃\n        view?.removeFromSuperview()\n    }\n    view.isHidden = true\n    return view\n}()\n"}]}],"\n",["$","p","p-9",{"children":[["$","strong","strong-0",{"children":"关键问题"}],"：即使使用 ",["$","code","code-0",{"children":"[weak self, weak view]"}]," 和 ",["$","code","code-1",{"children":"view?.removeFromSuperview()"}],"，如果闭包执行的时机恰好在约束设置过程中，依然会导致崩溃。"]}],"\n",["$","h3","h3-9",{"id":"引发崩溃的其他代码","children":"引发崩溃的其他代码"}],"\n",["$","pre","pre-10",{"children":["$","code","code-0",{"className":"language-swift","children":"func updateUserPremiumAvatarTrialGuider() {\n    guard userPremiumAvatarTrialViewGuideCanShow,\n          userPremiumAvatarTrialGuider.superview != nil else {\n        setUserNormalTabBarImage()\n        return\n    }\n    \n    if selectedIndex == MainTabBarIndex.user.rawValue {\n        //  使用 hide 而不是 remove，导致视图残留\n        userPremiumAvatarTrialGuider.setVisible(false)\n        setUserNormalTabBarImage()\n    } else {\n        tabBar.bringSubviewToFront(userPremiumAvatarTrialGuider)\n        userPremiumAvatarTrialGuider.setVisible(true)\n        //  清空图标，导致其他问题\n        userCenterVC?.navigationController?.tabBarItem.image = nil\n        userCenterVC?.navigationController?.tabBarItem.selectedImage = nil\n    }\n    \n    // 立即刷新布局\n    tabBar.setNeedsLayout()\n    tabBar.layoutIfNeeded()\n}\n"}]}],"\n",["$","hr","hr-2",{}],"\n",["$","h2","h2-3",{"id":"解决方案对比","children":"解决方案对比"}],"\n",["$","h3","h3-10",{"id":"方案1多重-guard-检查临时方案","children":"方案1：多重 guard 检查（临时方案）"}],"\n",["$","p","p-10",{"children":[["$","strong","strong-0",{"children":"思路"}],"：在每个可能出问题的地方都加检查"]}],"\n",["$","pre","pre-11",{"children":["$","code","code-0",{"className":"language-swift","children":"private func addUserPremiumAvatarTrialGuider() {\n    guard userPremiumAvatarTrialViewGuideCanShow,\n          selectedIndex != MainTabBarIndex.user.rawValue,\n          userPremiumAvatarTrialGuider.superview == nil else {\n        return\n    }\n    \n    let guideView = userPremiumAvatarTrialGuider\n    tabBar.addSubview(guideView)\n    \n    DispatchQueue.main.async { [weak self] in\n        guard let self = self,\n              guideView.superview != nil else {  //  第一层检查\n            return\n        }\n        \n        let width = kScreenWidth / 5.0\n        \n        //  第二层检查：在约束闭包内\n        guideView.snp.makeConstraints { make in\n            guard guideView.superview != nil else {\n                return\n            }\n            make.chain.top(-8.px).right().width(width).height(42.px)\n        }\n        \n        //  第三层检查：约束设置后\n        if guideView.superview != nil {\n            self.updateUserPremiumAvatarTrialGuider()\n        }\n    }\n}\n"}]}],"\n",["$","p","p-11",{"children":[["$","strong","strong-0",{"children":"缺点"}],"："]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"治标不治本，代码冗余"}],"\n",["$","li","li-1",{"children":"仍然依赖 async，有时序问题"}],"\n",["$","li","li-2",{"children":"不优雅，维护困难"}],"\n"]}],"\n",["$","hr","hr-3",{}],"\n",["$","h3","h3-11",{"id":"方案2完全同步执行--操作标记推荐-","children":"方案2：完全同步执行 + 操作标记（推荐 ⭐⭐⭐⭐⭐）"}],"\n",["$","p","p-12",{"children":[["$","strong","strong-0",{"children":"思路"}],"：去除 async，使用操作标记防止重入"]}],"\n",["$","pre","pre-12",{"children":["$","code","code-0",{"className":"language-swift","children":"$13"}]}],"\n",["$","p","p-13",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-1",{"children":["\n",["$","li","li-0",{"children":"完全同步，避免时序问题"}],"\n",["$","li","li-1",{"children":"操作标记防止重入"}],"\n",["$","li","li-2",{"children":"代码简洁，易于维护"}],"\n",["$","li","li-3",{"children":"性能好，无异步开销"}],"\n"]}],"\n",["$","hr","hr-4",{}],"\n",["$","h3","h3-12",{"id":"方案3状态机管理最优雅-","children":"方案3：状态机管理（最优雅 ⭐⭐⭐⭐）"}],"\n",["$","p","p-14",{"children":[["$","strong","strong-0",{"children":"思路"}],"：使用状态机明确管理视图生命周期"]}],"\n",["$","pre","pre-13",{"children":["$","code","code-0",{"className":"language-swift","children":"$14"}]}],"\n",["$","p","p-15",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-2",{"children":["\n",["$","li","li-0",{"children":"状态清晰，易于理解和调试"}],"\n",["$","li","li-1",{"children":"防止非法状态转换"}],"\n",["$","li","li-2",{"children":"便于扩展和维护"}],"\n",["$","li","li-3",{"children":"符合设计模式最佳实践"}],"\n"]}],"\n",["$","hr","hr-5",{}],"\n",["$","h3","h3-13",{"id":"方案4operationqueue-串行队列","children":"方案4：OperationQueue 串行队列"}],"\n",["$","p","p-16",{"children":[["$","strong","strong-0",{"children":"思路"}],"：使用串行队列保证操作顺序"]}],"\n",["$","pre","pre-14",{"children":["$","code","code-0",{"className":"language-swift","children":"private let guiderOperationQueue: OperationQueue = {\n    let queue = OperationQueue()\n    queue.maxConcurrentOperationCount = 1  // 串行执行\n    queue.underlyingQueue = DispatchQueue.main  // 在主线程执行\n    return queue\n}()\n\nprivate func addUserPremiumAvatarTrialGuider() {\n    guiderOperationQueue.addOperation { [weak self] in\n        guard let self = self,\n              self.userPremiumAvatarTrialViewGuideCanShow,\n              self.selectedIndex != MainTabBarIndex.user.rawValue,\n              self.userPremiumAvatarTrialGuider.superview == nil else {\n            return\n        }\n        \n        let guideView = self.userPremiumAvatarTrialGuider\n        self.tabBar.addSubview(guideView)\n        \n        let width = kScreenWidth / 5.0\n        guideView.snp.makeConstraints { make in\n            make.chain.top(-8.px).right().width(width).height(42.px)\n        }\n        \n        self.updateUserPremiumAvatarTrialGuider()\n    }\n}\n"}]}],"\n",["$","p","p-17",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-3",{"children":["\n",["$","li","li-0",{"children":"严格保证操作顺序"}],"\n",["$","li","li-1",{"children":"自动处理并发"}],"\n"]}],"\n",["$","p","p-18",{"children":[["$","strong","strong-0",{"children":"缺点"}],"："]}],"\n",["$","ul","ul-4",{"children":["\n",["$","li","li-0",{"children":"引入额外复杂度"}],"\n",["$","li","li-1",{"children":"调试困难"}],"\n"]}],"\n",["$","hr","hr-6",{}],"\n",["$","h2","h2-4",{"id":"推荐方案","children":"推荐方案"}],"\n",["$","h3","h3-14",{"id":"最佳选择方案2同步执行--操作标记","children":"最佳选择：方案2（同步执行 + 操作标记）"}],"\n",["$","p","p-19",{"children":[["$","strong","strong-0",{"children":"理由"}],"："]}],"\n",["$","ol","ol-3",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"简单直接"}],"：代码易读易维护"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"完全同步"}],"：消除异步带来的时序问题"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"性能最优"}],"：无异步开销，无额外队列"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"安全可靠"}],"：操作标记防止重入和并发"]}],"\n"]}],"\n",["$","h3","h3-15",{"id":"次选方案3状态机","children":"次选：方案3（状态机）"}],"\n",["$","p","p-20",{"children":"如果项目中类似模式较多，建议使用状态机统一管理。"}],"\n",["$","hr","hr-7",{}],"\n",["$","h2","h2-5",{"id":"其他相关问题及修复","children":"其他相关问题及修复"}],"\n",["$","h3","h3-16",{"id":"问题1切到个人主页后底部图标不显示","children":"问题1：切到个人主页后底部图标不显示"}],"\n",["$","p","p-21",{"children":[["$","strong","strong-0",{"children":"原因"}],"：使用 ",["$","code","code-0",{"children":"setVisible(false)"}]," (hide) 而不是 ",["$","code","code-1",{"children":"removeFromSuperview()"}]]}],"\n",["$","pre","pre-15",{"children":["$","code","code-0",{"className":"language-swift","children":"//  问题代码\nif selectedIndex == MainTabBarIndex.user.rawValue {\n    userPremiumAvatarTrialGuider.setVisible(false)  // 只是隐藏，视图还在\n    setUserNormalTabBarImage()\n}\n"}]}],"\n",["$","p","p-22",{"children":[["$","strong","strong-0",{"children":"问题分析"}],"："]}],"\n",["$","ul","ul-5",{"children":["\n",["$","li","li-0",{"children":"引导视图虽然 hidden，但还在视图层级中"}],"\n",["$","li","li-1",{"children":"TabBar 布局时检测到有子视图覆盖在那个区域"}],"\n",["$","li","li-2",{"children":"跳过对该区域的渲染，导致图标不显示"}],"\n"]}],"\n",["$","p","p-23",{"children":[["$","strong","strong-0",{"children":"解决方案"}],"："]}],"\n",["$","pre","pre-16",{"children":["$","code","code-0",{"className":"language-swift","children":"//  改用 remove\nif selectedIndex == MainTabBarIndex.user.rawValue {\n    userPremiumAvatarTrialGuider.removeFromSuperview()\n    setUserNormalTabBarImage()\n}\n"}]}],"\n",["$","h3","h3-17",{"id":"问题2切换账号时崩溃","children":"问题2：切换账号时崩溃"}],"\n",["$","p","p-24",{"children":[["$","strong","strong-0",{"children":"原因"}],"：退出登录时没有清理引导视图"]}],"\n",["$","pre","pre-17",{"children":["$","code","code-0",{"className":"language-swift","children":"//  缺少清理逻辑\nNotificationCenter.default.reactive\n    .notifications(forName: .user.logout)\n    .observeValues { [weak self] _ in\n        self?.stopUnreadMessageTimer()\n        self?.resetTabbarReddot()\n        // 缺少：清理引导视图\n    }\n"}]}],"\n",["$","p","p-25",{"children":[["$","strong","strong-0",{"children":"解决方案"}],"："]}],"\n",["$","pre","pre-18",{"children":["$","code","code-0",{"className":"language-swift","children":"//  添加清理\nNotificationCenter.default.reactive\n    .notifications(forName: .user.logout)\n    .observeValues { [weak self] _ in\n        self?.stopUnreadMessageTimer()\n        self?.resetTabbarReddot()\n        self?.removeUserPremiumAvatarTrialGuider()  //  清理引导视图\n    }\n"}]}],"\n",["$","hr","hr-8",{}],"\n",["$","h2","h2-6",{"id":"最终代码实现","children":"最终代码实现"}],"\n",["$","h3","h3-18",{"id":"核心代码","children":"核心代码"}],"\n",["$","pre","pre-19",{"children":["$","code","code-0",{"className":"language-swift","children":"$15"}]}],"\n",["$","hr","hr-9",{}],"\n",["$","h2","h2-7",{"id":"经验总结","children":"经验总结"}],"\n",["$","h3","h3-19",{"id":"关键教训","children":"关键教训"}],"\n",["$","ol","ol-4",{"children":["\n",["$","li","li-0",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"避免不必要的异步"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"DispatchQueue.main.async"}]," 不是万能的"]}],"\n",["$","li","li-1",{"children":"同步代码更简单、更可靠"}],"\n",["$","li","li-2",{"children":"只在真正需要延迟执行时才用 async"}],"\n"]}],"\n"]}],"\n",["$","li","li-1",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"同步执行也不一定安全"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"关键发现"}],"：即使完全同步执行，SnapKit 的约束激活机制也会引入微小的时间窗口"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"makeConstraints"}]," 闭包执行完后，SnapKit 才批量激活约束"]}],"\n",["$","li","li-2",{"children":["在这个",["$","strong","strong-0",{"children":"约束激活的时间窗口"}],"内，视图仍可能被移除"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"解决方案"}],"：必须使用操作标记防止在约束设置过程中移除视图"]}],"\n"]}],"\n"]}],"\n",["$","li","li-2",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"约束设置要原子化"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"视图添加和约束设置应该一气呵成"}],"\n",["$","li","li-1",{"children":"检查和使用不能分离太远"}],"\n",["$","li","li-2",{"children":"使用操作标记保护关键路径，确保整个过程不被中断"}],"\n"]}],"\n"]}],"\n",["$","li","li-3",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"lazy 属性的陷阱"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"避免在闭包中通过 self 访问 lazy 属性"}],"\n",["$","li","li-1",{"children":"特别是在 deinit 相关的场景"}],"\n",["$","li","li-2",{"children":"使用 weak 捕获避免循环引用"}],"\n"]}],"\n"]}],"\n",["$","li","li-4",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"视图生命周期管理"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"明确什么时候添加、隐藏、移除"}],"\n",["$","li","li-1",{"children":"退出登录等关键时机要清理资源"}],"\n",["$","li","li-2",{"children":"使用 remove 而不是 hide，避免残留影响"}],"\n"]}],"\n"]}],"\n",["$","li","li-5",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"防御式编程"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"添加操作标记防止重入"}],"\n",["$","li","li-1",{"children":"关键操作使用 defer 确保清理"}],"\n",["$","li","li-2",{"children":"充分的日志便于定位问题"}],"\n"]}],"\n"]}],"\n"]}],"\n",["$","h3","h3-20",{"id":"调试技巧","children":"调试技巧"}],"\n",["$","ol","ol-5",{"children":["\n",["$","li","li-0",{"children":["$","strong","strong-0",{"children":"添加详细日志"}]}],"\n"]}],"\n",["$","pre","pre-20",{"children":["$","code","code-0",{"className":"language-swift","children":"debugPrint(\"guide debug: guider add success\")\ndebugPrint(\"guide debug: view removed during constraint\")\n"}]}],"\n",["$","ol","ol-6",{"start":2,"children":["\n",["$","li","li-0",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"检查视图层级"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"使用 Xcode View Debugging"}],"\n",["$","li","li-1",{"children":"打印 superview 状态"}],"\n"]}],"\n"]}],"\n",["$","li","li-1",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"断点调试"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"在约束设置前后打断点"}],"\n",["$","li","li-1",{"children":"观察 superview 变化"}],"\n"]}],"\n"]}],"\n",["$","li","li-2",{"children":["\n",["$","p","p-0",{"children":["$","strong","strong-0",{"children":"符号断点"}]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":["设置 ",["$","code","code-0",{"children":"objc_exception_throw"}]," 断点"]}],"\n",["$","li","li-1",{"children":"捕获约束崩溃时的堆栈"}],"\n"]}],"\n"]}],"\n"]}],"\n",["$","hr","hr-10",{}],"\n",["$","h2","h2-8",{"id":"参考资料","children":"参考资料"}],"\n",["$","h3","h3-21",{"id":"相关文件","children":"相关文件"}],"\n",["$","ul","ul-6",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"ExampleApp/Sources/Main/MainTabBarController.swift"}]," - 主控制器"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"ExampleApp/Sources/BusinessModules/UserCenterModule/Views/UserAvatarGuideBubbleView.swift"}]," - 引导视图"]}],"\n",["$","li","li-2",{"children":[["$","code","code-0",{"children":"ExampleApp/Sources/BusinessModules/UserCenterModule/ViewModel/UserAvatarGuideDataService.swift"}]," - 数据管理"]}],"\n"]}],"\n",["$","h3","h3-22",{"id":"项目规范","children":"项目规范"}],"\n",["$","ul","ul-7",{"children":["\n",["$","li","li-0",{"children":"Code Review 规范：deinit 中访问 lazy 属性为一票否决项"}],"\n",["$","li","li-1",{"children":["内存管理规范：正确使用 ",["$","code","code-0",{"children":"[weak self]"}]," 避免循环引用"]}],"\n",["$","li","li-2",{"children":"UI 规范：懒加载初始化 UI 组件"}],"\n"]}],"\n",["$","h3","h3-23",{"id":"技术点","children":"技术点"}],"\n",["$","ul","ul-8",{"children":["\n",["$","li","li-0",{"children":"SnapKit 约束激活时机"}],"\n",["$","li","li-1",{"children":"DispatchQueue.main.async 执行顺序"}],"\n",["$","li","li-2",{"children":"UITabBar 渲染机制"}],"\n",["$","li","li-3",{"children":"Swift lazy 属性初始化时机"}],"\n"]}],"\n",["$","hr","hr-11",{}]]}],["$","footer",null,{"className":"article-pager","children":[["$","div",null,{"className":"pager-item","children":["$","$L12",null,{"href":"/posts/uitargetedpreview-view-not-in-window-crash-fix","children":[["$","span",null,{"className":"pager-hint","children":"上一篇"}],["$","span",null,{"className":"pager-title","children":"UITargetedPreview 因视图不在 Window 层级引发的崩溃修复"}]]}]}],["$","div",null,{"className":"pager-item right","children":["$","$L12",null,{"href":"/posts/system-design-apm-sdk","children":[["$","span",null,{"className":"pager-hint","children":"下一篇"}],["$","span",null,{"className":"pager-title","children":"如何设计一个轻量级客户端 APM 监控 SDK"}]]}]}]]}]]}],["$","aside",null,{"className":"article-toc","children":["$","div",null,{"className":"toc-sticky","children":[["$","div",null,{"className":"toc-heading","children":"本文目录"}],["$","ul",null,{"className":"toc-list","children":[["$","li","问题描述-0",{"className":"toc-level-2","children":["$","a",null,{"href":"#问题描述","children":"问题描述"}]}],["$","li","崩溃信息-1",{"className":"toc-level-3","children":["$","a",null,{"href":"#崩溃信息","children":"崩溃信息"}]}],["$","li","崩溃场景-2",{"className":"toc-level-3","children":["$","a",null,{"href":"#崩溃场景","children":"崩溃场景"}]}],["$","li","根本原因分析-3",{"className":"toc-level-2","children":["$","a",null,{"href":"#根本原因分析","children":"根本原因分析"}]}],["$","li","核心问题toctou-time-of-check-to-time-of-use-竞态条件-4",{"className":"toc-level-3","children":["$","a",null,{"href":"#核心问题toctou-time-of-check-to-time-of-use-竞态条件","children":"核心问题：TOCTOU (Time-of-Check to Time-of-Use) 竞态条件"}]}],["$","li","关键问题点-5",{"className":"toc-level-3","children":["$","a",null,{"href":"#关键问题点","children":"关键问题点"}]}],["$","li","为什么同步执行也会崩溃-6",{"className":"toc-level-3","children":["$","a",null,{"href":"#为什么同步执行也会崩溃","children":"为什么同步执行也会崩溃？"}]}],["$","li","涉及的源码-7",{"className":"toc-level-2","children":["$","a",null,{"href":"#涉及的源码","children":"涉及的源码"}]}],["$","li","问题代码初版-8",{"className":"toc-level-3","children":["$","a",null,{"href":"#问题代码初版","children":"问题代码（初版）"}]}],["$","li","问题代码改进版1---使用-async-仍有问题-9",{"className":"toc-level-3","children":["$","a",null,{"href":"#问题代码改进版1---使用-async-仍有问题","children":"问题代码（改进版1 - 使用 async 仍有问题）"}]}],["$","li","问题代码改进版2---去掉-async-仍崩溃-10",{"className":"toc-level-3","children":["$","a",null,{"href":"#问题代码改进版2---去掉-async-仍崩溃","children":"问题代码（改进版2 - 去掉 async 仍崩溃）"}]}],["$","li","lazy-属性定义存在问题-11",{"className":"toc-level-3","children":["$","a",null,{"href":"#lazy-属性定义存在问题","children":"lazy 属性定义（存在问题）"}]}],["$","li","引发崩溃的其他代码-12",{"className":"toc-level-3","children":["$","a",null,{"href":"#引发崩溃的其他代码","children":"引发崩溃的其他代码"}]}],["$","li","解决方案对比-13",{"className":"toc-level-2","children":["$","a",null,{"href":"#解决方案对比","children":"解决方案对比"}]}],["$","li","方案1多重-guard-检查临时方案-14",{"className":"toc-level-3","children":["$","a",null,{"href":"#方案1多重-guard-检查临时方案","children":"方案1：多重 guard 检查（临时方案）"}]}],["$","li","方案2完全同步执行--操作标记推荐--15",{"className":"toc-level-3","children":["$","a",null,{"href":"#方案2完全同步执行--操作标记推荐-","children":"方案2：完全同步执行 + 操作标记（推荐 ⭐⭐⭐⭐⭐）"}]}],["$","li","方案3状态机管理最优雅--16",{"className":"toc-level-3","children":["$","a",null,{"href":"#方案3状态机管理最优雅-","children":"方案3：状态机管理（最优雅 ⭐⭐⭐⭐）"}]}],["$","li","方案4operationqueue-串行队列-17",{"className":"toc-level-3","children":["$","a",null,{"href":"#方案4operationqueue-串行队列","children":"方案4：OperationQueue 串行队列"}]}],["$","li","推荐方案-18",{"className":"toc-level-2","children":["$","a",null,{"href":"#推荐方案","children":"推荐方案"}]}],["$","li","最佳选择方案2同步执行--操作标记-19",{"className":"toc-level-3","children":["$","a",null,{"href":"#最佳选择方案2同步执行--操作标记","children":"最佳选择：方案2（同步执行 + 操作标记）"}]}],["$","li","次选方案3状态机-20",{"className":"toc-level-3","children":["$","a",null,{"href":"#次选方案3状态机","children":"次选：方案3（状态机）"}]}],["$","li","其他相关问题及修复-21",{"className":"toc-level-2","children":["$","a",null,{"href":"#其他相关问题及修复","children":"其他相关问题及修复"}]}],["$","li","问题1切到个人主页后底部图标不显示-22",{"className":"toc-level-3","children":["$","a",null,{"href":"#问题1切到个人主页后底部图标不显示","children":"问题1：切到个人主页后底部图标不显示"}]}],["$","li","问题2切换账号时崩溃-23",{"className":"toc-level-3","children":["$","a",null,{"href":"#问题2切换账号时崩溃","children":"问题2：切换账号时崩溃"}]}],["$","li","最终代码实现-24",{"className":"toc-level-2","children":["$","a",null,{"href":"#最终代码实现","children":"最终代码实现"}]}],["$","li","核心代码-25",{"className":"toc-level-3","children":["$","a",null,{"href":"#核心代码","children":"核心代码"}]}],["$","li","经验总结-26",{"className":"toc-level-2","children":["$","a",null,{"href":"#经验总结","children":"经验总结"}]}],["$","li","关键教训-27",{"className":"toc-level-3","children":["$","a",null,{"href":"#关键教训","children":"关键教训"}]}],["$","li","调试技巧-28",{"className":"toc-level-3","children":["$","a",null,{"href":"#调试技巧","children":"调试技巧"}]}],["$","li","参考资料-29",{"className":"toc-level-2","children":["$","a",null,{"href":"#参考资料","children":"参考资料"}]}],["$","li","相关文件-30",{"className":"toc-level-3","children":["$","a",null,{"href":"#相关文件","children":"相关文件"}]}],["$","li","项目规范-31",{"className":"toc-level-3","children":["$","a",null,{"href":"#项目规范","children":"项目规范"}]}],["$","li","技术点-32",{"className":"toc-level-3","children":["$","a",null,{"href":"#技术点","children":"技术点"}]}]]}]]}]}]]}],["$","footer",null,{"className":"site-footer","children":["$","span",null,{"children":"© 2022–2026 FengCaifan"}]}]]}]
+7:null
+b:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
+6:null
+9:{"metadata":[["$","title","0",{"children":"Caifan's Notes"}],["$","meta","1",{"name":"description","content":"个人开发与学习笔记"}],["$","link","2",{"rel":"icon","href":"/fcfblog/favicon.ico","type":"image/x-icon","sizes":"16x16"}]],"error":null,"digest":"$undefined"}
+11:{"metadata":"$9:metadata","error":null,"digest":"$undefined"}

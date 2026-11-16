@@ -1,0 +1,1290 @@
+1:"$Sreact.fragment"
+2:I[7555,[],""]
+3:I[1295,[],""]
+5:I[9665,[],"OutletBoundary"]
+8:I[4911,[],"AsyncMetadataOutlet"]
+a:I[9665,[],"ViewportBoundary"]
+c:I[9665,[],"MetadataBoundary"]
+e:I[6614,[],""]
+:HL["/fcfblog/_next/static/css/0ae5dd793e516608.css","style"]
+0:{"P":null,"b":"bCC3fH8ggorFQfQxoj4EU","p":"/fcfblog","c":["","posts","ios-client-architecture-complete-guide",""],"i":false,"f":[[["",{"children":["posts",{"children":[["slug","ios-client-architecture-complete-guide","d"],{"children":["__PAGE__",{}]}]}]},"$undefined","$undefined",true],["",["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/fcfblog/_next/static/css/0ae5dd793e516608.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]],["$","html",null,{"lang":"zh-CN","children":["$","body",null,{"children":["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]],"forbidden":"$undefined","unauthorized":"$undefined"}]}]}]]}],{"children":["posts",["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":[["slug","ios-client-architecture-complete-guide","d"],["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":["__PAGE__",["$","$1","c",{"children":["$L4",null,["$","$L5",null,{"children":["$L6","$L7",["$","$L8",null,{"promise":"$@9"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],["$","$1","h",{"children":[null,["$","$1","q4Sfe3qPYu9WrS2Pjtvhqv",{"children":[["$","$La",null,{"children":"$Lb"}],null]}],["$","$Lc",null,{"children":"$Ld"}]]}],false]],"m":"$undefined","G":["$e","$undefined"],"s":false,"S":true}
+f:"$Sreact.suspense"
+10:I[4911,[],"AsyncMetadata"]
+12:I[6874,["874","static/chunks/874-7618c3fad5f7ba4a.js","858","static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js"],""]
+d:["$","div",null,{"hidden":true,"children":["$","$f",null,{"fallback":null,"children":["$","$L10",null,{"promise":"$@11"}]}]}]
+13:T859,// Model
+struct User {
+    let id: String
+    var name: String
+    var email: String
+}
+
+// View Protocol
+protocol UserView: AnyObject {
+    func showLoading()
+    func hideLoading()
+    func displayName(_ name: String)
+    func displayEmail(_ email: String)
+    func showError(_ message: String)
+}
+
+// Presenter
+class UserPresenter {
+    private weak var view: UserView?
+    private var user: User?
+
+    init(view: UserView) {
+        self.view = view
+    }
+
+    func loadUser() {
+        view?.showLoading()
+
+        UserService.fetchUser { [weak self] result in
+            guard let self = self else { return }
+
+            switch result {
+            case .success(let user):
+                self.user = user
+                self.updateView()
+            case .failure(let error):
+                self.view?.showError(error.localizedDescription)
+            }
+
+            self.view?.hideLoading()
+        }
+    }
+
+    func updateName(_ name: String) {
+        user?.name = name
+        UserService.updateUser(user!)
+    }
+
+    private func updateView() {
+        guard let user = user else { return }
+        view?.displayName(user.name)
+        view?.displayEmail(user.email)
+    }
+}
+
+// View Controller
+class UserViewController: UIViewController, UserView {
+    @IBOutlet weak var nameLabel: UILabel!
+    @IBOutlet weak var emailLabel: UILabel!
+    @IBOutlet weak var activityIndicator: UIActivityIndicatorView!
+
+    private var presenter: UserPresenter!
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        presenter = UserPresenter(view: self)
+        presenter.loadUser()
+    }
+
+    // UserView Protocol
+    func showLoading() {
+        activityIndicator.startAnimating()
+    }
+
+    func hideLoading() {
+        activityIndicator.stopAnimating()
+    }
+
+    func displayName(_ name: String) {
+        nameLabel.text = name
+    }
+
+    func displayEmail(_ email: String) {
+        emailLabel.text = email
+    }
+
+    func showError(_ message: String) {
+        showAlert(message: message)
+    }
+
+    @IBAction func saveButtonTapped(_ sender: UIButton) {
+        presenter.updateName(nameLabel.text ?? "")
+    }
+}
+14:Tb71,// Model
+struct User {
+    let id: String
+    var name: String
+    var email: String
+}
+
+// ViewModel
+class UserViewModel: NSObject {
+    @objc dynamic var userName: String = ""
+    @objc dynamic var userEmail: String = ""
+    @objc dynamic var isLoading: Bool = false
+
+    private var user: User?
+
+    override init() {
+        super.init()
+    }
+
+    func loadUser() {
+        isLoading = true
+
+        UserService.fetchUser { [weak self] result in
+            guard let self = self else { return }
+
+            switch result {
+            case .success(let user):
+                self.user = user
+                self.userName = user.name
+                self.userEmail = user.email
+            case .failure:
+                self.userName = "Error"
+                self.userEmail = "Error"
+            }
+
+            self.isLoading = false
+        }
+    }
+
+    func updateName(_ name: String) {
+        guard var user = user else { return }
+        user.name = name
+        self.user = user
+        UserService.updateUser(user)
+    }
+}
+
+// View Controller
+class UserViewController: UIViewController {
+    @IBOutlet weak var nameLabel: UILabel!
+    @IBOutlet weak var emailLabel: UILabel!
+    @IBOutlet weak var activityIndicator: UIActivityIndicatorView!
+
+    private var viewModel: UserViewModel!
+    private var userNameObserver: NSKeyValueObservation?
+    private var userEmailObserver: NSKeyValueObservation?
+    private var isLoadingObserver: NSKeyValueObservation?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        viewModel = UserViewModel()
+        setupBindings()
+        viewModel.loadUser()
+    }
+
+    func setupBindings() {
+        // 使用KVO观察ViewModel属性变化
+        userNameObserver = viewModel.observe(\.userName) { [weak self] viewModel, change in
+            let name = viewModel.userName
+            DispatchQueue.main.async { [weak self] in
+                self?.nameLabel.text = name
+            }
+        }
+
+        userEmailObserver = viewModel.observe(\.userEmail) { [weak self] viewModel, change in
+            let email = viewModel.userEmail
+            DispatchQueue.main.async { [weak self] in
+                self?.emailLabel.text = email
+            }
+        }
+
+        isLoadingObserver = viewModel.observe(\.isLoading) { [weak self] viewModel, change in
+            let loading = viewModel.isLoading
+            DispatchQueue.main.async { [weak self] in
+                if loading {
+                    self?.activityIndicator.startAnimating()
+                } else {
+                    self?.activityIndicator.stopAnimating()
+                }
+            }
+        }
+    }
+
+    @IBAction func saveButtonTapped(_ sender: UIButton) {
+        viewModel.updateName(nameLabel.text ?? "")
+    }
+
+    deinit {
+        // 清理观察者
+        userNameObserver?.invalidate()
+        userEmailObserver?.invalidate()
+        isLoadingObserver?.invalidate()
+    }
+}
+15:Ta58,import Combine
+
+// ViewModel
+class UserViewModel {
+    @Published var userName: String = ""
+    @Published var userEmail: String = ""
+    @Published var isLoading: Bool = false
+    @Published var errorMessage: String = ""
+
+    private var user: User?
+    private var cancellables = Set<AnyCancellable>()
+
+    func loadUser() {
+        isLoading = true
+
+        UserService.fetchUser()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case .failure(let error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] user in
+                self?.user = user
+                self?.userName = user.name
+                self?.userEmail = user.email
+            }
+            .store(in: &cancellables)
+    }
+
+    func updateName(_ name: String) {
+        guard var user = user else { return }
+        user.name = name
+        self.user = user
+        UserService.updateUser(user)
+            .sink { completion in
+                print("Update completed")
+            } receiveValue: { _ in }
+            .store(in: &cancellables)
+    }
+}
+
+// View Controller
+class UserViewController: UIViewController {
+    @IBOutlet weak var nameLabel: UILabel!
+    @IBOutlet weak var emailLabel: UILabel!
+    @IBOutlet weak var activityIndicator: UIActivityIndicatorView!
+
+    private var viewModel = UserViewModel()
+    private var cancellables = Set<AnyCancellable>()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupBindings()
+        viewModel.loadUser()
+    }
+
+    func setupBindings() {
+        // 使用Combine绑定ViewModel属性
+        viewModel.$userName
+            .assign(to: \.text, on: nameLabel)
+            .store(in: &cancellables)
+
+        viewModel.$userEmail
+            .assign(to: \.text, on: emailLabel)
+            .store(in: &cancellables)
+
+        viewModel.$isLoading
+            .sink { [weak self] isLoading in
+                if isLoading {
+                    self?.activityIndicator.startAnimating()
+                } else {
+                    self?.activityIndicator.stopAnimating()
+                }
+            }
+            .store(in: &cancellables)
+
+        viewModel.$errorMessage
+            .sink { [weak self] message in
+                if !message.isEmpty {
+                    self?.showAlert(message: message)
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    @IBAction func saveButtonTapped(_ sender: UIButton) {
+        viewModel.updateName(nameLabel.text ?? "")
+    }
+}
+16:T1149,// Entity
+struct User {
+    let id: String
+    var name: String
+    var email: String
+}
+
+// Interactor Protocol
+protocol UserInteractor: AnyObject {
+    func fetchUser()
+    func updateUserName(_ name: String)
+}
+
+// Router Protocol
+protocol UserRouter: AnyObject {
+    func navigateToProfile(userId: String)
+    func navigateToSettings()
+}
+
+// Presenter Protocol
+protocol UserPresenter: AnyObject {
+    func viewDidLoad()
+    func didTapSaveButton(withName name: String)
+    func didTapSettingsButton()
+}
+
+// View Protocol
+protocol UserView: AnyObject {
+    func showLoading()
+    func hideLoading()
+    func displayName(_ name: String)
+    func displayEmail(_ email: String)
+    func showError(_ message: String)
+}
+
+// Interactor Implementation
+class UserInteractorImpl: UserInteractor {
+    weak var presenter: UserPresenter?
+    var user: User?
+
+    func fetchUser() {
+        UserService.fetchUser { [weak self] result in
+            switch result {
+            case .success(let user):
+                self?.user = user
+                self?.presentFetchedUser(user)
+            case .failure(let error):
+                self?.presentError(error.localizedDescription)
+            }
+        }
+    }
+
+    func updateUserName(_ name: String) {
+        user?.name = name
+        UserService.updateUser(user!) { [weak self] in
+            self?.didUpdateUser()
+        }
+    }
+
+    private func presentFetchedUser(_ user: User) {
+        presenter?.didFetchUser(user.name, email: user.email)
+    }
+
+    private func presentError(_ message: String) {
+        presenter?.didFailWithError(message)
+    }
+
+    private func didUpdateUser() {
+        presenter?.didUpdateUserSuccessfully()
+    }
+}
+
+// Router Implementation
+class UserRouterImpl: UserRouter {
+    weak var viewController: UIViewController?
+
+    func navigateToProfile(userId: String) {
+        let profileVC = ProfileViewController(userId: userId)
+        viewController?.navigationController?.pushViewController(profileVC, animated: true)
+    }
+
+    func navigateToSettings() {
+        let settingsVC = SettingsViewController()
+        viewController?.navigationController?.pushViewController(settingsVC, animated: true)
+    }
+}
+
+// Presenter Implementation
+class UserPresenterImpl: UserPresenter {
+    weak var view: UserView?
+    var interactor: UserInteractor?
+    var router: UserRouter?
+
+    func viewDidLoad() {
+        view?.showLoading()
+        interactor?.fetchUser()
+    }
+
+    func didTapSaveButton(withName name: String) {
+        interactor?.updateUserName(name)
+    }
+
+    func didTapSettingsButton() {
+        router?.navigateToSettings()
+    }
+
+    func didFetchUser(_ name: String, email: String) {
+        view?.hideLoading()
+        view?.displayName(name)
+        view?.displayEmail(email)
+    }
+
+    func didFailWithError(_ message: String) {
+        view?.hideLoading()
+        view?.showError(message)
+    }
+
+    func didUpdateUserSuccessfully() {
+        view?.showError("User updated successfully")
+    }
+}
+
+// View Implementation
+class UserViewController: UIViewController, UserView {
+    @IBOutlet weak var nameLabel: UILabel!
+    @IBOutlet weak var emailLabel: UILabel!
+    @IBOutlet weak var activityIndicator: UIActivityIndicatorView!
+
+    var presenter: UserPresenter?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupVIPER()
+        presenter?.viewDidLoad()
+    }
+
+    func setupVIPER() {
+        let presenter = UserPresenterImpl()
+        let interactor = UserInteractorImpl()
+        let router = UserRouterImpl()
+
+        presenter.view = self
+        presenter.interactor = interactor
+        presenter.router = router
+
+        interactor.presenter = presenter
+        router.viewController = self
+
+        self.presenter = presenter
+    }
+
+    @IBAction func saveButtonTapped(_ sender: UIButton) {
+        presenter?.didTapSaveButton(withName: nameLabel.text ?? "")
+    }
+
+    @IBAction func settingsButtonTapped(_ sender: UIButton) {
+        presenter?.didTapSettingsButton()
+    }
+
+    // UserView Protocol
+    func showLoading() {
+        activityIndicator.startAnimating()
+    }
+
+    func hideLoading() {
+        activityIndicator.stopAnimating()
+    }
+
+    func displayName(_ name: String) {
+        nameLabel.text = name
+    }
+
+    func displayEmail(_ email: String) {
+        emailLabel.text = email
+    }
+
+    func showError(_ message: String) {
+        showAlert(message: message)
+    }
+}
+17:Te1d,import ComposableArchitecture
+import Combine
+
+// 1. 定义State
+struct AppState {
+    var count: Int = 0
+    var users: [User] = []
+    var isLoading: Bool = false
+    var errorMessage: String?
+}
+
+// 2. 定义Action
+enum AppAction {
+    case increment
+    case decrement
+    case fetchUsers
+    case usersResponse(Result<[User], Error>)
+}
+
+// 3. 定义Environment（外部依赖）
+struct AppEnvironment {
+    var apiService: APIService
+    var mainQueue: AnySchedulerOf<DispatchQueue>
+}
+
+// 4. 定义Reducer
+let appReducer = Reducer<AppState, AppAction, AppEnvironment> {
+    state, action, environment in
+
+    switch action {
+    case .increment:
+        state.count += 1
+        return .none
+
+    case .decrement:
+        state.count -= 1
+        return .none
+
+    case .fetchUsers:
+        state.isLoading = true
+        state.errorMessage = nil
+
+        return environment.apiService.fetchUsers()
+            .receive(on: environment.mainQueue)
+            .catchToEffect(AppAction.usersResponse)
+
+    case .usersResponse(.success(let users)):
+        state.users = users
+        state.isLoading = false
+        return .none
+
+    case .usersResponse(.failure(let error)):
+        state.isLoading = false
+        state.errorMessage = error.localizedDescription
+        return .none
+    }
+}
+
+// 5. 创建API Service
+struct APIService {
+    func fetchUsers() -> Effect<[User], Error> {
+        return Future { promise in
+            // 模拟网络请求
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                let users = [
+                    User(id: 1, name: "张三"),
+                    User(id: 2, name: "李四")
+                ]
+                promise(.success(users))
+            }
+        }
+        .eraseToEffect()
+    }
+}
+
+// 6. 创建Store
+let store = Store(
+    initialState: AppState(),
+    reducer: appReducer,
+    environment: AppEnvironment(
+        apiService: APIService(),
+        mainQueue: .main.eraseToAnyScheduler()
+    )
+)
+
+// 7. SwiftUI View
+struct ContentView: View {
+    let store: Store<AppState, AppAction>
+
+    var body: some View {
+        WithViewStore(store) { viewStore in
+            List {
+                Section(header: Text("计数器")) {
+                    HStack {
+                        Text("Count: \(viewStore.count)")
+                        Spacer()
+                        Button("-") { viewStore.send(.decrement) }
+                        Button("+") { viewStore.send(.increment) }
+                    }
+                }
+
+                Section(header: Text("用户列表")) {
+                    if viewStore.isLoading {
+                        Text("加载中...")
+                    } else if let errorMessage = viewStore.errorMessage {
+                        Text("错误: \(errorMessage)")
+                            .foregroundColor(.red)
+                    } else {
+                        ForEach(viewStore.users) { user in
+                            Text(user.name)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("TCA Demo")
+            .onAppear {
+                viewStore.send(.fetchUsers)
+            }
+        }
+    }
+}
+
+// 8. Preview
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView(
+            store: Store(
+                initialState: AppState(),
+                reducer: appReducer,
+                environment: AppEnvironment(
+                    apiService: APIService(),
+                    mainQueue: .main.eraseToAnyScheduler()
+                )
+            )
+        )
+    }
+}
+18:Ta46,// 1. 登录State
+struct LoginState {
+    var email: String = ""
+    var password: String = ""
+    var isLoading: Bool = false
+    var loginResponse: LoginResponse?
+    var errorMessage: String?
+}
+
+// 2. 登录Action
+enum LoginAction {
+    case emailChanged(String)
+    case passwordChanged(String)
+    case loginButtonTapped
+    case loginResponse(Result<LoginResponse, Error>)
+}
+
+// 3. 登录Environment
+struct LoginEnvironment {
+    var apiService: APIService
+    var mainQueue: AnySchedulerOf<DispatchQueue>
+}
+
+// 4. 登录Reducer
+let loginReducer = Reducer<LoginState, LoginAction, LoginEnvironment> {
+    state, action, environment in
+
+    switch action {
+    case .emailChanged(let email):
+        state.email = email
+        return .none
+
+    case .passwordChanged(let password):
+        state.password = password
+        return .none
+
+    case .loginButtonTapped:
+        state.isLoading = true
+        state.errorMessage = nil
+
+        return environment.apiService.login(email: state.email, password: state.password)
+            .receive(on: environment.mainQueue)
+            .catchToEffect(LoginAction.loginResponse)
+
+    case .loginResponse(.success(let response)):
+        state.isLoading = false
+        state.loginResponse = response
+        return .none
+
+    case .loginResponse(.failure(let error)):
+        state.isLoading = false
+        state.errorMessage = error.localizedDescription
+        return .none
+    }
+}
+
+// 5. 登录View
+struct LoginView: View {
+    let store: Store<LoginState, LoginAction>
+
+    var body: some View {
+        WithViewStore(store) { viewStore in
+            Form {
+                TextField("邮箱", text: viewStore.binding(get: \.email, send: LoginAction.emailChanged))
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+
+                SecureField("密码", text: viewStore.binding(get: \.password, send: LoginAction.passwordChanged))
+
+                if viewStore.isLoading {
+                    ProgressView()
+                } else {
+                    Button("登录") {
+                        viewStore.send(.loginButtonTapped)
+                    }
+                    .disabled(!viewStore.isValidForm)
+                }
+
+                if let errorMessage = viewStore.errorMessage {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                }
+            }
+            .navigationTitle("登录")
+        }
+    }
+}
+
+// ViewStore扩展
+extension LoginState {
+    var isValidForm: Bool {
+        return !email.isEmpty && !password.isEmpty && password.count >= 6
+    }
+}
+19:T70c,// 1. Domain Layer（不依赖具体 UI / 数据实现；本例接口选择了 Combine）
+
+// 实体：纯数据
+struct User {
+    let id: String
+    let name: String
+    let email: String
+}
+
+// 用例：业务逻辑
+protocol FetchUsersUseCase {
+    func execute() -> AnyPublisher<[User], Error>
+}
+
+class FetchUsersUseCaseImpl: FetchUsersUseCase {
+    private let userRepository: UserRepository  // 依赖接口，不依赖具体实现
+
+    init(userRepository: UserRepository) {
+        self.userRepository = userRepository
+    }
+
+    func execute() -> AnyPublisher<[User], Error> {
+        return userRepository.fetchUsers()
+    }
+}
+
+// 2. Data Layer（数据层）
+
+// 仓库接口（在Domain层定义）
+protocol UserRepository {
+    func fetchUsers() -> AnyPublisher<[User], Error>
+}
+
+// 仓库实现（在Data层实现）
+class UserRepositoryImpl: UserRepository {
+    private let apiService: APIService
+
+    init(apiService: APIService) {
+        self.apiService = apiService
+    }
+
+    func fetchUsers() -> AnyPublisher<[User], Error> {
+        return apiService.fetchUsers()
+    }
+}
+
+// 3. Presentation Layer（展示层）
+
+class UserListViewModel: ObservableObject {
+    @Published var users: [User] = []
+
+    private let fetchUsersUseCase: FetchUsersUseCase
+    private var cancellables = Set<AnyCancellable>()
+
+    init(fetchUsersUseCase: FetchUsersUseCase) {
+        self.fetchUsersUseCase = fetchUsersUseCase
+    }
+
+    func fetchUsers() {
+        fetchUsersUseCase.execute()
+            .receive(on: DispatchQueue.main)
+            .sink(receiveCompletion: { _ in
+                // 实际页面应把失败转换为错误展示状态。
+            }, receiveValue: { [weak self] users in
+                self?.users = users
+            })
+            .store(in: &cancellables)
+    }
+}
+1a:T113b,// 1. Domain Layer（业务层，最核心）
+
+// Entity（实体）
+struct User: Identifiable {
+    let id: String
+    let name: String
+    let email: String
+}
+
+// Use Case（用例协议）
+protocol FetchUsersUseCase {
+    func execute() -> AnyPublisher<[User], Error>
+}
+
+// Use Case实现
+class FetchUsersUseCaseImpl: FetchUsersUseCase {
+    private let userRepository: UserRepository
+
+    init(userRepository: UserRepository) {
+        self.userRepository = userRepository
+    }
+
+    func execute() -> AnyPublisher<[User], Error> {
+        return userRepository.fetchUsers()
+    }
+}
+
+// Repository协议（仓库）
+protocol UserRepository {
+    func fetchUsers() -> AnyPublisher<[User], Error>
+    func fetchUser(id: String) -> AnyPublisher<User, Error>
+}
+
+// 2. Data Layer（数据层）
+
+// Repository实现
+class UserRepositoryImpl: UserRepository {
+    private let apiService: APIService
+    private let cacheService: CacheService
+
+    init(apiService: APIService, cacheService: CacheService) {
+        self.apiService = apiService
+        self.cacheService = cacheService
+    }
+
+    func fetchUsers() -> AnyPublisher<[User], Error> {
+        // 先从缓存读取
+        if let cachedUsers = cacheService.loadUsers() {
+            return Just(cachedUsers)
+                .setFailureType(to: Error.self)
+                .eraseToAnyPublisher()
+        }
+
+        // 缓存没有，从网络获取
+        return apiService.fetchUsers()
+            .handleEvents(receiveOutput: { users in
+                self.cacheService.saveUsers(users)
+            })
+            .eraseToAnyPublisher()
+    }
+
+    func fetchUser(id: String) -> AnyPublisher<User, Error> {
+        return apiService.fetchUser(id: id)
+    }
+}
+
+// 3. Presentation Layer（展示层）
+
+// ViewModel
+class UserListViewModel: ObservableObject {
+    @Published var users: [User] = []
+    @Published var isLoading: Bool = false
+    @Published var errorMessage: String?
+
+    private let fetchUsersUseCase: FetchUsersUseCase
+    private var cancellables = Set<AnyCancellable>()
+
+    init(fetchUsersUseCase: FetchUsersUseCase) {
+        self.fetchUsersUseCase = fetchUsersUseCase
+    }
+
+    func fetchUsers() {
+        isLoading = true
+        errorMessage = nil
+
+        fetchUsersUseCase.execute()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case .failure(let error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] users in
+                self?.users = users
+            }
+            .store(in: &cancellables)
+    }
+}
+
+// SwiftUI View
+struct UserListView: View {
+    @StateObject private var viewModel: UserListViewModel
+
+    init(viewModel: UserListViewModel) {
+        self._viewModel = StateObject(wrappedValue: viewModel)
+    }
+
+    var body: some View {
+        List {
+            if viewModel.isLoading {
+                ProgressView()
+            } else if let errorMessage = viewModel.errorMessage {
+                Text("错误: \(errorMessage)")
+                    .foregroundColor(.red)
+            } else {
+                ForEach(viewModel.users) { user in
+                    Text(user.name)
+                }
+            }
+        }
+        .navigationTitle("用户列表")
+        .onAppear {
+            viewModel.fetchUsers()
+        }
+    }
+}
+
+// 4. Dependency Injection（依赖注入）
+
+// DI Container
+class DIContainer {
+    static let shared = DIContainer()
+
+    private init() {}
+
+    lazy var apiService: APIService = {
+        return APIServiceImpl()
+    }()
+
+    lazy var cacheService: CacheService = {
+        return CacheServiceImpl()
+    }()
+
+    lazy var userRepository: UserRepository = {
+        return UserRepositoryImpl(
+            apiService: apiService,
+            cacheService: cacheService
+        )
+    }()
+
+    lazy var fetchUsersUseCase: FetchUsersUseCase = {
+        return FetchUsersUseCaseImpl(
+            userRepository: userRepository
+        )
+    }()
+
+    func makeUserListViewModel() -> UserListViewModel {
+        return UserListViewModel(
+            fetchUsersUseCase: fetchUsersUseCase
+        )
+    }
+}
+
+// 5. 使用
+struct ContentView: View {
+    var body: some View {
+        UserListView(
+            viewModel: DIContainer.shared.makeUserListViewModel()
+        )
+    }
+}
+1b:Tfe6,// 1. Domain Layer
+
+// Entity
+struct LoginCredentials {
+    let email: String
+    let password: String
+}
+
+struct AuthToken {
+    let token: String
+    let expiresAt: Date
+}
+
+// Use Case
+protocol LoginUseCase {
+    func execute(credentials: LoginCredentials) -> AnyPublisher<AuthToken, Error>
+}
+
+class LoginUseCaseImpl: LoginUseCase {
+    private let authRepository: AuthRepository
+
+    init(authRepository: AuthRepository) {
+        self.authRepository = authRepository
+    }
+
+    func execute(credentials: LoginCredentials) -> AnyPublisher<AuthToken, Error> {
+        // 验证邮箱格式
+        guard credentials.email.contains("@") else {
+            return Fail(error: AuthError.invalidEmail)
+                .eraseToAnyPublisher()
+        }
+
+        // 验证密码长度
+        guard credentials.password.count >= 6 else {
+            return Fail(error: AuthError.passwordTooShort)
+                .eraseToAnyPublisher()
+        }
+
+        // 调用Repository
+        return authRepository.login(credentials)
+    }
+}
+
+// Repository协议
+protocol AuthRepository {
+    func login(_ credentials: LoginCredentials) -> AnyPublisher<AuthToken, Error>
+    func logout() -> AnyPublisher<Void, Error>
+}
+
+// 2. Data Layer
+
+// Repository实现
+class AuthRepositoryImpl: AuthRepository {
+    private let apiService: APIService
+    private let tokenStorage: TokenStorage
+
+    init(apiService: APIService, tokenStorage: TokenStorage) {
+        self.apiService = apiService
+        self.tokenStorage = tokenStorage
+    }
+
+    func login(_ credentials: LoginCredentials) -> AnyPublisher<AuthToken, Error> {
+        return apiService.login(email: credentials.email, password: credentials.password)
+            .handleEvents(receiveOutput: { token in
+                self.tokenStorage.save(token)
+            })
+            .eraseToAnyPublisher()
+    }
+
+    func logout() -> AnyPublisher<Void, Error> {
+        return apiService.logout()
+            .handleEvents(receiveOutput: { _ in
+                self.tokenStorage.clear()
+            })
+            .eraseToAnyPublisher()
+    }
+}
+
+// 3. Presentation Layer
+
+// ViewModel
+class LoginViewModel: ObservableObject {
+    @Published var email: String = ""
+    @Published var password: String = ""
+    @Published var isLoading: Bool = false
+    @Published var errorMessage: String?
+    @Published var isLoggedIn: Bool = false
+
+    private let loginUseCase: LoginUseCase
+    private var cancellables = Set<AnyCancellable>()
+
+    var isValidForm: Bool {
+        email.contains("@") && password.count >= 6
+    }
+
+    init(loginUseCase: LoginUseCase) {
+        self.loginUseCase = loginUseCase
+    }
+
+    func login() {
+        let credentials = LoginCredentials(email: email, password: password)
+        isLoading = true
+        errorMessage = nil
+
+        loginUseCase.execute(credentials: credentials)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case .failure(let error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] _ in
+                self?.isLoggedIn = true
+            }
+            .store(in: &cancellables)
+    }
+}
+
+// View
+struct LoginView: View {
+    @StateObject private var viewModel: LoginViewModel
+
+    init(viewModel: LoginViewModel) {
+        self._viewModel = StateObject(wrappedValue: viewModel)
+    }
+
+    var body: some View {
+        Form {
+            TextField("邮箱", text: $viewModel.email)
+            SecureField("密码", text: $viewModel.password)
+
+            if viewModel.isLoading {
+                ProgressView()
+            } else {
+                Button("登录") {
+                    viewModel.login()
+                }
+                .disabled(!viewModel.isValidForm)
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+            }
+        }
+        .navigationTitle("登录")
+    }
+}
+1c:T48f,// 场景：创建复杂的网络请求
+class NetworkRequestBuilder {
+    private var url: String = ""
+    private var method: String = "GET"
+    private var headers: [String: String] = [:]
+    private var body: Data?
+
+    func setURL(_ url: String) -> NetworkRequestBuilder {
+        self.url = url
+        return self
+    }
+
+    func setMethod(_ method: String) -> NetworkRequestBuilder {
+        self.method = method
+        return self
+    }
+
+    func addHeader(_ key: String, value: String) -> NetworkRequestBuilder {
+        self.headers[key] = value
+        return self
+    }
+
+    func setBody(_ body: Data) -> NetworkRequestBuilder {
+        self.body = body
+        return self
+    }
+
+    func build() -> URLRequest {
+        var request = URLRequest(url: URL(string: url)!)
+        request.httpMethod = method
+        request.allHTTPHeaderFields = headers
+        request.httpBody = body
+        return request
+    }
+}
+
+// 使用：链式调用，清晰明了
+let request = NetworkRequestBuilder()
+    .setURL("https://api.example.com/users")
+    .setMethod("POST")
+    .addHeader("Authorization", value: "Bearer token")
+    .setBody(jsonData)
+    .build()
+1d:T4ec,// 场景：咖啡店订单（经典案例）
+// 基础组件
+protocol Coffee {
+    func cost() -> Double
+    func description() -> String
+}
+
+class SimpleCoffee: Coffee {
+    func cost() -> Double { return 10 }
+    func description() -> String { return "普通咖啡" }
+}
+
+// 装饰器
+class CoffeeDecorator: Coffee {
+    let coffee: Coffee
+
+    init(_ coffee: Coffee) {
+        self.coffee = coffee
+    }
+
+    func cost() -> Double { return coffee.cost() }
+    func description() -> String { return coffee.description() }
+}
+
+// 具体装饰器
+class MilkDecorator: CoffeeDecorator {
+    override func cost() -> Double { return super.cost() + 2 }
+    override func description() -> String { return super.description() + " + 牛奶" }
+}
+
+class SugarDecorator: CoffeeDecorator {
+    override func cost() -> Double { return super.cost() + 1 }
+    override func description() -> String { return super.description() + " + 糖" }
+}
+
+// 使用：动态组合
+let coffee = SimpleCoffee()
+print(coffee.description())  // 普通咖啡: ¥10
+
+let milkCoffee = MilkDecorator(coffee)
+print(milkCoffee.description())  // 普通咖啡 + 牛奶: ¥12
+
+let milkSugarCoffee = SugarDecorator(milkCoffee)
+print(milkSugarCoffee.description())  // 普通咖啡 + 牛奶 + 糖: ¥13
+1e:T52a,// 场景：封装网络请求
+// 子系统的复杂接口
+class NetworkConfigurator {
+    func configureHeaders() { }
+    func configureTimeout() { }
+    func configureCache() { }
+}
+
+class NetworkCache {
+    func getCache(_ url: String) -> Data? { return nil }
+    func setCache(_ url: String, data: Data) { }
+}
+
+class NetworkRequest {
+    func send(_ url: String, completion: (Data?) -> Void) { }
+}
+
+// 外观：提供简单接口
+class NetworkFacade {
+    private let configurator = NetworkConfigurator()
+    private let cache = NetworkCache()
+    private let request = NetworkRequest()
+
+    init() {
+        configurator.configureHeaders()
+        configurator.configureTimeout()
+        configurator.configureCache()
+    }
+
+    func get(_ url: String, completion: (Data?) -> Void) {
+        // 先查缓存
+        if let cachedData = cache.getCache(url) {
+            completion(cachedData)
+            return
+        }
+
+        // 缓存未命中，发送网络请求
+        request.send(url) { data in
+            if let data = data {
+                self.cache.setCache(url, data: data)
+            }
+            completion(data)
+        }
+    }
+}
+
+// 使用：业务层代码非常简单
+let network = NetworkFacade()
+network.get("https://api.example.com/users") { data in
+    print("收到数据：\(data)")
+}
+1f:T46b,// 场景：不同类型的用户有不同的折扣策略
+protocol DiscountStrategy {
+    func calculateDiscount(price: Double) -> Double
+}
+
+class NormalUserStrategy: DiscountStrategy {
+    func calculateDiscount(price: Double) -> Double {
+        return price  // 无折扣
+    }
+}
+
+class VIPUserStrategy: DiscountStrategy {
+    func calculateDiscount(price: Double) -> Double {
+        return price * 0.9  // 9折
+    }
+}
+
+class SVIPUserStrategy: DiscountStrategy {
+    func calculateDiscount(price: Double) -> Double {
+        return price * 0.8  // 8折
+    }
+}
+
+// 使用
+class ShoppingCart {
+    private var strategy: DiscountStrategy
+
+    init(strategy: DiscountStrategy) {
+        self.strategy = strategy
+    }
+
+    func setStrategy(_ strategy: DiscountStrategy) {
+        self.strategy = strategy
+    }
+
+    func calculateFinalPrice(price: Double) -> Double {
+        return strategy.calculateDiscount(price: price)
+    }
+}
+
+let cart = ShoppingCart(strategy: NormalUserStrategy())
+print(cart.calculateFinalPrice(price: 100))  // 100
+
+cart.setStrategy(VIPUserStrategy())
+print(cart.calculateFinalPrice(price: 100))  // 90
+4:["$","div",null,{"className":"blog-shell","children":[["$","header",null,{"className":"masthead","children":["$","div",null,{"className":"masthead-inner","children":[["$","$L12",null,{"href":"/","className":"brand-title","children":"Caifan's Notes"}],["$","nav",null,{"className":"top-nav","children":["$","$L12",null,{"href":"/","className":"nav-link","children":"← 返回列表"}]}]]}]}],["$","div",null,{"className":"article-page-wrap","children":[["$","article",null,{"className":"article-main","children":[["$","header",null,{"className":"article-header","children":[["$","h1",null,{"className":"article-title","children":"iOS 客户端常见架构模式对比：MVC、MVVM、VIPER 与 Clean Architecture"}],["$","div",null,{"className":"article-meta","children":[["$","time",null,{"children":"2025-07-06"}],["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"children":"工程化与架构"}],[["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"className":"article-tags","children":"客户端架构 / MVVM / 设计模式"}]]]}]]}],["$","div",null,{"className":"markdown-body","children":[["$","h2","h2-0",{"id":"1-架构设计目标与-solid-原则","children":"1. 架构设计目标与 SOLID 原则"}],"\n",["$","h3","h3-0",{"id":"11-先分清架构模式设计原则与设计模式","children":"1.1 先分清架构模式、设计原则与设计模式"}],"\n",["$","div","div-0",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"层次"}],["$","th","th-1",{"children":"要回答的问题"}],["$","th","th-2",{"children":"本文内容"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"架构模式"}],["$","td","td-1",{"children":"页面或功能中的职责、状态和协作怎样组织？"}],["$","td","td-2",{"children":"MVC、MVP、MVVM、VIPER、MVI、TCA、Clean Architecture"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"设计原则"}],["$","td","td-1",{"children":"划分职责和依赖时，怎样减少不必要的耦合？"}],["$","td","td-2",{"children":"SOLID"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"设计模式与协作机制"}],["$","td","td-1",{"children":"某一类重复出现的局部问题，怎样解决？"}],["$","td","td-2",{"children":"创建型、结构型、行为型模式，以及 iOS 的 Delegate"}]]}]]}]]}]}],"\n",["$","p","p-0",{"children":"这些不是从“低级”到“高级”的升级链。页面架构、单向数据流和分层依赖关注的维度不同，可以组合使用。"}],"\n",["$","h3","h3-1",{"id":"12-好架构的目标不是平均分配代码","children":"1.2 好架构的目标不是平均分配代码"}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"职责清晰"}],"：某项规则改变时，知道应该改哪个 Module（模块），而不是要求每个类的行数相近。"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"调用简单"}],"：Interface（接口）应说明调用者需要知道的输入、结果、错误、时序和生命周期约定；复杂 Implementation（实现）尽量留在模块内。"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"变化集中"}],"：替换数据来源、增加展示规则或修复问题时，避免相同知识散落在多个调用者中。"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"可测试"}],"：核心行为可以在合适的 Interface 上验证；可变的外部依赖可以提供测试替代实现。"]}],"\n",["$","li","li-4",{"children":[["$","strong","strong-0",{"children":"成本匹配"}],"：增加协议、文件、绑定和装配都要付出成本；抽象需要对应真实变化或测试需求。"]}],"\n"]}],"\n",["$","h3","h3-2",{"id":"13-solid-的使用方式","children":"1.3 SOLID 的使用方式"}],"\n",["$","p","p-1",{"children":"SOLID 是检查设计的视角，不是要求“所有类型都加协议”。先找到变化的原因和调用关系，再决定需要哪些抽象。"}],"\n",["$","h3","h3-3",{"id":"14-单一职责原则srp","children":"1.4 单一职责原则（SRP）"}],"\n",["$","p","p-2",{"children":[["$","strong","strong-0",{"children":"核心原则"}],"：一个模块应围绕同一类变化原因组织职责。不是“一个类只能有一个方法”，也不是把所有动作机械拆成独立类型。"]}],"\n",["$","h4","h4-0",{"children":"基础对照示例"}],"\n",["$","pre","pre-0",{"children":["$","code","code-0",{"className":"language-swift","children":"//  违反 SRP\nclass User {\n    var name: String\n    var email: String\n\n    func saveToDatabase() { }\n    func sendEmail() { }\n    func validateEmail() -> Bool { true }\n}\n\n//  遵循 SRP\nclass User {\n    let profile: UserProfile\n    let email: EmailService\n}\n\nstruct UserProfile {\n    var name: String\n    var email: String\n}\n\nclass EmailService {\n    func send(_ email: String) { }\n}\n\nclass DatabaseService {\n    func save(_ user: User) { }\n}\n"}]}],"\n",["$","h4","h4-1",{"children":"iOS 场景与补充示例"}],"\n",["$","p","p-3",{"children":"iOS中的应用："}],"\n",["$","ul","ul-1",{"children":["\n",["$","li","li-0",{"children":"UIView和CALayer的职责分离"}],"\n",["$","li","li-1",{"children":"UITableViewDataSource和 UITableViewDelegate分离"}],"\n"]}],"\n",["$","pre","pre-1",{"children":["$","code","code-0",{"className":"language-swift","children":"//  违反单一职责\nclass UserViewController: UIViewController {\n    // 既负责UI展示，又负责网络请求，还负责数据存储\n    func loadUserData() { }\n    func displayUser() { }\n    func saveUser() { }\n}\n\n//  遵循单一职责\nclass UserViewController: UIViewController {\n    private let userService = UserService()\n    private let userView = UserView()\n\n    override func viewDidLoad() {\n        userService.loadUser { user in\n            userView.display(user)\n        }\n    }\n}\n"}]}],"\n",["$","h3","h3-4",{"id":"15-开闭原则ocp","children":"1.5 开闭原则（OCP）"}],"\n",["$","p","p-4",{"children":[["$","strong","strong-0",{"children":"核心原则"}],"：对已识别的变化点，通过扩展实现支持新行为，减少修改稳定调用者。不是禁止修改任何旧代码；新增 extension 也不自动证明设计符合 OCP。"]}],"\n",["$","h4","h4-2",{"children":"基础对照示例"}],"\n",["$","pre","pre-2",{"children":["$","code","code-0",{"className":"language-swift","children":"protocol Shape {\n    func area() -> CGFloat\n    func perimeter() -> CGFloat\n}\n\nextension Shape {\n    func perimeter() -> CGFloat {\n        return 0\n    }\n}\n\nstruct Circle: Shape {\n    var radius: CGFloat\n\n    func area() -> CGFloat {\n        return .pi * radius * radius\n    }\n}\n\n//  扩展实现协议已声明的能力；泛型和协议调用者也能获得 Circle 的周长实现\nextension Circle {\n    func perimeter() -> CGFloat {\n        return 2 * .pi * radius\n    }\n}\n\n// perimeter 必须是 Shape 的 requirement，不能只依赖同名 extension 方法作为多态契约\n"}]}],"\n",["$","h4","h4-3",{"children":"iOS 场景与补充示例"}],"\n",["$","p","p-5",{"children":"iOS中的应用："}],"\n",["$","ul","ul-2",{"children":["\n",["$","li","li-0",{"children":"Category为现有类添加功能"}],"\n",["$","li","li-1",{"children":"Protocol定义抽象接口"}],"\n",["$","li","li-2",{"children":"Strategy模式实现算法替换"}],"\n"]}],"\n",["$","pre","pre-3",{"children":["$","code","code-0",{"className":"language-swift","children":"//  每次修改都要改原有代码\nclass ImageProcessor {\n    func processImage(_ image: UIImage) -> UIImage {\n        // 处理逻辑\n        return image\n    }\n}\n\n//  通过扩展增加新功能，不修改原有代码\nprotocol ImageFilter {\n    func apply(to image: UIImage) -> UIImage\n}\n\nclass ImageProcessor {\n    func processImage(_ image: UIImage, filters: [ImageFilter]) -> UIImage {\n        var result = image\n        for filter in filters {\n            result = filter.apply(to: result)\n        }\n        return result\n    }\n}\n"}]}],"\n",["$","blockquote","blockquote-0",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"勘误"}],"：原周长示例只在 ",["$","code","code-0",{"children":"Shape"}]," 的 extension 中声明方法，会混淆“扩展方法”和“协议多态契约”。现在把 ",["$","code","code-1",{"children":"perimeter()"}]," 声明进协议。不要靠新加一个 extension 来判断是否符合开闭原则。"]}],"\n"]}],"\n",["$","h3","h3-5",{"id":"16-里氏替换原则lsp","children":"1.6 里氏替换原则（LSP）"}],"\n",["$","p","p-6",{"children":[["$","strong","strong-0",{"children":"核心原则"}],"：替代实现必须满足调用者依赖的行为契约，不能额外加强前置条件、削弱结果保证，或把原本可用的行为变成意外失败。"]}],"\n",["$","h4","h4-4",{"children":"基础对照示例"}],"\n",["$","pre","pre-4",{"children":["$","code","code-0",{"className":"language-swift","children":"class Bird {\n    func fly() {\n        print(\"Flying...\")\n    }\n}\n\nclass Sparrow: Bird {\n    override func fly() {\n        print(\"Sparrow flying...\")\n    }\n}\n\nclass Ostrich: Bird {\n    override func fly() {\n        //  鸵鸟不会飞，违反 LSP\n        fatalError(\"Ostrich cannot fly\")\n    }\n}\n\n//  使用协议\nprotocol Flyable {\n    func fly()\n}\n\nclass FlyingBird: Flyable {\n    func fly() {\n        print(\"Flying...\")\n    }\n}\n"}]}],"\n",["$","h4","h4-5",{"children":"iOS 场景与补充示例"}],"\n",["$","p","p-7",{"children":"iOS中的应用："}],"\n",["$","ul","ul-3",{"children":["\n",["$","li","li-0",{"children":"KVO原理：动态创建NSKVONotifying_子类"}],"\n",["$","li","li-1",{"children":"所有UIViewController子类都能替换父类使用"}],"\n"]}],"\n",["$","pre","pre-5",{"children":["$","code","code-0",{"className":"language-swift","children":"class BaseViewController: UIViewController {\n    func setupUI() {\n        // 基础UI设置\n    }\n}\n\nclass CustomViewController: BaseViewController {\n    override func setupUI() {\n        super.setupUI()\n        // 自定义UI设置\n    }\n}\n\n// 任何使用BaseViewController的地方都可以用CustomViewController替换\n"}]}],"\n",["$","blockquote","blockquote-1",{"children":["\n",["$","p","p-0",{"children":["“所有 Bird 都能 fly”本身就是错误抽象。正例应只让确实会飞的类型采用 ",["$","code","code-0",{"children":"Flyable"}],"，不能只换成协议写法，却继续要求所有鸟都会飞。"]}],"\n"]}],"\n",["$","h3","h3-6",{"id":"17-接口隔离原则isp","children":"1.7 接口隔离原则（ISP）"}],"\n",["$","p","p-8",{"children":[["$","strong","strong-0",{"children":"核心原则"}],"：调用者不应被迫依赖自己不需要的能力。按调用者所需的职责划分接口，而不是按方法数量把协议切得越碎越好。"]}],"\n",["$","h4","h4-6",{"children":"基础对照示例"}],"\n",["$","pre","pre-6",{"children":["$","code","code-0",{"className":"language-swift","children":"//  臃肿协议\nprotocol Worker {\n    func work()\n    func eat()\n    func sleep()\n}\n\n//  拆分协议\nprotocol Workable {\n    func work()\n}\n\nprotocol Eatable {\n    func eat()\n}\n\nprotocol Sleepable {\n    func sleep()\n}\n\nclass Human: Workable, Eatable, Sleepable {\n    func work() { }\n    func eat() { }\n    func sleep() { }\n}\n\nclass Robot: Workable {\n    func work() { }\n    // 不需要实现 eat() 和 sleep()\n}\n"}]}],"\n",["$","h4","h4-7",{"children":"iOS 场景与补充示例"}],"\n",["$","p","p-9",{"children":"iOS中的应用："}],"\n",["$","ul","ul-4",{"children":["\n",["$","li","li-0",{"children":"UITableViewDelegate和UITableViewDataSource分离"}],"\n",["$","li","li-1",{"children":"UIDataSource和UIDelegate分离"}],"\n"]}],"\n",["$","pre","pre-7",{"children":["$","code","code-0",{"className":"language-swift","children":"//  臃肿的协议\nprotocol TableViewDelegate {\n    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int\n    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell\n    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath)\n    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat\n}\n\n//  职责分离的协议\nprotocol TableViewDataSource {\n    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int\n    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell\n}\n\nprotocol TableViewDelegate {\n    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath)\n    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat\n}\n"}]}],"\n",["$","h3","h3-7",{"id":"18-依赖倒置原则dip","children":"1.8 依赖倒置原则（DIP）"}],"\n",["$","p","p-10",{"children":[["$","strong","strong-0",{"children":"核心原则"}],"：高层业务规则与底层技术实现通过合适的抽象协作；业务不反向依赖具体网络或存储实现。DI 是装配依赖的方法，DIP 是依赖方向原则，两者不能直接画等号。"]}],"\n",["$","h4","h4-8",{"children":"基础对照示例"}],"\n",["$","pre","pre-8",{"children":["$","code","code-0",{"className":"language-swift","children":"//  依赖具体\nclass LightBulb {\n    func turnOn() { }\n}\n\nclass Switch {\n    private var bulb: LightBulb\n\n    init(bulb: LightBulb) {\n        self.bulb = bulb\n    }\n\n    func toggle() {\n        bulb.turnOn()\n    }\n}\n\n//  依赖抽象\nprotocol Switchable {\n    func turnOn()\n}\n\nclass LightBulb: Switchable {\n    func turnOn() { }\n}\n\nclass Switch {\n    private var device: Switchable\n\n    init(device: Switchable) {\n        self.device = device\n    }\n\n    func toggle() {\n        device.turnOn()\n    }\n}\n"}]}],"\n",["$","h4","h4-9",{"children":"iOS 场景与补充示例"}],"\n",["$","p","p-11",{"children":"iOS中的应用："}],"\n",["$","ul","ul-5",{"children":["\n",["$","li","li-0",{"children":"Protocol定义抽象接口"}],"\n",["$","li","li-1",{"children":"Dependency Injection注入依赖"}],"\n"]}],"\n",["$","pre","pre-9",{"children":["$","code","code-0",{"className":"language-swift","children":"//  直接依赖具体实现\nclass OrderService {\n    let database = MySQLDatabase() // 直接依赖具体数据库\n\n    func saveOrder(_ order: Order) {\n        database.save(order)\n    }\n}\n\n//  依赖抽象\nprotocol Database {\n    func save(_ entity: Any)\n}\n\nclass OrderService {\n    let database: Database // 依赖抽象\n\n    init(database: Database) {\n        self.database = database\n    }\n\n    func saveOrder(_ order: Order) {\n        database.save(order)\n    }\n}\n"}]}],"\n",["$","h2","h2-1",{"id":"2-页面架构mvcmvpmvvmviper","children":"2. 页面架构：MVC、MVP、MVVM、VIPER"}],"\n",["$","p","p-12",{"children":["先判断",["$","strong","strong-0",{"children":"什么职责需要独立出来"}],"，再选择名字。下面的结构图表示角色协作，不能直接当作代码依赖方向图；实际依赖应看类型引用、协议归属和装配位置。"]}],"\n",["$","h3","h3-8",{"id":"21-mvc让-controller-协调而不是包办","children":"2.1 MVC：让 Controller 协调，而不是包办"}],"\n",["$","p","p-13",{"children":"MVC 中 Model 不只是几个属性：它还承载应用数据及相关处理规则；View 负责展示与交互；Controller 协调两者。Apple 的 Cocoa MVC 描述强调 Model 与 View 通常通过 Controller 沟通，而不是要求它们彼此强耦合。见文末 Apple 原始资料。"}],"\n",["$","p","p-14",{"children":["$","strong","strong-0",{"children":"结构："}]}],"\n",["$","pre","pre-10",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────┐\n│           Model (数据层)             │\n│  - 数据模型                          │\n│  - 业务逻辑                          │\n│  - 数据存储                          │\n└─────────────────────────────────────┘\n         ↕                    ↕\n┌─────────────────────────────────────┐\n│        Controller (控制层)           │\n│  - 协调Model和View                   │\n│  - 处理用户交互                      │\n│  - 更新Model和View                   │\n└─────────────────────────────────────┘\n         ↕                    ↕\n┌─────────────────────────────────────┐\n│           View (视图层)              │\n│  - UI展示                            │\n│  - 用户交互                          │\n│  - 动画效果                          │\n└─────────────────────────────────────┘\n"}]}],"\n",["$","p","p-15",{"children":["$","strong","strong-0",{"children":"实现示例："}]}],"\n",["$","pre","pre-11",{"children":["$","code","code-0",{"className":"language-swift","children":"// Model\nstruct User {\n    let id: String\n    var name: String\n    var email: String\n}\n\n// Controller\nclass UserViewController: UIViewController {\n    @IBOutlet weak var nameLabel: UILabel!\n    @IBOutlet weak var emailLabel: UILabel!\n\n    var user: User? {\n        didSet {\n            updateView()\n        }\n    }\n\n    override func viewDidLoad() {\n        super.viewDidLoad()\n        loadUser()\n    }\n\n    func loadUser() {\n        // 模拟网络请求\n        UserService.fetchUser { [weak self] user in\n            self?.user = user\n        }\n    }\n\n    func updateView() {\n        guard let user = user else { return }\n        nameLabel.text = user.name\n        emailLabel.text = user.email\n    }\n\n    @IBAction func saveButtonTapped(_ sender: UIButton) {\n        guard var user = user else { return }\n        user.name = nameLabel.text ?? \"\"\n        self.user = user\n        UserService.updateUser(user)\n    }\n}\n\n// View\n// Interface Builder或代码创建的UI界面\n"}]}],"\n",["$","p","p-16",{"children":["$","strong","strong-0",{"children":"优缺点："}]}],"\n",["$","pre","pre-12",{"children":["$","code","code-0",{"children":"优点：\n1. 简单直观，易于理解\n2. 代码总量少\n3. iOS原生支持\n\n缺点：\n1. 若 Model、View 与具体依赖混在 Controller 中，会形成实现层面的耦合\n2. Controller容易变成\"大胖子\"\n3. 若逻辑依赖 VC 生命周期和具体外部实现，会增加测试难度；这不是 MVC 必然不可测试\n4. 不利于代码复用\n\n适用场景：\n- 简单的页面\n- 快速原型开发\n- 学习和演示项目\n"}]}],"\n",["$","h4","h4-10",{"children":"UIKit 中 UIViewController 的位置"}],"\n",["$","ul","ul-6",{"children":["\n",["$","li","li-0",{"children":["在 MVC 角色划分中，",["$","code","code-0",{"children":"UIViewController"}]," 主要承担 Controller：管理视图生命周期、协调交互和展示。"]}],"\n",["$","li","li-1",{"children":"View 不需要通过 IBOutlet 直接依赖 Model；IBOutlet 本身也不是数据绑定机制。"}],"\n",["$","li","li-2",{"children":"Controller 同时持有 Model 和 View，不等于已经实现双向绑定。"}],"\n",["$","li","li-3",{"children":"MVC 写胖时，先识别数据访问、业务规则和展示转换的独立职责；不必先给整个 App 更换架构名称。"}],"\n"]}],"\n",["$","p","p-17",{"children":[["$","strong","strong-0",{"children":"测试切入点"}],"：抽出的格式化规则和业务行为可以独立验证；页面测试只验证交互与展示衔接。"]}],"\n",["$","h3","h3-9",{"id":"22-mvppresenter-驱动被动-view","children":"2.2 MVP：Presenter 驱动被动 View"}],"\n",["$","p","p-18",{"children":["$","strong","strong-0",{"children":"结构："}]}],"\n",["$","pre","pre-13",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────┐\n│           Model (数据层)             │\n│  - 数据模型                          │\n│  - 业务逻辑                          │\n└─────────────────────────────────────┘\n         ↕                    ↕\n┌─────────────────────────────────────┐\n│        Presenter (展示层)           │\n│  - 处理用户交互                      │\n│  - 更新Model                         │\n│  - 更新View                          │\n└─────────────────────────────────────┘\n         ↕                    ↕\n┌─────────────────────────────────────┐\n│           View (视图层)              │\n│  - UI展示                            │\n│  - 传递用户交互给Presenter            │\n│  - 被动接收更新指令                   │\n└─────────────────────────────────────┘\n"}]}],"\n",["$","p","p-19",{"children":["$","strong","strong-0",{"children":"实现示例："}]}],"\n",["$","pre","pre-14",{"children":["$","code","code-0",{"className":"language-swift","children":"$13"}]}],"\n",["$","p","p-20",{"children":["$","strong","strong-0",{"children":"优缺点："}]}],"\n",["$","pre","pre-15",{"children":["$","code","code-0",{"children":"优点：\n1. View 通过 Presenter 的展示契约协作，不直接操作 Model\n2. Presenter易于测试（纯逻辑）\n3. View可以独立演化\n4. 业务逻辑清晰\n\n缺点：\n1. Presenter容易变重\n2. View接口可能很复杂\n3. 需要维护更多的接口定义\n\n适用场景：\n- 中等复杂度的项目\n- 需要较高测试覆盖率\n- 团队对架构有一定理解\n"}]}],"\n",["$","hr","hr-0",{}],"\n",["$","p","p-21",{"children":[["$","strong","strong-0",{"children":"测试切入点"}],"：向 Presenter 注入数据依赖和一个记录调用的 View 替代实现，验证用户动作触发了什么展示命令。注意 Presenter 也可能写胖，移出 VC 并不自动消除职责混杂。"]}],"\n",["$","h3","h3-10",{"id":"23-mvvm抽出展示状态与转换逻辑","children":"2.3 MVVM：抽出展示状态与转换逻辑"}],"\n",["$","p","p-22",{"children":"ViewModel 对外提供页面所需状态和交互入口，不应直接操作具体 View。网络传输、缓存与可复用业务规则不必全塞进 ViewModel；它可以调用独立的用例或数据访问模块。"}],"\n",["$","p","p-23",{"children":"绑定可以用回调、观察、Combine 或其他机制实现。采用 MVVM 并不强制采用 Combine，也不要求 ViewModel 的属性与 Model 一一对应。"}],"\n",["$","h4","h4-11",{"children":"2.3.1 基础 MVVM：KVO 绑定"}],"\n",["$","p","p-24",{"children":["$","strong","strong-0",{"children":"结构："}]}],"\n",["$","pre","pre-16",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────┐\n│           Model (数据层)             │\n│  - 数据模型                          │\n│  - 业务逻辑                          │\n│  - 数据存储                          │\n└─────────────────────────────────────┘\n         ↕                    ↕\n┌─────────────────────────────────────┐\n│       ViewModel (视图模型)           │\n│  - 展示与交互逻辑                    │\n│  - 数据转换                          │\n│  - 属性变化通知                      │\n└─────────────────────────────────────┘\n         ↕                    ↕\n┌─────────────────────────────────────┐\n│           View (视图层)              │\n│  - UI展示                            │\n│  - 绑定ViewModel属性                │\n│  - 用户交互                          │\n└─────────────────────────────────────┘\n"}]}],"\n",["$","p","p-25",{"children":["$","strong","strong-0",{"children":"实现示例（使用KVO）："}]}],"\n",["$","pre","pre-17",{"children":["$","code","code-0",{"className":"language-swift","children":"$14"}]}],"\n",["$","blockquote","blockquote-2",{"children":["\n",["$","p","p-0",{"children":"KVO 绑定只解决“怎样收到变化”，不解决请求之间的竞态。真实页面仍需约定 ViewModel 状态的串行访问方式，并处理取消和过期结果。"}],"\n"]}],"\n",["$","h4","h4-12",{"children":"2.3.2 响应式 MVVM：Combine 绑定"}],"\n",["$","p","p-26",{"children":["$","strong","strong-0",{"children":"使用Combine的MVVM："}]}],"\n",["$","pre","pre-18",{"children":["$","code","code-0",{"className":"language-swift","children":"$15"}]}],"\n",["$","p","p-27",{"children":["$","strong","strong-0",{"children":"优缺点："}]}],"\n",["$","pre","pre-19",{"children":["$","code","code-0",{"children":"优点：\n1. ViewModel可以独立测试\n2. 数据绑定自动更新View\n3. 响应式编程，代码简洁\n4. 支持复杂的数据流\n\n缺点：\n1. 学习曲线较陡\n2. 调试相对困难\n3. 不恰当的强捕获和订阅所有权可能形成循环引用；采用 Combine 本身并不等于泄漏\n4. 需要仔细管理生命周期\n\n适用场景：\n- 复杂的数据绑定场景\n- 需要高测试覆盖率\n- 团队熟悉响应式编程\n- 长期维护的项目\n"}]}],"\n",["$","hr","hr-1",{}],"\n",["$","h4","h4-13",{"children":"2.3.3 SwiftUI / Combine 的补充绑定示例"}],"\n",["$","pre","pre-20",{"children":["$","code","code-0",{"className":"language-swift","children":"// ViewModel\nclass UserViewModel: ObservableObject {\n    @Published var userName: String\n    @Published var userEmail: String\n\n    private let model: UserModel\n\n    init(model: UserModel) {\n        self.model = model\n        self.userName = model.name\n        self.userEmail = model.email\n    }\n\n    func updateEmail(_ email: String) {\n        model.email = email\n        userEmail = email\n    }\n}\n\n// View\nstruct ContentView: View {\n    @StateObject private var viewModel = UserViewModel(model: UserModel())\n\n    var body: some View {\n        VStack {\n            TextField(\"Email\", text: $viewModel.userEmail)\n            Text(viewModel.userName)\n        }\n    }\n}\n"}]}],"\n",["$","blockquote","blockquote-3",{"children":["\n",["$","p","p-0",{"children":[["$","code","code-0",{"children":"@StateObject"}]," 与 ",["$","code","code-1",{"children":"@ObservedObject"}]," 的选择还涉及对象由谁创建和持有，不能只看“用了 MVVM”。上面各示例的数据类型和数据依赖是独立约定。"]}],"\n"]}],"\n",["$","p","p-28",{"children":[["$","strong","strong-0",{"children":"测试切入点"}],"：不用启动 VC，向 ViewModel 输入动作和数据响应，验证展示状态、错误、加载状态及转换结果。依赖注入方式见第 4 章。"]}],"\n",["$","h3","h3-11",{"id":"24-viper进一步区分展示用例与路由","children":"2.4 VIPER：进一步区分展示、用例与路由"}],"\n",["$","p","p-29",{"children":["$","strong","strong-0",{"children":"组件划分："}]}],"\n",["$","pre","pre-21",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────┐\n│           View (视图层)             │\n│  - UI展示                            │\n│  - 用户交互                          │\n│  - 通知Presenter用户事件             │\n└─────────────────────────────────────┘\n         ↕\n┌─────────────────────────────────────┐\n│       Presenter (展示层)            │\n│  - 处理用户交互                      │\n│  - 协调各个组件                      │\n│  - 不包含业务逻辑                    │\n└─────────────────────────────────────┘\n         ↕                ↕         ↕\n    ┌─────────┐  ┌──────────┐  ┌─────────┐\n    │ Interactor│  │  Router │  │ Entity  │\n    │  (交互层) │  │ (路由)  │  │ (实体)  │\n    └──────────┘  └─────────┘  └─────────┘\n"}]}],"\n",["$","p","p-30",{"children":["$","strong","strong-0",{"children":"各组件职责："}]}],"\n",["$","pre","pre-22",{"children":["$","code","code-0",{"children":"View：\n- 展示UI\n- 接收用户交互\n- 通知Presenter\n\nPresenter：\n- 处理View事件\n- 调用Interactor\n- 更新View\n- 协调各个组件\n\nInteractor：\n- 业务逻辑处理\n- 数据获取和转换\n- 调用Router进行页面跳转\n\nRouter：\n- 页面跳转\n- 组件导航\n- 传递数据\n\nEntity：\n- 数据模型\n- 不包含业务逻辑\n"}]}],"\n",["$","h4","h4-14",{"children":"2.4.1 完整职责协作示例"}],"\n",["$","pre","pre-23",{"children":["$","code","code-0",{"className":"language-swift","children":"$16"}]}],"\n",["$","p","p-31",{"children":["$","strong","strong-0",{"children":"优缺点："}]}],"\n",["$","pre","pre-24",{"children":["$","code","code-0",{"children":"优点：\n1. 展示、业务和路由职责显式分离\n2. 可分别验证 Presenter、Interactor 和路由行为；测试质量仍取决于具体设计\n3. 易于维护和扩展\n4. 支持大型项目\n\n缺点：\n1. 代码量大幅增加\n2. 学习曲线陡峭\n3. 初期开发效率低\n4. 过度设计风险高\n\n适用场景：\n- 大型复杂项目\n- 需要高测试覆盖率\n- 团队规模较大\n- 长期维护的基线项目\n"}]}],"\n",["$","hr","hr-2",{}],"\n",["$","h4","h4-15",{"children":"2.4.2 协议交互的精简补充示例"}],"\n",["$","pre","pre-25",{"children":["$","code","code-0",{"className":"language-swift","children":"// Protocol\nprotocol HomePresentable: AnyObject {\n    var interactor: HomeInteractable? { get set }\n    var router: HomeRoutable? { get set }\n}\n\nprotocol HomeInteractable: AnyObject {\n    var presenter: HomePresentable? { get set }\n    func fetchUsers()\n}\n\nprotocol HomeRoutable: AnyObject {\n    func navigateToDetail(for user: User)\n}\n\n// Implementation\nclass HomeInteractor: HomeInteractable {\n    weak var presenter: HomePresentable?\n    var users = [User]()\n\n    func fetchUsers() {\n        // 获取数据\n        users = [User(id: 1, name: \"John\")]\n        presenter?.didFetchUsers(users)\n    }\n}\n\nclass HomePresenter: HomePresentable {\n    var interactor: HomeInteractable?\n    var router: HomeRoutable?\n\n    func didFetchUsers(_ users: [User]) {\n        // 更新 View\n        view?.updateUsers(users)\n    }\n}\n"}]}],"\n",["$","p","p-32",{"children":[["$","strong","strong-0",{"children":"测试切入点"}],"：分别验证 Presenter 如何翻译展示事件、Interactor 如何执行用例、Router 如何接收导航请求。文件和协议更多并不代表测试覆盖会自动提高。"]}],"\n",["$","h2","h2-2",{"id":"3-状态与数据流mvitca","children":"3. 状态与数据流：MVI、TCA"}],"\n",["$","p","p-33",{"children":"这部分重点是“动作怎样改变状态、异步结果怎样返回”，与 MVC / MVVM 的角色划分、Clean Architecture 的依赖规则不是完全互斥的选项。"}],"\n",["$","h3","h3-12",{"id":"31-mvi意图驱动状态变化","children":"3.1 MVI：意图驱动状态变化"}],"\n",["$","p","p-34",{"children":[["$","strong","strong-0",{"children":"一句话理解"}],"：MVI就是把\"用户点击按钮\"变成\"发送意图\"，然后用\"处理函数\"计算新状态，最后更新界面。"]}],"\n",["$","p","p-35",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"："]}],"\n",["$","pre","pre-26",{"children":["$","code","code-0",{"children":"用户操作 → 意图(Intent) → 处理(Reducer) → 新状态(Model) → 更新界面(View)\n"}]}],"\n",["$","p","p-36",{"children":[["$","strong","strong-0",{"children":"生活类比"}],"："]}],"\n",["$","blockquote","blockquote-4",{"children":["\n",["$","p","p-0",{"children":"就像在餐厅点餐："}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"Intent（意图）"}],"：你说\"我要一份宫保鸡丁\""]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"Reducer（厨师）"}],"：根据你的意图做菜"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"Model（菜品）"}],"：做好的宫保鸡丁"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"View（餐桌）"}],"：把菜端到你面前"]}],"\n"]}],"\n"]}],"\n",["$","p","p-37",{"children":["$","strong","strong-0",{"children":"为什么叫MVI？"}]}],"\n",["$","ul","ul-7",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"Model"}],"：当前状态；本例通过返回新值更新状态，是否采用不可变表示取决于实现"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"View"}],"：界面，只负责显示"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"Intent"}],"：意图，描述用户想做什么"]}],"\n"]}],"\n",["$","p","p-38",{"children":[["$","strong","strong-0",{"children":"记忆口诀"}],"："]}],"\n",["$","blockquote","blockquote-5",{"children":["\n",["$","p","p-0",{"children":"MVI = 用户有意图(Intent) → 电脑处理(Reducer) → 产生新状态(Model) → 界面更新(View)"}],"\n"]}],"\n",["$","p","p-39",{"children":[["$","strong","strong-0",{"children":"简单代码示例"}],"："]}],"\n",["$","pre","pre-27",{"children":["$","code","code-0",{"className":"language-swift","children":"// 1. 意图：用户想做什么\nenum CounterIntent {\n    case 加1\n    case 减1\n}\n\n// 2. 状态：当前的数据\nstruct CounterModel {\n    let 数值: Int\n}\n\n// 3. 处理：根据意图计算新状态（纯函数，输入相同输出一定相同）\nfunc 计数器处理(state: CounterModel, intent: CounterIntent) -> CounterModel {\n    switch intent {\n    case .加1:\n        return CounterModel(数值: state.数值 + 1)\n    case .减1:\n        return CounterModel(数值: state.数值 - 1)\n    }\n}\n\n// 4. ViewModel：连接View和Model\nclass CounterViewModel: ObservableObject {\n    @Published var 状态 = CounterModel(数值: 0)\n\n    func 处理意图(_ intent: CounterIntent) {\n        状态 = 计数器处理(state: 状态, intent: intent)\n    }\n}\n"}]}],"\n",["$","p","p-40",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-8",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"单向数据流"}],"：数据流向清晰，容易理解"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"意图驱动"}],"：用户操作一目了然"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"易于测试"}],"：处理函数是纯函数，输入输出确定"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"状态演进集中"}],"：本例返回新的状态值；结构体本身并不自动保证不可变或线程安全"]}],"\n",["$","li","li-4",{"children":[["$","strong","strong-0",{"children":"可从小模型开始"}],"：先显式描述动作和状态，再按需求增加副作用处理"]}],"\n"]}],"\n",["$","p","p-41",{"children":[["$","strong","strong-0",{"children":"缺点"}],"："]}],"\n",["$","ul","ul-9",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"需要定义事件衔接方式"}],"：可以采用回调、观察、Combine 等；MVI 不强制某个库"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"意图定义多"}],"：每个用户操作都要定义Intent"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"状态更新成本"}],"：大型状态的复制、计算和渲染需要测量，不能仅凭“结构体”判断性能"]}],"\n"]}],"\n",["$","p","p-42",{"children":[["$","strong","strong-0",{"children":"适用场景"}],"："]}],"\n",["$","ul","ul-10",{"children":["\n",["$","li","li-0",{"children":"用户动作与异步事件交织，需要清楚地描述状态变化的功能"}],"\n",["$","li","li-1",{"children":"需要清晰的数据流"}],"\n",["$","li","li-2",{"children":"SwiftUI项目"}],"\n",["$","li","li-3",{"children":"团队协作（职责明确）"}],"\n"]}],"\n",["$","p","p-43",{"children":[["$","strong","strong-0",{"children":"测试切入点"}],"：给定旧状态和 Intent，断言新状态；有副作用时，分别验证触发条件和结果事件。计数器例子的状态函数是纯函数，但完整功能还要处理异步工作。"]}],"\n",["$","h3","h3-13",{"id":"32-tca可组合的状态动作与副作用","children":"3.2 TCA：可组合的状态、动作与副作用"}],"\n",["$","p","p-44",{"children":"TCA 的核心是状态管理、功能组合、副作用管理、依赖与测试。它支持 SwiftUI，也支持 UIKit；可以组合和作用域化多个功能，不必把整个 App 的所有状态塞进一个巨大 Store。下面旧例中的“银行系统”只是帮助记忆，不是数据库设计建议。"}],"\n",["$","p","p-45",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"："]}],"\n",["$","pre","pre-28",{"children":["$","code","code-0",{"children":"唯一状态库(Store) → 接收操作(Action) → 处理函数(Reducer)计算新状态 → 界面自动更新\n"}]}],"\n",["$","p","p-46",{"children":[["$","strong","strong-0",{"children":"生活类比"}],"："]}],"\n",["$","blockquote","blockquote-6",{"children":["\n",["$","p","p-0",{"children":"就像银行的账户系统："}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"State（账户余额）"}],"：唯一的数据源"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"Action（存取款操作）"}],"：你要存钱或取钱"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"Reducer（银行系统）"}],"：计算新的余额"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"Store（状态与动作的运行入口）"}],"：存储所有账户信息"]}],"\n",["$","li","li-4",{"children":[["$","strong","strong-0",{"children":"View（ATM屏幕）"}],"：显示余额"]}],"\n"]}],"\n"]}],"\n",["$","p","p-47",{"children":["$","strong","strong-0",{"children":"为什么叫TCA？"}]}],"\n",["$","ul","ul-11",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"T"}],"he：这个（特指一种架构）"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"C"}],"omposable：可组合的（小的Reducer可以组合成大的）"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"A"}],"rchitecture：架构"]}],"\n"]}],"\n",["$","p","p-48",{"children":[["$","strong","strong-0",{"children":"5个核心概念"}],"："]}],"\n",["$","pre","pre-29",{"children":["$","code","code-0",{"children":"1. State（状态）：所有数据，唯一真理来源\n2. Action（操作）：描述状态变化的事件，如\"加1\"、\"减1\"\n3. Reducer（处理器）：纯函数，接收旧状态+操作，返回新状态\n4. Store（仓库）：管理状态和处理器\n5. Effect（副作用）：处理异步操作（网络请求、数据库）\n"}]}],"\n",["$","p","p-49",{"children":[["$","strong","strong-0",{"children":"记忆口诀"}],"："]}],"\n",["$","blockquote","blockquote-7",{"children":["\n",["$","p","p-0",{"children":"TCA = 银行存取款系统"}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"Store = 当前功能的状态与动作入口，可与子功能组合"}],"\n",["$","li","li-1",{"children":"Action = 存取款单（你的操作）"}],"\n",["$","li","li-2",{"children":"Reducer = 柜员（计算新余额）"}],"\n",["$","li","li-3",{"children":"State = 账户余额（当前状态）"}],"\n",["$","li","li-4",{"children":"Effect = 联网验证（异步操作）"}],"\n"]}],"\n"]}],"\n",["$","h4","h4-16",{"children":"3.2.1 现代 TCA 的阅读入口"}],"\n",["$","p","p-50",{"children":["下面是独立编写的最小计数器示例，采用官方 README 当前展示的 ",["$","code","code-0",{"children":"@Reducer"}],"、",["$","code","code-1",{"children":"@ObservableState"}],"、",["$","code","code-2",{"children":"StoreOf"}]," 风格。它只演示同步状态变化；异步功能还需设计 Effect、取消和可替换依赖。"]}],"\n",["$","pre","pre-30",{"children":["$","code","code-0",{"className":"language-swift","children":"import ComposableArchitecture\nimport SwiftUI\n\n@Reducer\nstruct CounterFeature {\n    @ObservableState\n    struct State: Equatable {\n        var count = 0\n    }\n\n    enum Action {\n        case increment\n        case decrement\n    }\n\n    var body: some Reducer<State, Action> {\n        Reduce { state, action in\n            switch action {\n            case .increment:\n                state.count += 1\n            case .decrement:\n                state.count -= 1\n            }\n            return .none\n        }\n    }\n}\n\nstruct CounterScreen: View {\n    let store: StoreOf<CounterFeature>\n\n    var body: some View {\n        VStack {\n            Text(\"当前计数：\\(store.count)\")\n            Button(\"增加\") { store.send(.increment) }\n            Button(\"减少\") { store.send(.decrement) }\n        }\n    }\n}\n\n// 在装配位置创建 Store，而不是在每次 View.body 求值时重新创建。\nlet counterStore = Store(initialState: CounterFeature.State()) {\n    CounterFeature()\n}\n"}]}],"\n",["$","h4","h4-17",{"children":"3.2.2 历史片段：计数器写法对照"}],"\n",["$","blockquote","blockquote-8",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"历史 API / 概念伪代码"}],"：原笔记混用了闭包式 ",["$","code","code-0",{"children":"Reducer"}]," 的泛型与不同版本 Store 写法，以下保留其状态—动作关系，不保证对应某一个可直接编译的 TCA 版本。新项目优先参考上一节与官方迁移指南。"]}],"\n"]}],"\n",["$","pre","pre-31",{"children":["$","code","code-0",{"className":"language-swift","children":"// 1. 状态：计数器的值\nstruct CounterState {\n    var count: Int = 0\n}\n\n// 2. 操作：可以做什么\nenum CounterAction {\n    case 加1\n    case 减1\n}\n\n// 3. 处理器：根据操作计算新状态\nlet counterReducer = Reducer<CounterState, CounterAction> { state, action in\n    switch action {\n    case .加1:\n        state.count += 1\n        return .none  // 无副作用\n    case .减1:\n        state.count -= 1\n        return .none\n    }\n}\n\n// 4. 创建Store\nlet store = Store(\n    initialState: CounterState(),\n    reducer: counterReducer\n)\n\n// 5. SwiftUI界面使用\nstruct CounterView: View {\n    let store: Store<CounterState, CounterAction>\n\n    var body: some View {\n        WithViewStore(store) { viewStore in\n            VStack {\n                Text(\"计数: \\(viewStore.count)\")\n                Button(\"+\") { viewStore.send(.加1) }\n                Button(\"-\") { viewStore.send(.减1) }\n            }\n        }\n    }\n}\n"}]}],"\n",["$","h4","h4-18",{"children":"3.2.3 历史示例：计数器与用户列表"}],"\n",["$","blockquote","blockquote-9",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"旧版 Environment / Combine / WithViewStore 风格"}],"：保留来理解依赖传递、请求 Effect 与响应 Action；",["$","code","code-0",{"children":"User"}],"、网络实现及其标识约定需由独立 Demo 补齐。不要将此处旧 API 与现代宏写法混用。"]}],"\n"]}],"\n",["$","pre","pre-32",{"children":["$","code","code-0",{"className":"language-swift","children":"$17"}]}],"\n",["$","h4","h4-19",{"children":"3.2.4 历史示例：用户登录"}],"\n",["$","blockquote","blockquote-10",{"children":["\n",["$","p","p-0",{"children":"同样采用旧版 API。重点观察“输入变化 → 登录动作 → 异步结果动作 → 加载 / 错误状态”。登录数据类型和 API 实现为项目依赖，不由本文提供。"}],"\n"]}],"\n",["$","pre","pre-33",{"children":["$","code","code-0",{"className":"language-swift","children":"$18"}]}],"\n",["$","h4","h4-20",{"children":"3.2.5 收益、代价与测试"}],"\n",["$","ul","ul-12",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"收益"}],"：动作和状态显式；子功能可以组合；副作用和依赖可以替换，从而验证异步事件链。"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"代价"}],"：需要理解状态划分、动作建模、Effect、取消、依赖与版本迁移；采用库会增加学习和维护成本。"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"不要混淆"}],"：Reducer 可以描述状态变化并返回 Effect，不代表完整功能“完全没有副作用”。记录动作或回放状态，也不意味着默认就能撤销网络请求等外部副作用；不要把“任意时间旅行”当成开箱即用保证。"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"测试切入点"}],"：验证发送动作后的状态，以及 Effect 产生的后续动作。具体 TestStore 用法以项目锁定版本为准。"]}],"\n"]}],"\n",["$","h2","h2-3",{"id":"4-分层与依赖clean-architecturedi","children":"4. 分层与依赖：Clean Architecture、DI"}],"\n",["$","h3","h3-14",{"id":"41-clean-architecture-的核心依赖朝业务规则方向","children":"4.1 Clean Architecture 的核心：依赖朝业务规则方向"}],"\n",["$","p","p-51",{"children":"Clean Architecture 不是“再加三个文件夹”，也不是页面数量达到某个阈值后必须采用的框架。它强调核心规则不反向依赖具体展示、网络和存储实现。"}],"\n",["$","p","p-52",{"children":"常见 iOS 划分如下："}],"\n",["$","pre","pre-34",{"children":["$","code","code-0",{"className":"language-text","children":"代码依赖方向（不是网络调用时序）：\n\nPresentation ───────→ Domain ←─────── Data\nView / ViewModel      Entity          Repository 实现\nViewController        Use Case        API / Database / Cache\n                      Repository 协议\n\n装配位置：创建具体实现，并将它们注入需要这些协议的对象。\n"}]}],"\n",["$","div","div-1",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"层"}],["$","th","th-1",{"children":"主要职责"}],["$","th","th-2",{"children":"依赖约束"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"Presentation"}],["$","td","td-1",{"children":"展示状态、交互响应、页面协作"}],["$","td","td-2",{"children":"可依赖 Domain，不要求业务用例知道 UIKit / SwiftUI"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"Domain"}],["$","td","td-1",{"children":"核心规则、实体、用例、所需的数据访问协议"}],["$","td","td-2",{"children":"不依赖具体页面和具体数据实现"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"Data"}],["$","td","td-1",{"children":"实现仓库协议，访问网络、数据库和缓存"}],["$","td","td-2",{"children":"依赖 Domain 的契约，隐藏具体技术细节"}]]}]]}]]}]}],"\n",["$","p","p-53",{"children":[["$","strong","strong-0",{"children":"Model 和 Domain 不等同于数据库；Repository 协议与实现也不应都机械放在 Data。"}]," 洋葱类比里核心是业务规则，不能把数据访问实现当作最内层。"]}],"\n",["$","p","p-54",{"children":"MVVM 可以用于 Presentation，同时遵守 Clean 的依赖方向。MVVM 不强制 Combine，MVC 也不强制把所有业务逻辑放进 Controller。"}],"\n",["$","h4","h4-21",{"children":"4.1.1 Combine 用例的最小示例"}],"\n",["$","blockquote","blockquote-11",{"children":["\n",["$","p","p-0",{"children":["下面原有示例选择 ",["$","code","code-0",{"children":"AnyPublisher"}]," 作为用例接口，因此 Domain 对 Combine 有明确依赖，不能再称为“完全不依赖框架”。若需要更严格的技术隔离，应重新选择接口表示；关键是明确选择及其代价。"]}],"\n"]}],"\n",["$","pre","pre-35",{"children":["$","code","code-0",{"className":"language-swift","children":"$19"}]}],"\n",["$","h4","h4-22",{"children":"4.1.2 用户列表：缓存、仓库、用例、ViewModel 与装配"}],"\n",["$","p","p-55",{"children":"保留原有用户列表完整链路。缓存命中即返回只是示例策略；实际功能应约定有效期、失效条件、是否继续刷新和重复请求行为。"}],"\n",["$","pre","pre-36",{"children":["$","code","code-0",{"className":"language-swift","children":"$1a"}]}],"\n",["$","blockquote","blockquote-12",{"children":["\n",["$","p","p-0",{"children":["DIContainer 的单例是原示例的装配选择，不是 DI 或 Clean 的必要条件。只在装配位置访问容器，把已解析的协议依赖传给业务对象；不要让每个对象自行调用 ",["$","code","code-0",{"children":"DIContainer.shared"}]," 查找依赖。"]}],"\n"]}],"\n",["$","h4","h4-23",{"children":"4.1.3 登录：业务校验、仓库与展示状态"}],"\n",["$","p","p-56",{"children":"这里的邮箱和密码检查仅为业务规则示意，不是完整认证规范。错误类型、网络实现与 TokenStorage 由独立示例工程定义。"}],"\n",["$","pre","pre-37",{"children":["$","code","code-0",{"className":"language-swift","children":"$1b"}]}],"\n",["$","h4","h4-24",{"children":"4.1.4 收益、代价与验证方式"}],"\n",["$","ul","ul-13",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"收益"}],"：核心规则与具体技术选择分开；数据来源和展示可以独立替换；用例、仓库及展示状态有明确的测试位置。"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"代价"}],"：协议、映射、装配和层间转交增多；若只是没有变化的简单操作，层层转发可能增加理解成本。"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"判断依据"}],"：是否存在需要独立维护的业务规则、变化的数据来源和稳定的测试契约，而不是“20 个页面 / 5 人团队 / 3 年维护”的硬阈值。"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"跨平台注意"}],"：可以共享规则与接口思路，但 iOS Swift 代码不会因采用 Clean 就自动与 Android 共享实现。"]}],"\n"]}],"\n",["$","h3","h3-15",{"id":"42-依赖注入di谁创建依赖谁使用依赖","children":"4.2 依赖注入（DI）：谁创建依赖，谁使用依赖"}],"\n",["$","p","p-57",{"children":"DIP 讨论依赖方向，DI 讨论把对象所需依赖交给它的方式。定义协议之后，如果业务仍在内部写死具体实现，测试和替换仍可能困难。"}],"\n",["$","h4","h4-25",{"children":"4.2.1 构造函数注入"}],"\n",["$","pre","pre-38",{"children":["$","code","code-0",{"className":"language-swift","children":"protocol UserService {\n    func fetchUser() -> User\n}\n\nclass UserViewModel {\n    private let userService: UserService\n\n    // 通过构造函数注入依赖\n    init(userService: UserService) {\n        self.userService = userService\n    }\n\n    func loadUser() {\n        let user = userService.fetchUser()\n        // 处理用户数据\n    }\n}\n\n// 使用示例\nclass UserViewController: UIViewController {\n    private var viewModel: UserViewModel?\n\n    override func viewDidLoad() {\n        super.viewDidLoad()\n\n        // 注入依赖\n        let userService = UserServiceImpl()\n        viewModel = UserViewModel(userService: userService)\n    }\n}\n"}]}],"\n",["$","p","p-58",{"children":"对象创建时就具备必需依赖，适合业务必需且生命周期稳定的依赖；在装配位置选择真实实现或测试替代实现。"}],"\n",["$","h4","h4-26",{"children":"4.2.2 属性注入"}],"\n",["$","pre","pre-39",{"children":["$","code","code-0",{"className":"language-swift","children":"class UserViewModel {\n    // 通过属性注入依赖\n    var userService: UserService?\n\n    func loadUser() {\n        guard let userService = userService else {\n            return\n        }\n\n        let user = userService.fetchUser()\n        // 处理用户数据\n    }\n}\n"}]}],"\n",["$","p","p-59",{"children":"适用于创建方式受框架限制或依赖确实可选的情况。若依赖必需，需明确“什么时候必须完成注入”，不要静默 return 掩盖装配错误。"}],"\n",["$","h4","h4-27",{"children":"4.2.3 方法注入"}],"\n",["$","pre","pre-40",{"children":["$","code","code-0",{"className":"language-swift","children":"class UserViewModel {\n    // 通过方法注入依赖\n    func loadUser(with service: UserService) {\n        let user = service.fetchUser()\n        // 处理用户数据\n    }\n}\n"}]}],"\n",["$","hr","hr-3",{}],"\n",["$","p","p-60",{"children":"适合只在某次操作需要的依赖或上下文，不必为了一个临时参数引入长期持有关系。"}],"\n",["$","h4","h4-28",{"children":"4.2.4 测试替代实现与装配位置"}],"\n",["$","p","p-61",{"children":["沿用构造函数示例中的 ",["$","code","code-0",{"children":"UserService"}]," 契约，可以在测试中提供固定数据或可控错误，再验证 ViewModel 的行为。测试不应依赖真实网络是否可用。"]}],"\n",["$","pre","pre-41",{"children":["$","code","code-0",{"className":"language-text","children":"生产装配：RealUserService → UserViewModel\n测试装配：FakeUserService → UserViewModel\n\n测试关注：\n- 给定响应，展示状态是否正确？\n- 失败是否收口到错误和加载状态？\n- 取消、重入、过期响应是否遵守约定？\n"}]}],"\n",["$","h3","h3-16",{"id":"43-页面导航与对象装配","children":"4.3 页面导航与对象装配"}],"\n",["$","p","p-62",{"children":"VIPER 示例中的 Router，以及 MVVM 常配合的 Coordinator，都是把导航或流程协作集中起来的可选方式。不要仅因为“使用 MVVM”就给每个简单页面强制增加一套导航层。"}],"\n",["$","ul","ul-14",{"children":["\n",["$","li","li-0",{"children":"页面发出用户意图或导航请求。"}],"\n",["$","li","li-1",{"children":"导航对象决定目标页面及其依赖装配。"}],"\n",["$","li","li-2",{"children":"明确父子导航对象、VC 和闭包之间的所有权，避免页面退出后仍被持有。"}],"\n",["$","li","li-3",{"children":"URL Router、Target-Action、Protocol-Service 等跨模块通信细节转到独立组件化专题。"}],"\n"]}],"\n",["$","h2","h2-4",{"id":"5-架构对比选型与混合实践","children":"5. 架构对比、选型与混合实践"}],"\n",["$","h3","h3-17",{"id":"51-按问题比较不按名字排名","children":"5.1 按问题比较，不按名字排名"}],"\n",["$","div","div-2",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"方案"}],["$","th","th-1",{"children":"主要关注点"}],["$","th","th-2",{"children":"可以带来的收益"}],["$","th","th-3",{"children":"需要承担的代价"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"MVC"}],["$","td","td-1",{"children":"Model / View / Controller 协作"}],["$","td","td-2",{"children":"直接、装配少；独立 Model 行为仍可测试"}],["$","td","td-3",{"children":"Controller 若包办太多职责容易混杂"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"MVP"}],["$","td","td-1",{"children":"Presenter 主动驱动 View"}],["$","td","td-2",{"children":"展示决策可以脱离真实 UI 验证"}],["$","td","td-3",{"children":"View 协议与展示命令增多"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"MVVM"}],["$","td","td-1",{"children":"展示状态与转换"}],["$","td","td-2",{"children":"ViewModel 可独立验证，UI 订阅状态变化"}],["$","td","td-3",{"children":"绑定、生命周期与状态一致性要明确"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"VIPER"}],["$","td","td-1",{"children":"展示、用例、实体、路由分工"}],["$","td","td-2",{"children":"较多职责有独立验证位置"}],["$","td","td-3",{"children":"类型、协议和装配成本增加"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"MVI"}],["$","td","td-1",{"children":"Intent → 状态演进 → 渲染"}],["$","td","td-2",{"children":"状态变化和事件路径显式"}],["$","td","td-3",{"children":"动作、副作用和状态划分需要建模"}]]}],["$","tr","tr-5",{"children":[["$","td","td-0",{"children":"TCA"}],["$","td","td-1",{"children":"可组合状态、动作、副作用与依赖"}],["$","td","td-2",{"children":"有统一的组合和测试工具"}],["$","td","td-3",{"children":"库的学习成本与版本迁移成本"}]]}],["$","tr","tr-6",{"children":[["$","td","td-0",{"children":"Clean"}],["$","td","td-1",{"children":"核心规则与外部实现的依赖方向"}],["$","td","td-2",{"children":"业务与展示、网络和存储实现分开"}],["$","td","td-3",{"children":"层间协议、映射与装配可能增多"}]]}]]}]]}]}],"\n",["$","p","p-63",{"children":"不能从表里读出“VIPER 最高”“MVC 必然不可测”。MVVM 不必双向绑定，VIPER 不会自动形成严格单向状态流，Clean 本身也不规定 UI 状态存放在哪里。"}],"\n",["$","h3","h3-18",{"id":"52-选型前先回答六个问题","children":"5.2 选型前先回答六个问题"}],"\n",["$","ol","ol-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"业务复杂度"}],"：复杂的是展示转换、核心规则，还是异步事件与状态组合？"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"变化点"}],"：哪些数据来源、导航或展示策略确实会变化？"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"测试目标"}],"：需要脱离真实 UI / 网络验证哪些行为？"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"团队与技术栈"}],"：能否维护协议、绑定、状态建模和依赖库？UIKit 与 SwiftUI 都不自动决定唯一答案。"]}],"\n",["$","li","li-4",{"children":[["$","strong","strong-0",{"children":"迁移代价"}],"：能否在一个功能内验证，并保持旧链路可回退？"]}],"\n",["$","li","li-5",{"children":[["$","strong","strong-0",{"children":"可观测效果"}],"：用维护范围、缺陷、测试反馈或装配复杂度验证收益，而不是只看 VC 行数下降。"]}],"\n"]}],"\n",["$","p","p-64",{"children":"简单功能可以保留 MVC；需要独立展示状态时可评估 MVP / MVVM；事件复杂时评估单向数据流；核心业务需要隔离时评估 Clean。这里是问题导向的候选方案，不是规模阈值对应表。"}],"\n",["$","h3","h3-19",{"id":"53-混合架构不同维度可以组合","children":"5.3 混合架构：不同维度可以组合"}],"\n",["$","p","p-65",{"children":["$","strong","strong-0",{"children":"分层架构："}]}],"\n",["$","pre","pre-42",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────┐\n│          UI层 (View/Controller)      │\n│  - 使用MVC或MVVM                    │\n│  - 处理用户交互                      │\n└─────────────────────────────────────┘\n         ↕\n┌─────────────────────────────────────┐\n│          业务层 (Service)            │\n│  - 业务逻辑                          │\n│  - 数据处理                          │\n│  - 独立的模块                        │\n└─────────────────────────────────────┘\n         ↕\n┌─────────────────────────────────────┐\n│          数据层 (Repository)         │\n│  - 数据存储                          │\n│  - 网络请求                          │\n│  - 缓存管理                          │\n└─────────────────────────────────────┘\n"}]}],"\n",["$","p","p-66",{"children":["$","strong","strong-0",{"children":"模块化架构："}]}],"\n",["$","pre","pre-43",{"children":["$","code","code-0",{"children":"项目结构：\n├── App (应用入口)\n├── Core (核心模块)\n│   ├── Network (网络)\n│   ├── Database (数据库)\n│   └── Utils (工具)\n├── Features (功能模块)\n│   ├── Home (首页)\n│   ├── Profile (个人中心)\n│   └── Settings (设置)\n└── Resources (资源)\n"}]}],"\n",["$","p","p-67",{"children":"上面的目录只是组织示意，不能代替依赖规则。可以让 MVVM 负责展示，让 Use Case 承载规则，让 Repository 屏蔽数据来源；简单页面无需机械复制全部层次。"}],"\n",["$","h3","h3-20",{"id":"54-渐进迁移而不是全面重写","children":"5.4 渐进迁移，而不是全面重写"}],"\n",["$","ol","ol-1",{"children":["\n",["$","li","li-0",{"children":"找到具体痛点：重复规则、难测状态、隐藏依赖或高风险修改点。"}],"\n",["$","li","li-1",{"children":"先补行为验证，再选择一个有代表性的功能拆分职责。"}],"\n",["$","li","li-2",{"children":"明确新旧链路共存方式、开关、回滚点和依赖归属。"}],"\n",["$","li","li-3",{"children":"对比改动范围、缺陷、测试反馈与协作成本；没有收益就调整设计。"}],"\n",["$","li","li-4",{"children":"只推广已经验证有效的约定，不要求所有页面统一成同一种结构。"}],"\n"]}],"\n",["$","p","p-68",{"children":"团队能力、交付周期和维护期限会影响取舍，但不能推出“高级团队必用 VIPER”或“长期项目必须全面升级”。"}],"\n",["$","h2","h2-5",{"id":"6-设计模式在-ios-中的应用","children":"6. 设计模式在 iOS 中的应用"}],"\n",["$","h3","h3-21",{"id":"61-先找问题再选模式","children":"6.1 先找问题，再选模式"}],"\n",["$","p","p-69",{"children":["本章保留原笔记的创建型、结构型、行为型案例，以及 iOS 常用的 Delegate。",["$","strong","strong-0",{"children":"Delegate 是 Cocoa 的重要协作机制，但不是 GoF 23 种模式中的一个条目。"}]," 原笔记没有单独讲 Interpreter，因此本文不再宣称完整覆盖 GoF 23 种模式，也不沿用“已完善 15 种”的错误统计。"]}],"\n",["$","p","p-70",{"children":[["$","strong","strong-0",{"children":"解决的问题"}],"："]}],"\n",["$","ul","ul-15",{"children":["\n",["$","li","li-0",{"children":"代码重复：同样的逻辑写多遍"}],"\n",["$","li","li-1",{"children":"耦合严重：改一个地方影响多处"}],"\n",["$","li","li-2",{"children":"难以扩展：加功能要改很多代码"}],"\n",["$","li","li-3",{"children":"难以测试：依赖太多，无法单元测试"}],"\n"]}],"\n",["$","p","p-71",{"children":[["$","strong","strong-0",{"children":"带来的好处"}],"："]}],"\n",["$","ul","ul-16",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"代码复用"}],"：识别成熟方案的适用条件，再决定是否采用"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"易维护"}],"：结构清晰，改动影响小"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"易扩展"}],"：符合开闭原则，对扩展开放"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"易沟通"}],"：团队共同语言，\"用单例模式\"大家都懂"]}],"\n"]}],"\n",["$","h3","h3-22",{"id":"62-创建型模式","children":"6.2 创建型模式"}],"\n",["$","h4","h4-29",{"children":"6.2.1 Singleton（单例模式）"}],"\n",["$","p","p-72",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n保证一个类只有一个实例，并提供全局访问点。"]}],"\n",["$","p","p-73",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-17",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UserDefaults.standard"}]," - 用户偏好设置"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"URLSession.shared"}]," - 网络会话"]}],"\n",["$","li","li-2",{"children":[["$","code","code-0",{"children":"UIApplication.shared"}]," - App实例"]}],"\n",["$","li","li-3",{"children":[["$","code","code-0",{"children":"NSNotificationCenter.default"}]," - 通知中心"]}],"\n",["$","li","li-4",{"children":[["$","code","code-0",{"children":"FileManager.default"}]," - 文件管理器"]}],"\n"]}],"\n",["$","p","p-74",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要全局唯一实例："]}],"\n",["$","ul","ul-18",{"children":["\n",["$","li","li-0",{"children":"配置管理器（AppConfig）"}],"\n",["$","li","li-1",{"children":"网络管理器（NetworkManager）"}],"\n",["$","li","li-2",{"children":"数据库管理器（DatabaseManager）"}],"\n",["$","li","li-3",{"children":"日志管理器（Logger）"}],"\n"]}],"\n",["$","p","p-75",{"children":"不应该用单例："}],"\n",["$","ul","ul-19",{"children":["\n",["$","li","li-0",{"children":"业务模型（User、Order等）"}],"\n",["$","li","li-1",{"children":"临时状态（当前页面状态）"}],"\n",["$","li","li-2",{"children":"可以有多个实例的对象（View、ViewController）"}],"\n"]}],"\n",["$","p","p-76",{"children":["$","strong","strong-0",{"children":"优缺点"}]}],"\n",["$","ul","ul-20",{"children":["\n",["$","li","li-0",{"children":"全局访问，使用方便"}],"\n",["$","li","li-1",{"children":"节省资源，避免重复创建"}],"\n",["$","li","li-2",{"children":"全局状态，难以测试"}],"\n",["$","li","li-3",{"children":"隐藏依赖，耦合严重"}],"\n"]}],"\n",["$","p","p-77",{"children":["$","strong","strong-0",{"children":"Swift实现方式"}]}],"\n",["$","pre","pre-44",{"children":["$","code","code-0",{"className":"language-swift","children":"// 线程安全的单例\nclass NetworkManager {\n    static let shared = NetworkManager()\n\n    private init() {}  // 私有化初始化方法\n\n    func fetchData() { }\n}\n\n// 使用\nNetworkManager.shared.fetchData()\n"}]}],"\n",["$","hr","hr-4",{}],"\n",["$","h4","h4-30",{"children":"6.2.2 Factory Method 与简单工厂"}],"\n",["$","p","p-78",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n定义创建对象的接口，让子类决定创建哪种对象。"]}],"\n",["$","p","p-79",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-21",{"children":["\n",["$","li","li-0",{"children":"创建入口可以隐藏具体类型，但普通初始化器不自动等同于 GoF 工厂方法"}],"\n",["$","li","li-1",{"children":"严格的 Factory Method 通过可替换的创建方法，让子类或具体创建者决定产品类型"}],"\n",["$","li","li-2",{"children":"数据解析器：根据服务器返回的type字段，创建不同的Model"}],"\n"]}],"\n",["$","p","p-80",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n不知道具体创建什么对象："]}],"\n",["$","ul","ul-22",{"children":["\n",["$","li","li-0",{"children":"解析JSON时，根据type字段创建不同的Model"}],"\n",["$","li","li-1",{"children":"创建不同类型的Cell（普通Cell、图片Cell、视频Cell）"}],"\n",["$","li","li-2",{"children":"创建不同类型的动画（淡入、滑入、缩放）"}],"\n"]}],"\n",["$","p","p-81",{"children":"对象类型简单固定："}],"\n",["$","ul","ul-23",{"children":["\n",["$","li","li-0",{"children":"只创建一种对象，不需要工厂"}],"\n"]}],"\n",["$","p","p-82",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-45",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：聊天消息解析；这是按 type 分支的简单工厂，不是严格的 GoF Factory Method\n// JSON: {\"type\": \"text\", \"content\": \"hello\"}\n// JSON: {\"type\": \"image\", \"url\": \"https://...\"}\n\nprotocol Message { }\nclass TextMessage: Message { }\nclass ImageMessage: Message { }\n\nclass MessageFactory {\n    static func create(from json: [String: Any]) -> Message {\n        let type = json[\"type\"] as? String ?? \"text\"\n\n        switch type {\n        case \"text\":\n            return TextMessage()\n        case \"image\":\n            return ImageMessage()\n        default:\n            return TextMessage()  // 默认\n        }\n    }\n}\n"}]}],"\n",["$","hr","hr-5",{}],"\n",["$","h4","h4-31",{"children":"6.2.3 Abstract Factory（抽象工厂模式）"}],"\n",["$","p","p-83",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n提供一个接口，用于创建相关或依赖对象的家族，而不需要明确指定具体类。"]}],"\n",["$","p","p-84",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-24",{"children":["\n",["$","li","li-0",{"children":"不同主题的UI组件创建（暗色主题、亮色主题）"}],"\n",["$","li","li-1",{"children":"不同平台的UI组件创建（iOS风格、Android风格）"}],"\n",["$","li","li-2",{"children":"不同数据源的Cell创建（本地数据、网络数据）"}],"\n"]}],"\n",["$","p","p-85",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要创建一系列相关对象："]}],"\n",["$","ul","ul-25",{"children":["\n",["$","li","li-0",{"children":"主题切换：创建一套完整的暗色UI组件"}],"\n",["$","li","li-1",{"children":"平台适配：创建iOS风格或Android风格的组件"}],"\n",["$","li","li-2",{"children":"数据源切换：创建本地或网络的数据对象"}],"\n"]}],"\n",["$","p","p-86",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-46",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：主题切换\nprotocol ButtonFactory {\n    func createButton() -> UIButton\n    func createTextField() -> UITextField\n}\n\nclass DarkThemeFactory: ButtonFactory {\n    func createButton() -> UIButton {\n        let button = UIButton()\n        button.backgroundColor = .darkGray\n        return button\n    }\n\n    func createTextField() -> UITextField {\n        let textField = UITextField()\n        textField.backgroundColor = .darkGray\n        return textField\n    }\n}\n\nclass LightThemeFactory: ButtonFactory {\n    func createButton() -> UIButton {\n        let button = UIButton()\n        button.backgroundColor = .white\n        return button\n    }\n\n    func createTextField() -> UITextField {\n        let textField = UITextField()\n        textField.backgroundColor = .white\n        return textField\n    }\n}\n\n// 使用\nlet factory = DarkThemeFactory()\nlet button = factory.createButton()  // 创建暗色主题按钮\nlet textField = factory.createTextField()  // 创建暗色主题输入框\n"}]}],"\n",["$","hr","hr-6",{}],"\n",["$","h4","h4-32",{"children":"6.2.4 Builder（建造者模式）"}],"\n",["$","p","p-87",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n将复杂对象的构建与表示分离，使得同样的构建过程可以创建不同的表示。"]}],"\n",["$","p","p-88",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-26",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"URLSession.configuration"}]," - 分步骤配置网络请求"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"UIAlertController"}]," - 链式调用配置弹窗"]}],"\n",["$","li","li-2",{"children":"自定义View的复杂初始化（多种参数组合）"}],"\n"]}],"\n",["$","p","p-89",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n对象创建过程复杂："]}],"\n",["$","ul","ul-27",{"children":["\n",["$","li","li-0",{"children":"多个参数，且有些参数可选"}],"\n",["$","li","li-1",{"children":"参数有多种组合方式"}],"\n",["$","li","li-2",{"children":"创建过程需要多个步骤"}],"\n"]}],"\n",["$","p","p-90",{"children":"对象创建简单："}],"\n",["$","ul","ul-28",{"children":["\n",["$","li","li-0",{"children":"只有一两个参数，直接用init即可"}],"\n"]}],"\n",["$","p","p-91",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-47",{"children":["$","code","code-0",{"className":"language-swift","children":"$1c"}]}],"\n",["$","hr","hr-7",{}],"\n",["$","h4","h4-33",{"children":"6.2.5 Prototype（原型模式）"}],"\n",["$","p","p-92",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n通过复制现有对象来创建新对象，而不是通过创建新实例。"]}],"\n",["$","p","p-93",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-29",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"NSObject.copy()"}]," - 对象拷贝"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"NSCopying"}]," 协议 - 实现拷贝功能"]}],"\n",["$","li","li-2",{"children":"Model的深拷贝（避免修改影响原对象）"}],"\n"]}],"\n",["$","p","p-94",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n创建新对象成本高："]}],"\n",["$","ul","ul-30",{"children":["\n",["$","li","li-0",{"children":"对象创建需要从数据库/网络加载大量数据"}],"\n",["$","li","li-1",{"children":"对象初始化需要大量计算"}],"\n",["$","li","li-2",{"children":"需要保存对象状态快照（撤销操作）"}],"\n"]}],"\n",["$","p","p-95",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-48",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：表单填写，用户复制之前的提交记录\nclass FormModel: NSCopying {\n    var name: String = \"\"\n    var email: String = \"\"\n    var phone: String = \"\"\n\n    func copy(with zone: NSZone? = nil) -> Any {\n        let copy = FormModel()\n        copy.name = name\n        copy.email = email\n        copy.phone = phone\n        return copy\n    }\n}\n\n// 使用\nlet originalForm = FormModel()\noriginalForm.name = \"张三\"\noriginalForm.email = \"zhang@example.com\"\n\n// 复制表单，修改部分字段\nlet newForm = originalForm.copy() as! FormModel\nnewForm.name = \"李四\"  // 不影响原表单\n"}]}],"\n",["$","hr","hr-8",{}],"\n",["$","h3","h3-23",{"id":"63-结构型模式","children":"6.3 结构型模式"}],"\n",["$","h4","h4-34",{"children":"6.3.1 Adapter（适配器模式）"}],"\n",["$","p","p-96",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n将一个类的接口转换成客户期望的另一个接口，让原本不兼容的类可以合作。"]}],"\n",["$","p","p-97",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-31",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UITableViewDataSource"}]," - 将数据适配成TableView能显示的格式"]}],"\n",["$","li","li-1",{"children":"第三方SDK封装 - 将不友好的API转换成自己项目的风格"}],"\n",["$","li","li-2",{"children":"数据格式转换 - JSON转Model、XML转Model"}],"\n"]}],"\n",["$","p","p-98",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n接口不兼容："]}],"\n",["$","ul","ul-32",{"children":["\n",["$","li","li-0",{"children":"使用第三方SDK，接口不符合项目规范"}],"\n",["$","li","li-1",{"children":"旧系统接口需要适配新系统"}],"\n",["$","li","li-2",{"children":"数据格式不匹配（服务器返回的JSON和Model字段不一致）"}],"\n"]}],"\n",["$","p","p-99",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-49",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：接入第三方支付SDK（假设接口不友好）\n// 第三方SDK的接口\nclass ThirdPartyPaymentSDK {\n    func payWith(amount: Double, currency: String, orderId: String) {\n        // 第三方支付逻辑\n    }\n}\n\n// 项目期望的接口\nprotocol PaymentAdapter {\n    func pay(order: Order)\n}\n\n// 适配器\nclass PaymentAdapterImpl: PaymentAdapter {\n    private let sdk = ThirdPartyPaymentSDK()\n\n    func pay(order: Order) {\n        // 转换接口\n        sdk.payWith(amount: order.amount,\n                  currency: \"CNY\",\n                  orderId: order.id)\n    }\n}\n\n// 使用：业务层不需要知道第三方SDK的细节\nlet adapter = PaymentAdapterImpl()\nadapter.pay(order: myOrder)\n"}]}],"\n",["$","hr","hr-9",{}],"\n",["$","h4","h4-35",{"children":"6.3.2 Bridge（桥接模式）"}],"\n",["$","p","p-100",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n将抽象部分与实现部分分离，使它们都可以独立地变化。"]}],"\n",["$","p","p-101",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-33",{"children":["\n",["$","li","li-0",{"children":"Core Animation - 抽象的动画接口 + 不同平台的实现"}],"\n",["$","li","li-1",{"children":"UIKit - 抽象的UI组件 + iOS/iPadOS/watchOS的实现"}],"\n",["$","li","li-2",{"children":"绘图引擎 - 抽象的绘图API + Metal/OpenGL/CoreGraphics实现"}],"\n"]}],"\n",["$","p","p-102",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n抽象和实现都需要独立扩展："]}],"\n",["$","ul","ul-34",{"children":["\n",["$","li","li-0",{"children":"UI组件：抽象的Button + 不同平台的Button实现"}],"\n",["$","li","li-1",{"children":"绘图引擎：抽象的画笔 + Metal/OpenGL/CoreGraphics实现"}],"\n",["$","li","li-2",{"children":"消息推送：抽象的推送接口 + APNs/FCM/HMS实现"}],"\n"]}],"\n",["$","p","p-103",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-50",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：消息推送，支持多个推送平台\n// 抽象部分\nprotocol Message {\n    func send()\n}\n\nclass PushNotification: Message {\n    private let platform: PushPlatform\n\n    init(platform: PushPlatform) {\n        self.platform = platform\n    }\n\n    func send() {\n        platform.push(title: \"新消息\", body: \"你有新消息\")\n    }\n}\n\n// 实现部分\nprotocol PushPlatform {\n    func push(title: String, body: String)\n}\n\nclass APNs: PushPlatform {\n    func push(title: String, body: String) {\n        // APNs推送逻辑\n    }\n}\n\nclass FCM: PushPlatform {\n    func push(title: String, body: String) {\n        // Firebase推送逻辑\n    }\n}\n\n// 使用：可以任意组合\nlet apnsPush = PushNotification(platform: APNs())\napnsPush.send()\n\nlet fcmPush = PushNotification(platform: FCM())\nfcmPush.send()\n"}]}],"\n",["$","hr","hr-10",{}],"\n",["$","h4","h4-36",{"children":"6.3.3 Composite（组合模式）"}],"\n",["$","p","p-104",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n将对象组合成树形结构以表示\"部分-整体\"的层次结构，使用户对单个对象和组合对象的使用具有一致性。"]}],"\n",["$","p","p-105",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-35",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UIView"}]," 的 subview - View可以包含子View，形成View树"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"CALayer"}]," 的 sublayer - Layer可以包含子Layer"]}],"\n",["$","li","li-2",{"children":"文件系统 - 文件夹可以包含文件和子文件夹"}],"\n"]}],"\n",["$","p","p-106",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要表示\"部分-整体\"层次结构："]}],"\n",["$","ul","ul-36",{"children":["\n",["$","li","li-0",{"children":"UI层级：View包含多个子View"}],"\n",["$","li","li-1",{"children":"文件系统：文件夹包含文件和子文件夹"}],"\n",["$","li","li-2",{"children":"组织架构：公司包含多个部门，部门包含多个员工"}],"\n"]}],"\n",["$","p","p-107",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-51",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：文件系统\nprotocol FileSystemItem {\n    var name: String { get }\n    func display(indent: String)\n}\n\nclass File: FileSystemItem {\n    let name: String\n\n    init(name: String) {\n        self.name = name\n    }\n\n    func display(indent: String) {\n        print(\"\\(indent) \\(name)\")\n    }\n}\n\nclass Folder: FileSystemItem {\n    let name: String\n    private var items: [FileSystemItem] = []\n\n    init(name: String) {\n        self.name = name\n    }\n\n    func addItem(_ item: FileSystemItem) {\n        items.append(item)\n    }\n\n    func display(indent: String = \"\") {\n        print(\"\\(indent) \\(name)\")\n        for item in items {\n            item.display(indent: indent + \"  \")\n        }\n    }\n}\n\n// 使用：构建文件树\nlet root = Folder(name: \"根目录\")\nlet projects = Folder(name: \"项目\")\nlet file1 = File(name: \"main.swift\")\nlet file2 = File(name: \"config.json\")\n\nroot.addItem(projects)\nprojects.addItem(file1)\nprojects.addItem(file2)\n\nroot.display()\n\n// 输出：\n//  根目录\n//    项目\n//      main.swift\n//      config.json\n"}]}],"\n",["$","hr","hr-11",{}],"\n",["$","h4","h4-37",{"children":"6.3.4 Decorator（装饰器模式）"}],"\n",["$","p","p-108",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n动态地给对象添加一些额外的职责，比生成子类更灵活。"]}],"\n",["$","p","p-109",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-37",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UITableView"}]," 的 separators、headers - 给TableView添加额外的装饰"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"CALayer"}]," 的 border、shadow - 给Layer添加装饰效果"]}],"\n",["$","li","li-2",{"children":[["$","code","code-0",{"children":"NSMutableAttributedString"}]," - 给字符串添加装饰（颜色、字体等）"]}],"\n"]}],"\n",["$","p","p-110",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n动态添加功能："]}],"\n",["$","ul","ul-38",{"children":["\n",["$","li","li-0",{"children":"给View添加边框、阴影、圆角"}],"\n",["$","li","li-1",{"children":"给文本添加颜色、字体、下划线"}],"\n",["$","li","li-2",{"children":"给图片添加水印、滤镜"}],"\n"]}],"\n",["$","p","p-111",{"children":"功能固定不变："}],"\n",["$","ul","ul-39",{"children":["\n",["$","li","li-0",{"children":"直接用继承更简单"}],"\n"]}],"\n",["$","p","p-112",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-52",{"children":["$","code","code-0",{"className":"language-swift","children":"$1d"}]}],"\n",["$","hr","hr-12",{}],"\n",["$","h4","h4-38",{"children":"6.3.5 Facade（外观模式）"}],"\n",["$","p","p-113",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n为子系统中的一组接口提供一个一致的界面，定义一个高层接口，这个接口使得这一子系统更加容易使用。"]}],"\n",["$","p","p-114",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-40",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UIImage(named:)"}]," - 隐藏了图片加载的复杂过程（缓存、解压等）"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"URLSession.shared.dataTask()"}]," - 隐藏了网络请求的复杂过程"]}],"\n",["$","li","li-2",{"children":[["$","code","code-0",{"children":"AVAudioPlayer"}]," - 隐藏了音频播放的复杂细节"]}],"\n"]}],"\n",["$","p","p-115",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n简化复杂子系统的使用："]}],"\n",["$","ul","ul-41",{"children":["\n",["$","li","li-0",{"children":"网络请求：隐藏配置、缓存、重试等细节"}],"\n",["$","li","li-1",{"children":"图片加载：隐藏下载、解码、缓存等细节"}],"\n",["$","li","li-2",{"children":"音视频播放：隐藏解码、渲染、同步等细节"}],"\n"]}],"\n",["$","p","p-116",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-53",{"children":["$","code","code-0",{"className":"language-swift","children":"$1e"}]}],"\n",["$","hr","hr-13",{}],"\n",["$","h4","h4-39",{"children":"6.3.6 Proxy（代理模式）"}],"\n",["$","p","p-117",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n为其他对象提供一种代理以控制对这个对象的访问。"]}],"\n",["$","p","p-118",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-42",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"NSProxy"}]," - 消息转发代理"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"WKNavigationDelegate"}]," - 控制WebView的页面加载"]}],"\n",["$","li","li-2",{"children":"延迟加载代理 - 图片、大文件等到需要时才加载"}],"\n"]}],"\n",["$","p","p-119",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要控制对象访问："]}],"\n",["$","ul","ul-43",{"children":["\n",["$","li","li-0",{"children":"远程代理：访问远程对象（网络请求）"}],"\n",["$","li","li-1",{"children":"虚拟代理：延迟加载大对象（图片、视频）"}],"\n",["$","li","li-2",{"children":"保护代理：控制访问权限（需要登录才能访问）"}],"\n",["$","li","li-3",{"children":"智能代理：引用计数（ARC）"}],"\n"]}],"\n",["$","p","p-120",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-54",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：图片延迟加载\nclass ImageProxy {\n    private var image: UIImage?\n    private let url: URL\n\n    init(url: URL) {\n        self.url = url\n    }\n\n    func getImage(completion: @escaping (UIImage?) -> Void) {\n        // 如果已经加载，直接返回\n        if let image = image {\n            completion(image)\n            return\n        }\n\n        // 懒加载：第一次使用时才下载\n        DispatchQueue.global().async {\n            if let data = try? Data(contentsOf: self.url) {\n                let downloadedImage = UIImage(data: data)\n                self.image = downloadedImage\n                DispatchQueue.main.async {\n                    completion(downloadedImage)\n                }\n            }\n        }\n    }\n}\n\n// 使用\nlet proxy = ImageProxy(url: URL(string: \"https://example.com/large.jpg\")!)\n\n// 第一次使用：触发下载\nproxy.getImage { image in\n    print(\"图片加载完成\")\n}\n\n// 第二次使用：直接从内存返回\nproxy.getImage { image in\n    print(\"图片已缓存\")\n}\n"}]}],"\n",["$","hr","hr-14",{}],"\n",["$","h4","h4-40",{"children":"6.3.7 Flyweight（享元模式）"}],"\n",["$","p","p-121",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n运用共享技术有效地支持大量细粒度的对象。"]}],"\n",["$","p","p-122",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-44",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UILabel"}]," 的复用 - TableView中Cell的复用"]}],"\n",["$","li","li-1",{"children":"字体缓存 - 相同字体只创建一次"}],"\n",["$","li","li-2",{"children":"图片缓存 - 相同图片只加载一次"}],"\n"]}],"\n",["$","p","p-123",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n有大量相似对象："]}],"\n",["$","ul","ul-45",{"children":["\n",["$","li","li-0",{"children":"Cell复用：TableView中相同类型的Cell复用"}],"\n",["$","li","li-1",{"children":"字符串常量：相同的字符串只保存一份"}],"\n",["$","li","li-2",{"children":"图片缓存：相同的图片只加载一次"}],"\n"]}],"\n",["$","p","p-124",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-55",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：字符串常量池\nclass StringFlyweight {\n    private var pool: [String: String] = [:]\n\n    func get(string: String) -> String {\n        if let existing = pool[string] {\n            return existing\n        }\n\n        pool[string] = string\n        return string\n    }\n}\n\n// 使用\nlet flyweight = StringFlyweight()\n\nlet s1 = flyweight.get(string: \"Hello\")\nlet s2 = flyweight.get(string: \"Hello\")\nlet s3 = flyweight.get(string: \"World\")\n\n// s1 和 s2 是同一个对象（内存地址相同）\n// s3 是不同的对象\n"}]}],"\n",["$","hr","hr-15",{}],"\n",["$","h3","h3-24",{"id":"64-行为型模式与-ios-协作机制","children":"6.4 行为型模式与 iOS 协作机制"}],"\n",["$","h4","h4-41",{"children":"6.4.1 Observer（观察者模式）"}],"\n",["$","p","p-125",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n定义对象间的一种一对多的依赖关系，当一个对象的状态发生改变时，所有依赖于它的对象都得到通知并被自动更新。"]}],"\n",["$","p","p-126",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-46",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"NotificationCenter"}]," - 通知中心"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"KVO (Key-Value Observing)"}]," - 键值观察"]}],"\n",["$","li","li-2",{"children":[["$","code","code-0",{"children":"Combine / RxSwift"}]," - 响应式编程"]}],"\n",["$","li","li-3",{"children":"Delegate 可用于事件回调，但不要把所有委托行为都等同于一对多观察者"}],"\n"]}],"\n",["$","p","p-127",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n一对多的通知："]}],"\n",["$","ul","ul-47",{"children":["\n",["$","li","li-0",{"children":"登录状态变化：通知多个页面更新UI"}],"\n",["$","li","li-1",{"children":"数据更新：通知多个观察者刷新"}],"\n",["$","li","li-2",{"children":"网络状态变化：通知监听的模块"}],"\n"]}],"\n",["$","p","p-128",{"children":["$","strong","strong-0",{"children":"实现方式对比"}]}],"\n",["$","div","div-3",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"方式"}],["$","th","th-1",{"children":"优点"}],["$","th","th-2",{"children":"缺点"}],["$","th","th-3",{"children":"适用场景"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"NotificationCenter"}],["$","td","td-1",{"children":"解耦强，一对多"}],["$","td","td-2",{"children":"容易忘记移除观察者"}],["$","td","td-3",{"children":"跨模块通知"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"KVO"}],["$","td","td-1",{"children":"系统支持，自动触发"}],["$","td","td-2",{"children":"只能监听属性，容易崩溃"}],["$","td","td-3",{"children":"监听Model属性变化"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"Delegate"}],["$","td","td-1",{"children":"类型安全，编译期检查"}],["$","td","td-2",{"children":"一对一，耦合稍强"}],["$","td","td-3",{"children":"一对一的回调"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"Combine/RxSwift"}],["$","td","td-1",{"children":"链式调用，功能强大"}],["$","td","td-2",{"children":"学习成本高"}],["$","td","td-3",{"children":"复杂的数据流"}]]}]]}]]}]}],"\n",["$","hr","hr-16",{}],"\n",["$","h4","h4-42",{"children":"6.4.2 Delegate（委托模式）"}],"\n",["$","p","p-129",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n将一个对象的某些职责委托给另一个对象处理。"]}],"\n",["$","p","p-130",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-48",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UITableViewDelegate"}]," - TableView的事件回调"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"UITextFieldDelegate"}]," - TextField的事件回调"]}],"\n",["$","li","li-2",{"children":[["$","code","code-0",{"children":"UIApplicationDelegate"}]," - App生命周期回调"]}],"\n"]}],"\n",["$","p","p-131",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要回调事件："]}],"\n",["$","ul","ul-49",{"children":["\n",["$","li","li-0",{"children":"TableView的点击事件"}],"\n",["$","li","li-1",{"children":"TextField的输入变化"}],"\n",["$","li","li-2",{"children":"网络请求完成回调"}],"\n"]}],"\n",["$","p","p-132",{"children":"不适合："}],"\n",["$","ul","ul-50",{"children":["\n",["$","li","li-0",{"children":"一对多的通知（用Observer）"}],"\n",["$","li","li-1",{"children":"简单的函数调用（直接调用即可）"}],"\n"]}],"\n",["$","p","p-133",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-56",{"children":["$","code","code-0",{"className":"language-swift","children":"// 协议定义\nprotocol UserCellDelegate: AnyObject {\n    func userCellDidClickFollow(_ userId: String)\n}\n\nclass UserCell: UITableViewCell {\n    weak var delegate: UserCellDelegate?\n    var userId: String?\n\n    @objc func followButtonClicked() {\n        guard let userId = userId else { return }\n        delegate?.userCellDidClickFollow(userId)\n    }\n}\n\n// 使用：ViewController实现协议\nclass UserViewController: UIViewController, UserCellDelegate {\n    func userCellDidClickFollow(_ userId: String) {\n        // 处理关注逻辑\n    }\n\n    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {\n        let cell = tableView.dequeueReusableCell(...)\n        cell.delegate = self\n        return cell\n    }\n}\n"}]}],"\n",["$","hr","hr-17",{}],"\n",["$","h4","h4-43",{"children":"6.4.3 Strategy（策略模式）"}],"\n",["$","p","p-134",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n定义一系列算法，把它们一个个封装起来，并且使它们可相互替换。"]}],"\n",["$","p","p-135",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-51",{"children":["\n",["$","li","li-0",{"children":["排序算法：",["$","code","code-0",{"children":"sorted(by:)"}]," 可以传入不同的比较策略"]}],"\n",["$","li","li-1",{"children":"动画类型：淡入、滑入、缩放等不同策略"}],"\n",["$","li","li-2",{"children":"压缩算法：ZIP、GZIP等不同策略"}],"\n"]}],"\n",["$","p","p-136",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要在运行时切换算法："]}],"\n",["$","ul","ul-52",{"children":["\n",["$","li","li-0",{"children":"不同等级的VIP用户有不同的计算折扣方式"}],"\n",["$","li","li-1",{"children":"不同类型的消息有不同的发送策略（推送、短信、邮件）"}],"\n",["$","li","li-2",{"children":"不同平台有不同的UI样式策略"}],"\n"]}],"\n",["$","p","p-137",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-57",{"children":["$","code","code-0",{"className":"language-swift","children":"$1f"}]}],"\n",["$","hr","hr-18",{}],"\n",["$","h4","h4-44",{"children":"6.4.4 Command（命令模式）"}],"\n",["$","p","p-138",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n将一个请求封装为一个对象，从而使你可用不同的请求对客户进行参数化。"]}],"\n",["$","p","p-139",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-53",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"NSInvocation"}]," - 封装方法调用"]}],"\n",["$","li","li-1",{"children":"撤销/重做操作 - 文本编辑器的撤销"}],"\n",["$","li","li-2",{"children":"任务队列 - 异步执行任务"}],"\n"]}],"\n",["$","p","p-140",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要封装操作："]}],"\n",["$","ul","ul-54",{"children":["\n",["$","li","li-0",{"children":"撤销/重做功能（文本编辑器、画图应用）"}],"\n",["$","li","li-1",{"children":"任务队列（异步执行多个任务）"}],"\n",["$","li","li-2",{"children":"事务操作（数据库事务）"}],"\n"]}],"\n",["$","p","p-141",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-58",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：文本编辑器的撤销功能\nprotocol Command {\n    func execute()\n    func undo()\n}\n\nclass AddTextCommand: Command {\n    private var textView: UITextView\n    private var text: String\n\n    init(textView: UITextView, text: String) {\n        self.textView = textView\n        self.text = text\n    }\n\n    func execute() {\n        textView.text += text\n    }\n\n    func undo() {\n        let count = text.count\n        if let originalText = textView.text.dropLast(count).string {\n            textView.text = originalText\n        }\n    }\n}\n\n// 使用\nlet command = AddTextCommand(textView: myTextView, text: \"Hello\")\ncommand.execute()  // 添加文本\ncommand.undo()     // 撤销添加\n"}]}],"\n",["$","hr","hr-19",{}],"\n",["$","h4","h4-45",{"children":"6.4.5 Mediator（中介者模式）"}],"\n",["$","p","p-142",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n用一个中介对象来封装一系列的对象交互，中介者使各对象不需要显式地相互引用。"]}],"\n",["$","p","p-143",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-55",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UITableView"}]," - Cell和DataSource之间的中介"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"UINavigationController"}]," - ViewController之间的中介"]}],"\n",["$","li","li-2",{"children":"组件化中的Mediator - 模块间的通信中介"}],"\n"]}],"\n",["$","p","p-144",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n多个对象间复杂交互："]}],"\n",["$","ul","ul-56",{"children":["\n",["$","li","li-0",{"children":"聊天界面：输入框、发送按钮、消息列表之间的交互"}],"\n",["$","li","li-1",{"children":"表单界面：多个输入框、提交按钮、验证逻辑之间的交互"}],"\n",["$","li","li-2",{"children":"模块化通信：不同模块间的通信（Target-Action方案的Mediator）"}],"\n"]}],"\n",["$","p","p-145",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-59",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：聊天界面\nclass ChatMediator {\n    weak var inputField: UITextField?\n    weak var sendButton: UIButton?\n    weak var tableView: UITableView?\n\n    // 用户输入文字\n    func inputFieldDidChange(_ text: String) {\n        sendButton?.isEnabled = !text.isEmpty\n    }\n\n    // 用户点击发送\n    func sendButtonClicked() {\n        guard let text = inputField?.text else { return }\n\n        // 1. 清空输入框\n        inputField?.text = \"\"\n\n        // 2. 禁用发送按钮\n        sendButton?.isEnabled = false\n\n        // 3. 刷新消息列表\n        // ...\n    }\n}\n"}]}],"\n",["$","hr","hr-20",{}],"\n",["$","h4","h4-46",{"children":"6.4.6 Memento（备忘录模式）"}],"\n",["$","p","p-146",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n在不破坏封装性的前提下，捕获一个对象的内部状态，并在该对象之外保存这个状态。"]}],"\n",["$","p","p-147",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-57",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"NSCoding"}]," / ",["$","code","code-1",{"children":"Codable"}]," - 对象归档"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"UserDefaults"}]," - 保存用户设置"]}],"\n",["$","li","li-2",{"children":"游戏存档 - 保存游戏进度"}],"\n"]}],"\n",["$","p","p-148",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要保存/恢复状态："]}],"\n",["$","ul","ul-58",{"children":["\n",["$","li","li-0",{"children":"撤销/重做功能"}],"\n",["$","li","li-1",{"children":"游戏存档"}],"\n",["$","li","li-2",{"children":"表单草稿保存"}],"\n"]}],"\n",["$","p","p-149",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-60",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：表单草稿保存\nclass FormMemento {\n    let name: String\n    let email: String\n    let phone: String\n\n    init(name: String, email: String, phone: String) {\n        self.name = name\n        self.email = email\n        self.phone = phone\n    }\n}\n\nclass Form {\n    var name: String = \"\"\n    var email: String = \"\"\n    var phone: String = \"\"\n\n    func save() -> FormMemento {\n        return FormMemento(name: name, email: email, phone: phone)\n    }\n\n    func restore(_ memento: FormMemento) {\n        name = memento.name\n        email = memento.email\n        phone = memento.phone\n    }\n}\n\n// 使用\nlet form = Form()\nform.name = \"张三\"\n\n// 保存草稿\nlet draft = form.save()\n\n// 修改表单\nform.name = \"李四\"\n\n// 恢复草稿\nform.restore(draft)\nprint(form.name)  // \"张三\"\n"}]}],"\n",["$","hr","hr-21",{}],"\n",["$","h4","h4-47",{"children":"6.4.7 Template Method（模板方法模式）"}],"\n",["$","p","p-150",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n定义一个操作中的算法的骨架，而将一些步骤延迟到子类中。"]}],"\n",["$","p","p-151",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-59",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UIViewController"}]," 的生命周期 - loadView、viewDidLoad、viewWillAppear等"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"UIView"}]," 的 draw(_:) - 子类重写自定义绘制"]}],"\n",["$","li","li-2",{"children":"网络请求基类 - 定义请求流程，子类实现具体URL"}],"\n"]}],"\n",["$","p","p-152",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n有通用的流程，但具体步骤不同："]}],"\n",["$","ul","ul-60",{"children":["\n",["$","li","li-0",{"children":"网络请求：配置请求 → 发送 → 处理响应（具体URL不同）"}],"\n",["$","li","li-1",{"children":"数据解析：下载数据 → 解析 → 缓存（具体解析方式不同）"}],"\n",["$","li","li-2",{"children":"页面加载：初始化 → 加载数据 → 渲染UI（具体数据不同）"}],"\n"]}],"\n",["$","p","p-153",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-61",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：网络请求基类\nclass NetworkRequest {\n    // 模板方法：定义流程\n    final func send(completion: @escaping (Data?) -> Void) {\n        let url = getURL()\n        let parameters = getParameters()\n\n        var request = URLRequest(url: url)\n        request.httpMethod = httpMethod()\n\n        // 发送请求\n        URLSession.shared.dataTask(with: request) { data, _, _ in\n            completion(data)\n        }.resume()\n    }\n\n    // 子类需要实现的方法\n    func getURL() -> URL { fatalError(\"子类必须实现\") }\n    func getParameters() -> [String: Any] { [:] }\n    func httpMethod() -> String { \"GET\" }\n}\n\n// 具体子类\nclass GetUserRequest: NetworkRequest {\n    private let userId: String\n\n    init(userId: String) {\n        self.userId = userId\n    }\n\n    override func getURL() -> URL {\n        return URL(string: \"https://api.example.com/users/\\(userId)\")!\n    }\n}\n"}]}],"\n",["$","hr","hr-22",{}],"\n",["$","h4","h4-48",{"children":"6.4.8 Iterator（迭代器模式）"}],"\n",["$","p","p-154",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n提供一种方法顺序访问一个聚合对象中各个元素，而又不需暴露该对象的内部表示。"]}],"\n",["$","p","p-155",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-61",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"for...in"}]," 循环 - 遍历数组、字典"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"Sequence"}]," / ",["$","code","code-1",{"children":"IteratorProtocol"}]," - 自定义迭代器"]}],"\n",["$","li","li-2",{"children":[["$","code","code-0",{"children":"makeIterator()"}]," - 创建迭代器"]}],"\n"]}],"\n",["$","p","p-156",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n需要遍历集合："]}],"\n",["$","ul","ul-62",{"children":["\n",["$","li","li-0",{"children":"遍历数组、字典、Set"}],"\n",["$","li","li-1",{"children":"自定义数据结构的遍历"}],"\n",["$","li","li-2",{"children":"懒加载序列（按需生成）"}],"\n"]}],"\n",["$","hr","hr-23",{}],"\n",["$","h4","h4-49",{"children":"6.4.9 State（状态模式）"}],"\n",["$","p","p-157",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n允许一个对象在其内部状态改变时改变它的行为。"]}],"\n",["$","p","p-158",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-63",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UIView"}]," 的状态 - normal、highlighted、disabled"]}],"\n",["$","li","li-1",{"children":"网络请求状态 - idle、loading、success、error"}],"\n",["$","li","li-2",{"children":"订单状态 - 待支付、已支付、已发货、已完成"}],"\n"]}],"\n",["$","p","p-159",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n对象行为取决于状态："]}],"\n",["$","ul","ul-64",{"children":["\n",["$","li","li-0",{"children":"网络请求：不同状态显示不同UI"}],"\n",["$","li","li-1",{"children":"订单流程：不同状态有不同的操作"}],"\n",["$","li","li-2",{"children":"播放器：播放、暂停、缓冲等不同状态"}],"\n"]}],"\n",["$","p","p-160",{"children":["$","strong","strong-0",{"children":"实际案例"}]}],"\n",["$","pre","pre-62",{"children":["$","code","code-0",{"className":"language-swift","children":"// 场景：网络请求状态\nprotocol RequestState {\n    func handle()\n}\n\nclass IdleState: RequestState {\n    func handle() {\n        print(\"请求空闲\")\n    }\n}\n\nclass LoadingState: RequestState {\n    func handle() {\n        print(\"请求中，显示Loading\")\n    }\n}\n\nclass SuccessState: RequestState {\n    let data: Data\n\n    init(data: Data) {\n        self.data = data\n    }\n\n    func handle() {\n        print(\"请求成功，处理数据：\\(data)\")\n    }\n}\n\nclass ErrorState: RequestState {\n    let error: Error\n\n    init(error: Error) {\n        self.error = error\n    }\n\n    func handle() {\n        print(\"请求失败：\\(error)\")\n    }\n}\n\n// 使用\nclass NetworkRequest {\n    var state: RequestState = IdleState()\n\n    func send() {\n        state = LoadingState()\n        state.handle()\n\n        // 模拟网络请求\n        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {\n            self.state = SuccessState(data: Data())\n            self.state.handle()\n        }\n    }\n}\n"}]}],"\n",["$","hr","hr-24",{}],"\n",["$","h4","h4-50",{"children":"6.4.10 Chain of Responsibility（责任链模式）"}],"\n",["$","p","p-161",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n为解除请求的发送者和接收者之间的耦合，而使多个对象都有机会处理这个请求。"]}],"\n",["$","p","p-162",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-65",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"UIResponder"}]," 链 - 触摸事件的传递链"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"NSError"}]," 的处理链 - 多个错误处理器"]}],"\n",["$","li","li-2",{"children":"事件拦截链 - gesture、button、superview"}],"\n"]}],"\n",["$","p","p-163",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n多个对象可以处理同一请求："]}],"\n",["$","ul","ul-66",{"children":["\n",["$","li","li-0",{"children":"事件处理：触摸事件沿着响应链传递"}],"\n",["$","li","li-1",{"children":"日志处理：根据日志级别选择不同的处理器"}],"\n",["$","li","li-2",{"children":"权限验证：多层验证（登录 → VIP → 管理员）"}],"\n"]}],"\n",["$","hr","hr-25",{}],"\n",["$","h4","h4-51",{"children":"6.4.11 Visitor（访问者模式）"}],"\n",["$","p","p-164",{"children":[["$","strong","strong-0",{"children":"核心思想"}],"\n表示一个作用于某对象结构中的各元素的操作。它使你可以在不改变各元素的类的前提下定义作用于这些元素的新操作。"]}],"\n",["$","p","p-165",{"children":["$","strong","strong-0",{"children":"iOS中的应用"}]}],"\n",["$","ul","ul-67",{"children":["\n",["$","li","li-0",{"children":[["$","code","code-0",{"children":"MapKit"}]," - 地图元素的点击事件"]}],"\n",["$","li","li-1",{"children":[["$","code","code-0",{"children":"CoreGraphics"}]," - 绘制元素的访问"]}],"\n",["$","li","li-2",{"children":"JSON解析 - 遍历JSON树并处理不同类型的节点"}],"\n"]}],"\n",["$","p","p-166",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"\n对象结构稳定，但操作经常变化："]}],"\n",["$","ul","ul-68",{"children":["\n",["$","li","li-0",{"children":"文档结构：段落、图片、表格（结构稳定）→ 导出PDF、导出Word（操作变化）"}],"\n",["$","li","li-1",{"children":"文件系统：文件、文件夹（结构稳定）→ 压缩、加密（操作变化）"}],"\n"]}],"\n",["$","hr","hr-26",{}],"\n",["$","h3","h3-25",{"id":"65-设计模式选择指南","children":"6.5 设计模式选择指南"}],"\n",["$","h4","h4-52",{"children":"6.5.1 根据问题选择模式"}],"\n",["$","div","div-4",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"问题"}],["$","th","th-1",{"children":"推荐模式"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"需要全局唯一实例"}],["$","td","td-1",{"children":"Singleton"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"不知道具体创建什么对象"}],["$","td","td-1",{"children":"Factory Method"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"需要创建一系列相关对象"}],["$","td","td-1",{"children":"Abstract Factory"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"对象创建过程复杂"}],["$","td","td-1",{"children":"Builder"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"接口不兼容"}],["$","td","td-1",{"children":"Adapter"}]]}],["$","tr","tr-5",{"children":[["$","td","td-0",{"children":"需要动态添加功能"}],["$","td","td-1",{"children":"Decorator"}]]}],["$","tr","tr-6",{"children":[["$","td","td-0",{"children":"简化复杂子系统"}],["$","td","td-1",{"children":"Facade"}]]}],["$","tr","tr-7",{"children":[["$","td","td-0",{"children":"控制对象访问"}],["$","td","td-1",{"children":"Proxy"}]]}],["$","tr","tr-8",{"children":[["$","td","td-0",{"children":"一对多的通知"}],["$","td","td-1",{"children":"Observer"}]]}],["$","tr","tr-9",{"children":[["$","td","td-0",{"children":"一对一的回调"}],["$","td","td-1",{"children":"Delegate"}]]}],["$","tr","tr-10",{"children":[["$","td","td-0",{"children":"需要在运行时切换算法"}],["$","td","td-1",{"children":"Strategy"}]]}],["$","tr","tr-11",{"children":[["$","td","td-0",{"children":"需要封装操作"}],["$","td","td-1",{"children":"Command"}]]}],["$","tr","tr-12",{"children":[["$","td","td-0",{"children":"多个对象间复杂交互"}],["$","td","td-1",{"children":"Mediator"}]]}],["$","tr","tr-13",{"children":[["$","td","td-0",{"children":"需要保存/恢复状态"}],["$","td","td-1",{"children":"Memento"}]]}],["$","tr","tr-14",{"children":[["$","td","td-0",{"children":"有通用的流程，具体步骤不同"}],["$","td","td-1",{"children":"Template Method"}]]}],["$","tr","tr-15",{"children":[["$","td","td-0",{"children":"对象行为取决于状态"}],["$","td","td-1",{"children":"State"}]]}]]}]]}]}],"\n",["$","h4","h4-53",{"children":"6.5.2 设计模式使用原则"}],"\n",["$","p","p-167",{"children":[["$","strong","strong-0",{"children":"不要过度使用"}],"："]}],"\n",["$","ul","ul-69",{"children":["\n",["$","li","li-0",{"children":"不是所有地方都要用设计模式"}],"\n",["$","li","li-1",{"children":"简单场景直接实现即可"}],"\n",["$","li","li-2",{"children":"复杂场景才考虑设计模式"}],"\n"]}],"\n",["$","p","p-168",{"children":[["$","strong","strong-0",{"children":"先理解后使用"}],"："]}],"\n",["$","ul","ul-70",{"children":["\n",["$","li","li-0",{"children":"不要为了用模式而用模式"}],"\n",["$","li","li-1",{"children":"理解模式解决的问题，再决定是否使用"}],"\n"]}],"\n",["$","p","p-169",{"children":[["$","strong","strong-0",{"children":"结合实际场景"}],"："]}],"\n",["$","ul","ul-71",{"children":["\n",["$","li","li-0",{"children":"不要生搬硬套书本案例"}],"\n",["$","li","li-1",{"children":"结合项目实际需求灵活运用"}],"\n"]}],"\n",["$","hr","hr-27",{}],"\n",["$","h3","h3-26",{"id":"66-学习路径与记忆辅助","children":"6.6 学习路径与记忆辅助"}],"\n",["$","h4","h4-54",{"children":"6.6.1 设计模式学习路径"}],"\n",["$","pre","pre-63",{"children":["$","code","code-0",{"children":"第1阶段：理解意图\n→ 读懂每个模式解决什么问题\n→ 理解模式的核心思想\n\n第2阶段：识别场景\n→ 在iOS SDK中找到应用案例\n→ 在自己项目中找到使用场景\n\n第3阶段：灵活运用\n→ 根据实际问题选择合适的模式\n→ 不要生搬硬套，灵活变通\n"}]}],"\n",["$","h4","h4-55",{"children":"6.6.2 设计模式记忆口诀"}],"\n",["$","p","p-170",{"children":[["$","strong","strong-0",{"children":"创建型"}],"："]}],"\n",["$","ul","ul-72",{"children":["\n",["$","li","li-0",{"children":"Single一个实例 - Singleton"}],"\n",["$","li","li-1",{"children":"Factory创建对象 - Factory"}],"\n",["$","li","li-2",{"children":"Builder构建复杂 - Builder"}],"\n",["$","li","li-3",{"children":"Prototype复制自己 - Prototype"}],"\n"]}],"\n",["$","p","p-171",{"children":[["$","strong","strong-0",{"children":"结构型"}],"："]}],"\n",["$","ul","ul-73",{"children":["\n",["$","li","li-0",{"children":"Adapter适配接口 - Adapter"}],"\n",["$","li","li-1",{"children":"Decorator添加装饰 - Decorator"}],"\n",["$","li","li-2",{"children":"Facade简化访问 - Facade"}],"\n",["$","li","li-3",{"children":"Proxy控制访问 - Proxy"}],"\n",["$","li","li-4",{"children":"Bridge连接抽象 - Bridge"}],"\n"]}],"\n",["$","p","p-172",{"children":[["$","strong","strong-0",{"children":"行为型"}],"："]}],"\n",["$","ul","ul-74",{"children":["\n",["$","li","li-0",{"children":"Observer观察变化 - Observer"}],"\n",["$","li","li-1",{"children":"Delegate委托事件 - Delegate"}],"\n",["$","li","li-2",{"children":"Strategy切换算法 - Strategy"}],"\n",["$","li","li-3",{"children":"Command封装操作 - Command"}],"\n",["$","li","li-4",{"children":"Mediator中介交互 - Mediator"}],"\n",["$","li","li-5",{"children":"State状态改变 - State"}],"\n"]}],"\n",["$","hr","hr-28",{}],"\n",["$","h2","h2-6",{"id":"7-常见架构问题小结","children":"7. 常见架构问题小结"}],"\n",["$","h3","h3-27",{"id":"71-架构与原则先讲职责再讲取舍","children":"7.1 架构与原则：先讲职责，再讲取舍"}],"\n",["$","div","div-5",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"问题"}],["$","th","th-1",{"children":"回答骨架"}],["$","th","th-2",{"children":"回读位置"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"MVC 为什么会写胖？"}],["$","td","td-1",{"children":"实现把哪些职责集中到 VC；Model 并非只能放属性；怎样逐步抽出变化点"}],["$","td","td-2",{"children":"2.1、5.4"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"MVP 与 MVVM 的关键差异？"}],["$","td","td-1",{"children":"Presenter 驱动 View 命令；ViewModel 提供状态与交互入口；绑定只是衔接方式"}],["$","td","td-2",{"children":"2.2、2.3"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"怎样避免胖 ViewModel？"}],["$","td","td-1",{"children":"展示逻辑与可复用业务、网络、缓存分开；控制依赖和公开状态"}],["$","td","td-2",{"children":"2.3、4.1"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"VIPER 的收益和代价？"}],["$","td","td-1",{"children":"分别验证展示、用例和路由；额外协议、类型和装配成本"}],["$","td","td-2",{"children":"2.4"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"MVI 怎样处理异步结果？"}],["$","td","td-1",{"children":"意图、状态转换、副作用、结果事件；不要直接从任意回调修改分散状态"}],["$","td","td-2",{"children":"3.1"}]]}],["$","tr","tr-5",{"children":[["$","td","td-0",{"children":"TCA 的核心概念？"}],["$","td","td-1",{"children":"State、Action、Reducer、Store、Effect，以及组合、依赖和测试"}],["$","td","td-2",{"children":"3.2"}]]}],["$","tr","tr-6",{"children":[["$","td","td-0",{"children":"Clean 的依赖规则？"}],["$","td","td-1",{"children":"Presentation / Data 依赖 Domain；仓库协议与实现分开；框架依赖是明确选择"}],["$","td","td-2",{"children":"4.1"}]]}],["$","tr","tr-7",{"children":[["$","td","td-0",{"children":"DI 与 DIP 的区别？"}],["$","td","td-1",{"children":"装配方法与依赖方向原则；协议不是目的；在装配位置选择具体实现"}],["$","td","td-2",{"children":"1.8、4.2"}]]}],["$","tr","tr-8",{"children":[["$","td","td-0",{"children":"怎样选架构？"}],["$","td","td-1",{"children":"痛点、变化点、测试目标、团队成本、迁移与验证；不是名字排名"}],["$","td","td-2",{"children":"第 5 章"}]]}],["$","tr","tr-9",{"children":[["$","td","td-0",{"children":"单一职责原则？"}],["$","td","td-1",{"children":"同一类变化原因；不是每个类只能有一个方法"}],["$","td","td-2",{"children":"1.4"}]]}],["$","tr","tr-10",{"children":[["$","td","td-0",{"children":"开闭原则？"}],["$","td","td-1",{"children":"为真实变化点提供扩展机制，不是永久禁止修改旧代码"}],["$","td","td-2",{"children":"1.5"}]]}],["$","tr","tr-11",{"children":[["$","td","td-0",{"children":"里氏替换原则？"}],["$","td","td-1",{"children":"替代实现满足调用者依赖的行为契约"}],["$","td","td-2",{"children":"1.6"}]]}],["$","tr","tr-12",{"children":[["$","td","td-0",{"children":"接口隔离原则？"}],["$","td","td-1",{"children":"调用者无需依赖不需要的能力，按角色划分契约"}],["$","td","td-2",{"children":"1.7"}]]}]]}]]}]}],"\n",["$","h3","h3-28",{"id":"72-设计模式高频追问","children":"7.2 设计模式高频追问"}],"\n",["$","h4","h4-56",{"children":"7.2.1 Delegate 和 Block 的区别？"}],"\n",["$","div","div-6",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"Delegate"}],["$","th","th-2",{"children":"Block"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"代码位置"}],["$","td","td-1",{"children":"回调方法在实现类中"}],["$","td","td-2",{"children":"回调代码在使用处"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"可读性"}],["$","td","td-1",{"children":"清晰，方法名明确"}],["$","td","td-2",{"children":"内联代码，上下文清晰"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"依赖表达"}],["$","td","td-1",{"children":"用协议表达一组协作行为"}],["$","td","td-2",{"children":"用闭包类型表达回调契约；不天然比 Delegate 耦合更强"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"使用场景"}],["$","td","td-1",{"children":"多个回调方法"}],["$","td","td-2",{"children":"单一回调"}]]}]]}]]}]}],"\n",["$","p","p-173",{"children":[["$","strong","strong-0",{"children":"选择建议"}],"："]}],"\n",["$","ul","ul-75",{"children":["\n",["$","li","li-0",{"children":"一组相关的长期协作行为通常适合 Delegate；一次性回调常适合闭包。"}],"\n",["$","li","li-1",{"children":"还要看所有权、取消与可读性，不以“3 个方法”作为硬阈值。"}],"\n"]}],"\n",["$","hr","hr-29",{}],"\n",["$","h4","h4-57",{"children":"7.2.2 Singleton 的优缺点？如何避免滥用？"}],"\n",["$","p","p-174",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-76",{"children":["\n",["$","li","li-0",{"children":"全局访问，使用方便"}],"\n",["$","li","li-1",{"children":"节省资源，避免重复创建"}],"\n"]}],"\n",["$","p","p-175",{"children":[["$","strong","strong-0",{"children":"缺点"}],"："]}],"\n",["$","ul","ul-77",{"children":["\n",["$","li","li-0",{"children":"全局状态，难以测试"}],"\n",["$","li","li-1",{"children":"隐藏依赖，耦合严重"}],"\n",["$","li","li-2",{"children":"多线程访问需要考虑线程安全"}],"\n"]}],"\n",["$","p","p-176",{"children":[["$","strong","strong-0",{"children":"避免滥用"}],"："]}],"\n",["$","ul","ul-78",{"children":["\n",["$","li","li-0",{"children":"优先使用依赖注入，而不是单例"}],"\n",["$","li","li-1",{"children":"单例只用于真正需要全局唯一实例的场景"}],"\n",["$","li","li-2",{"children":"考虑使用协议 + 容器，而不是直接访问单例"}],"\n"]}],"\n",["$","hr","hr-30",{}],"\n",["$","h4","h4-58",{"children":"7.2.3 Observer 模式的几种实现方式对比？"}],"\n",["$","div","div-7",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"方式"}],["$","th","th-1",{"children":"优点"}],["$","th","th-2",{"children":"缺点"}],["$","th","th-3",{"children":"适用场景"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"NotificationCenter"}],["$","td","td-1",{"children":"一对多，发送方不持有观察者"}],["$","td","td-2",{"children":"需区分注册方式，管理 block token 与观察生命周期"}],["$","td","td-3",{"children":"跨模块通知"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"KVO"}],["$","td","td-1",{"children":"观察兼容属性变化"}],["$","td","td-2",{"children":"需管理 observation，明确通知线程和对象生命周期"}],["$","td","td-3",{"children":"监听兼容属性"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"Delegate"}],["$","td","td-1",{"children":"协议契约、类型检查"}],["$","td","td-2",{"children":"需明确 delegate 所有权及协作生命周期"}],["$","td","td-3",{"children":"单一协作对象的事件或行为委托"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"Combine/RxSwift"}],["$","td","td-1",{"children":"链式调用，功能强大"}],["$","td","td-2",{"children":"学习成本高"}],["$","td","td-3",{"children":"复杂数据流"}]]}]]}]]}]}],"\n",["$","hr","hr-31",{}],"\n",["$","h4","h4-59",{"children":"7.2.4 什么时候使用 Strategy 模式？"}],"\n",["$","p","p-177",{"children":[["$","strong","strong-0",{"children":"使用场景"}],"："]}],"\n",["$","ul","ul-79",{"children":["\n",["$","li","li-0",{"children":"需要在运行时切换算法（不同用户的折扣策略）"}],"\n",["$","li","li-1",{"children":"有多种算法可以解决同一个问题（不同的排序算法）"}],"\n",["$","li","li-2",{"children":"算法的使用者和算法的实现者应该分离"}],"\n"]}],"\n",["$","p","p-178",{"children":[["$","strong","strong-0",{"children":"实际案例"}],"："]}],"\n",["$","ul","ul-80",{"children":["\n",["$","li","li-0",{"children":"VIP用户有不同的折扣计算方式"}],"\n",["$","li","li-1",{"children":"不同类型的消息有不同的发送策略"}],"\n",["$","li","li-2",{"children":"不同平台有不同的UI样式"}],"\n"]}],"\n",["$","hr","hr-32",{}],"\n",["$","h4","h4-60",{"children":"7.2.5 Factory Method 和 Abstract Factory 的区别？"}],"\n",["$","div","div-8",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"Factory Method"}],["$","th","th-2",{"children":"Abstract Factory"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"创建对象"}],["$","td","td-1",{"children":"一个对象"}],["$","td","td-2",{"children":"一系列相关对象"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"关注点"}],["$","td","td-1",{"children":"让具体创建者决定某类产品的实例"}],["$","td","td-2",{"children":"创建一族互相配套的产品；两者可以组合使用"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"复杂度"}],["$","td","td-1",{"children":"简单"}],["$","td","td-2",{"children":"复杂"}]]}]]}]]}]}],"\n",["$","p","p-179",{"children":[["$","strong","strong-0",{"children":"选择建议"}],"："]}],"\n",["$","ul","ul-81",{"children":["\n",["$","li","li-0",{"children":"替换某类产品的创建行为 → 评估 Factory Method；简单 type 分支也可能只是简单工厂"}],"\n",["$","li","li-1",{"children":"创建一系列相关对象 → Abstract Factory"}],"\n"]}],"\n",["$","hr","hr-33",{}],"\n",["$","h3","h3-29",{"id":"73-项目回答检查表","children":"7.3 项目回答检查表"}],"\n",["$","p","p-180",{"children":"用一个真实功能说明："}],"\n",["$","ol","ol-2",{"children":["\n",["$","li","li-0",{"children":"原来的问题是什么，为什么值得调整？"}],"\n",["$","li","li-1",{"children":"哪些职责独立出来，状态由谁维护？"}],"\n",["$","li","li-2",{"children":"谁依赖哪个协议，具体实现在哪装配？"}],"\n",["$","li","li-3",{"children":"UI、请求、观察和任务的生命周期怎样收口？"}],"\n",["$","li","li-4",{"children":"哪些行为可以独立测试，新旧链路怎样迁移和回退？"}],"\n",["$","li","li-5",{"children":"收益如何验证，有哪些额外成本？没有真实数据就不编造指标。"}],"\n"]}],"\n",["$","p","p-181",{"children":"语音房的插件组合、Context、通信和生命周期，继续使用独立组件化专题；不要把“采用某个页面架构”与“整个 App 已经完成模块化”混为一谈。"}],"\n",["$","h2","h2-7",{"id":"8-整合说明勘误与参考资料","children":"8. 整合说明、勘误与参考资料"}],"\n",["$","h3","h3-30",{"id":"81-本次整合范围","children":"8.1 本次整合范围"}],"\n",["$","p","p-182",{"children":[["$","strong","strong-0",{"children":"整合日期：2026-11-04。"}]," 本文合并以下四份原文，旧文件在完成内容核对后移除，后续只维护本文："]}],"\n",["$","div","div-9",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"原文"}],["$","th","th-1",{"children":"本文主要落点"}],["$","th","th-2",{"children":"处理方式"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"`1、SOLID原则实践.md`"}],["$","td","td-1",{"children":"第 1 章、第 7 章"}],["$","td","td-2",{"children":"合并定义，保留基础对照示例，修正协议周长与 Flyable 示例"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"`2、架构模式对比.md`"}],["$","td","td-1",{"children":"第 2～5 章、第 7 章"}],["$","td","td-2",{"children":"保留独有 MVVM / VIPER 示例、MVI、TCA、Clean 代码；统一对比与选型"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"`4、设计模式在iOS中的应用.md`"}],["$","td","td-1",{"children":"第 6 章、第 7 章"}],["$","td","td-2",{"children":"保留所有模式条目、案例和学习路径，统一分类与高频问答"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"`iOS架构模式对比与实战.md`"}],["$","td","td-1",{"children":"第 1、2、4、5 章"}],["$","td","td-2",{"children":"作为 UIKit 页面架构骨架，保留 KVO / Combine / VIPER 和 DI 示例"}]]}]]}]]}]}],"\n",["$","p","p-183",{"children":"组件化、插件化、动态化文档不改动。旧文中的“已完成”仅表示文档写作状态，不转写为学习掌握度；实际复习进度仍以仓库根目录《学习复习总控与交接手册》为准。"}],"\n",["$","h3","h3-31",{"id":"82-重要勘误","children":"8.2 重要勘误"}],"\n",["$","div","div-10",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"原表述或问题"}],["$","th","th-1",{"children":"本文处理"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"MVC 的 View 与 Model 必然高度耦合；IBOutlet 等于直接通信或双向绑定"}],["$","td","td-1",{"children":"按 Cocoa MVC 角色重新说明；区分模式与不良实现"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"架构目标是代码均摊；VIPER 可测试性“最高”"}],["$","td","td-1",{"children":"改为职责、变化范围、契约与测试条件，不做绝对排名"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"页面数量、团队人数或维护年限决定唯一架构"}],["$","td","td-1",{"children":"统一为问题导向的取舍与验证"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"MVVM 必须依赖 Combine；MVI 必须采用响应式库"}],["$","td","td-1",{"children":"区分架构与衔接机制，不强制某个库"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"TCA 不支持 UIKit、所有状态必须放一个大 Store、默认任意时间旅行"}],["$","td","td-1",{"children":"说明 UIKit 支持、功能组合与副作用边界；保留旧代码但标注版本风险"}]]}],["$","tr","tr-5",{"children":[["$","td","td-0",{"children":"Clean 核心是数据层；使用 AnyPublisher 却声称不依赖框架"}],["$","td","td-1",{"children":"修正依赖方向；明确 Combine 契约选择"}]]}],["$","tr","tr-6",{"children":[["$","td","td-0",{"children":"Combine sink 使用不存在的第三个 failure 尾随闭包"}],["$","td","td-1",{"children":"失败在 receiveCompletion 中处理，补齐 cancellables / 初始化及表单状态"}]]}],["$","tr","tr-7",{"children":[["$","td","td-0",{"children":"周长仅是协议 extension 方法；所有鸟都被要求 fly"}],["$","td","td-1",{"children":"声明协议 requirement；只让会飞的类型采用 Flyable"}]]}],["$","tr","tr-8",{"children":[["$","td","td-0",{"children":"Delegate 被算成 GoF 条目；简单工厂被当成严格 Factory Method"}],["$","td","td-1",{"children":"保留案例，明确类别和示例实际表达的模式"}]]}],["$","tr","tr-9",{"children":[["$","td","td-0",{"children":"Swift 强制解包、列表标识、错误状态和 UI 接收线程存在遗漏"}],["$","td","td-1",{"children":"修正本次直接相关的明显问题；其余省略明确列为教学片段约定"}]]}],["$","tr","tr-10",{"children":[["$","td","td-0",{"children":"Combine 参考链接指向 Apple News；目录链接与文件名不一致"}],["$","td","td-1",{"children":"更新官方参考资料与知识体系入口"}]]}]]}]]}]}],"\n",["$","h3","h3-32",{"id":"83-优先阅读的原始资料","children":"8.3 优先阅读的原始资料"}],"\n",["$","ul","ul-82",{"children":["\n",["$","li","li-0",{"children":["$","a","a-0",{"href":"https://developer.apple.com/library/archive/documentation/General/Conceptual/DevPedia-CocoaCore/MVC.html","children":"Apple：Model-View-Controller（归档，作为角色定义参考）"}]}],"\n",["$","li","li-1",{"children":["$","a","a-0",{"href":"https://developer.apple.com/library/archive/documentation/General/Conceptual/DevPedia-CocoaCore/Delegation.html","children":"Apple：Delegation（归档，作为 Cocoa 委托机制参考）"}]}],"\n",["$","li","li-2",{"children":["$","a","a-0",{"href":"https://developer.apple.com/documentation/combine","children":"Apple：Combine"}]}],"\n",["$","li","li-3",{"children":["$","a","a-0",{"href":"https://github.com/pointfreeco/swift-composable-architecture","children":"Point-Free：TCA 官方仓库与 README"}]}],"\n",["$","li","li-4",{"children":["$","a","a-0",{"href":"https://pointfreeco.github.io/swift-composable-architecture/main/documentation/composablearchitecture/migratingto1.0/","children":"TCA：版本迁移资料"}]}],"\n",["$","li","li-5",{"children":["$","a","a-0",{"href":"https://github.com/kudoleh/iOS-Clean-Architecture-MVVM","children":"iOS Clean Architecture + MVVM：项目 README、依赖方向与示例"}]}],"\n"]}],"\n",["$","blockquote","blockquote-13",{"children":["\n",["$","p","p-0",{"children":"本次核对了 Apple 的 MVC / Delegation 角色说明、TCA 官方 README 的当前写法，以及 iOS Clean 示例的分层说明；归档文章不作为最新平台实践的保证。库代码以项目实际锁定版本及其迁移资料为准。"}],"\n"]}],"\n",["$","h3","h3-33",{"id":"84-原笔记的补充阅读与工具索引","children":"8.4 原笔记的补充阅读与工具索引"}],"\n",["$","p","p-184",{"children":"以下合并原笔记参考项，去除重复和明显错误链接；未逐一验证外部页面可用性，也不把旧标题中的年份当作版本依据。"}],"\n",["$","ul","ul-83",{"children":["\n",["$","li","li-0",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://medium.com/ios-os-x-development/ios-architecture-patterns-ecba4c38de52","children":"iOS Architecture Patterns. Demystifying MVC, MVP, MVVM and VIPER"}]}],"\n"]}],"\n",["$","li","li-1",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://www.oreilly.com/library/view/ios-architecture-patterns/9781484290682/","children":"iOS Architecture Patterns: MVC, MVP, MVVM, VIPER, and VIP in Swift"}]}],"\n"]}],"\n",["$","li","li-2",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://betterprogramming.com/the-perfect-ios-app-architecture-mvvm-viper-clean-swift/","children":"The perfect iOS app architecture"}]}],"\n"]}],"\n",["$","li","li-3",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://matteomanferdini.com/2021/09/26/why-viper-and-mvvm-in-swiftui-are-actually-the-same-pattern/","children":"Why VIPER and MVVM in SwiftUI are actually the same pattern"}]}],"\n"]}],"\n",["$","li","li-4",{"children":["\n",["$","p","p-0",{"children":[["$","a","a-0",{"href":"https://github.com/netguru/Hero","children":"Hero (iOS Architecture Pattern)"}]," - MVVM+Coordinator"]}],"\n"]}],"\n",["$","li","li-5",{"children":["\n",["$","p","p-0",{"children":[["$","a","a-0",{"href":"https://github.com/RxSwiftCommunity/RxFlow","children":"RxFlow"}]," - Coordinated navigation"]}],"\n"]}],"\n",["$","li","li-6",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://www.pointfree.co/blog/posts/the-composable-architecture/","children":"Point-Free: TCA Documentation"}]}],"\n"]}],"\n",["$","li","li-7",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html","children":"Clean Architecture by Robert Martin"}]}],"\n"]}],"\n",["$","li","li-8",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://medium.com/@abdullah.ezen/iOS-architecture-patterns-mvc-mvp-mvvm-viper-8815e441a5f1","children":"iOS Architecture Patterns"}]}],"\n"]}],"\n",["$","li","li-9",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://www.raywenderlich.com/6589778-mvvm-tutorial-with-reactivecocoa","children":"MVVM Tutorial with ReactiveCocoa"}]}],"\n"]}],"\n",["$","li","li-10",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://www.objc.io/books/good-vibe/","children":"VIPER Architecture in iOS"}]}],"\n"]}],"\n",["$","li","li-11",{"children":["\n",["$","p","p-0",{"children":[["$","a","a-0",{"href":"https://github.com/mac-cain13/R.swift","children":"R.swift"}]," - 类型安全的资源访问"]}],"\n"]}],"\n",["$","li","li-12",{"children":["\n",["$","p","p-0",{"children":[["$","a","a-0",{"href":"https://github.com/Swinject/Swinject","children":"Swinject"}]," - 依赖注入框架"]}],"\n"]}],"\n",["$","li","li-13",{"children":["\n",["$","p","p-0",{"children":[["$","a","a-0",{"href":"https://github.com/ReactiveCocoa/ReactiveCocoa","children":"ReactiveCocoa"}]," - 响应式编程框架"]}],"\n"]}],"\n",["$","li","li-14",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CocoaBindings/index.html","children":"Cocoa Bindings Programming Topics"}]}],"\n"]}],"\n",["$","li","li-15",{"children":["\n",["$","p","p-0",{"children":["$","a","a-0",{"href":"https://developer.apple.com/library/archive/documentation/DeveloperTools/Testing/Testing-top.html","children":"Testing with Xcode"}]}],"\n"]}],"\n",["$","li","li-16",{"children":["\n",["$","p","p-0",{"children":"GoF：《设计模式：可复用面向对象软件的基础》（原笔记的模式分类参考）。"}],"\n"]}],"\n"]}],"\n",["$","p","p-185",{"children":[["$","strong","strong-0",{"children":"维护约定"}],"：同一概念只在正文集中讲解，选型和复习题链接回正文；有新发现就更新对应章节，不再新建一份重复的“架构对比”文档。"]}]]}],["$","footer",null,{"className":"article-pager","children":[["$","div",null,{"className":"pager-item","children":["$","$L12",null,{"href":"/posts/modular-plugin-and-dynamic-architecture","children":[["$","span",null,{"className":"pager-hint","children":"上一篇"}],["$","span",null,{"className":"pager-title","children":"iOS 组件化、插件化与动态化架构设计笔记"}]]}]}],["$","div",null,{"className":"pager-item right","children":["$","$L12",null,{"href":"/posts/mach-o-and-dyld-linker-principles","children":[["$","span",null,{"className":"pager-hint","children":"下一篇"}],["$","span",null,{"className":"pager-title","children":"Mach-O 文件格式与 dyld 动态链接过程笔记"}]]}]}]]}]]}],["$","aside",null,{"className":"article-toc","children":["$","div",null,{"className":"toc-sticky","children":[["$","div",null,{"className":"toc-heading","children":"本文目录"}],["$","ul",null,{"className":"toc-list","children":[["$","li","1-架构设计目标与-solid-原则-0",{"className":"toc-level-2","children":["$","a",null,{"href":"#1-架构设计目标与-solid-原则","children":"1. 架构设计目标与 SOLID 原则"}]}],["$","li","11-先分清架构模式设计原则与设计模式-1",{"className":"toc-level-3","children":["$","a",null,{"href":"#11-先分清架构模式设计原则与设计模式","children":"1.1 先分清架构模式、设计原则与设计模式"}]}],["$","li","12-好架构的目标不是平均分配代码-2",{"className":"toc-level-3","children":["$","a",null,{"href":"#12-好架构的目标不是平均分配代码","children":"1.2 好架构的目标不是平均分配代码"}]}],["$","li","13-solid-的使用方式-3",{"className":"toc-level-3","children":["$","a",null,{"href":"#13-solid-的使用方式","children":"1.3 SOLID 的使用方式"}]}],["$","li","14-单一职责原则srp-4",{"className":"toc-level-3","children":["$","a",null,{"href":"#14-单一职责原则srp","children":"1.4 单一职责原则（SRP）"}]}],["$","li","15-开闭原则ocp-5",{"className":"toc-level-3","children":["$","a",null,{"href":"#15-开闭原则ocp","children":"1.5 开闭原则（OCP）"}]}],["$","li","16-里氏替换原则lsp-6",{"className":"toc-level-3","children":["$","a",null,{"href":"#16-里氏替换原则lsp","children":"1.6 里氏替换原则（LSP）"}]}],["$","li","17-接口隔离原则isp-7",{"className":"toc-level-3","children":["$","a",null,{"href":"#17-接口隔离原则isp","children":"1.7 接口隔离原则（ISP）"}]}],["$","li","18-依赖倒置原则dip-8",{"className":"toc-level-3","children":["$","a",null,{"href":"#18-依赖倒置原则dip","children":"1.8 依赖倒置原则（DIP）"}]}],["$","li","2-页面架构mvcmvpmvvmviper-9",{"className":"toc-level-2","children":["$","a",null,{"href":"#2-页面架构mvcmvpmvvmviper","children":"2. 页面架构：MVC、MVP、MVVM、VIPER"}]}],["$","li","21-mvc让-controller-协调而不是包办-10",{"className":"toc-level-3","children":["$","a",null,{"href":"#21-mvc让-controller-协调而不是包办","children":"2.1 MVC：让 Controller 协调，而不是包办"}]}],["$","li","22-mvppresenter-驱动被动-view-11",{"className":"toc-level-3","children":["$","a",null,{"href":"#22-mvppresenter-驱动被动-view","children":"2.2 MVP：Presenter 驱动被动 View"}]}],["$","li","23-mvvm抽出展示状态与转换逻辑-12",{"className":"toc-level-3","children":["$","a",null,{"href":"#23-mvvm抽出展示状态与转换逻辑","children":"2.3 MVVM：抽出展示状态与转换逻辑"}]}],["$","li","24-viper进一步区分展示用例与路由-13",{"className":"toc-level-3","children":["$","a",null,{"href":"#24-viper进一步区分展示用例与路由","children":"2.4 VIPER：进一步区分展示、用例与路由"}]}],["$","li","3-状态与数据流mvitca-14",{"className":"toc-level-2","children":["$","a",null,{"href":"#3-状态与数据流mvitca","children":"3. 状态与数据流：MVI、TCA"}]}],["$","li","31-mvi意图驱动状态变化-15",{"className":"toc-level-3","children":["$","a",null,{"href":"#31-mvi意图驱动状态变化","children":"3.1 MVI：意图驱动状态变化"}]}],["$","li","32-tca可组合的状态动作与副作用-16",{"className":"toc-level-3","children":["$","a",null,{"href":"#32-tca可组合的状态动作与副作用","children":"3.2 TCA：可组合的状态、动作与副作用"}]}],["$","li","4-分层与依赖clean-architecturedi-17",{"className":"toc-level-2","children":["$","a",null,{"href":"#4-分层与依赖clean-architecturedi","children":"4. 分层与依赖：Clean Architecture、DI"}]}],["$","li","41-clean-architecture-的核心依赖朝业务规则方向-18",{"className":"toc-level-3","children":["$","a",null,{"href":"#41-clean-architecture-的核心依赖朝业务规则方向","children":"4.1 Clean Architecture 的核心：依赖朝业务规则方向"}]}],["$","li","42-依赖注入di谁创建依赖谁使用依赖-19",{"className":"toc-level-3","children":["$","a",null,{"href":"#42-依赖注入di谁创建依赖谁使用依赖","children":"4.2 依赖注入（DI）：谁创建依赖，谁使用依赖"}]}],["$","li","43-页面导航与对象装配-20",{"className":"toc-level-3","children":["$","a",null,{"href":"#43-页面导航与对象装配","children":"4.3 页面导航与对象装配"}]}],["$","li","5-架构对比选型与混合实践-21",{"className":"toc-level-2","children":["$","a",null,{"href":"#5-架构对比选型与混合实践","children":"5. 架构对比、选型与混合实践"}]}],["$","li","51-按问题比较不按名字排名-22",{"className":"toc-level-3","children":["$","a",null,{"href":"#51-按问题比较不按名字排名","children":"5.1 按问题比较，不按名字排名"}]}],["$","li","52-选型前先回答六个问题-23",{"className":"toc-level-3","children":["$","a",null,{"href":"#52-选型前先回答六个问题","children":"5.2 选型前先回答六个问题"}]}],["$","li","53-混合架构不同维度可以组合-24",{"className":"toc-level-3","children":["$","a",null,{"href":"#53-混合架构不同维度可以组合","children":"5.3 混合架构：不同维度可以组合"}]}],["$","li","54-渐进迁移而不是全面重写-25",{"className":"toc-level-3","children":["$","a",null,{"href":"#54-渐进迁移而不是全面重写","children":"5.4 渐进迁移，而不是全面重写"}]}],["$","li","6-设计模式在-ios-中的应用-26",{"className":"toc-level-2","children":["$","a",null,{"href":"#6-设计模式在-ios-中的应用","children":"6. 设计模式在 iOS 中的应用"}]}],["$","li","61-先找问题再选模式-27",{"className":"toc-level-3","children":["$","a",null,{"href":"#61-先找问题再选模式","children":"6.1 先找问题，再选模式"}]}],["$","li","62-创建型模式-28",{"className":"toc-level-3","children":["$","a",null,{"href":"#62-创建型模式","children":"6.2 创建型模式"}]}],["$","li","63-结构型模式-29",{"className":"toc-level-3","children":["$","a",null,{"href":"#63-结构型模式","children":"6.3 结构型模式"}]}],["$","li","64-行为型模式与-ios-协作机制-30",{"className":"toc-level-3","children":["$","a",null,{"href":"#64-行为型模式与-ios-协作机制","children":"6.4 行为型模式与 iOS 协作机制"}]}],["$","li","65-设计模式选择指南-31",{"className":"toc-level-3","children":["$","a",null,{"href":"#65-设计模式选择指南","children":"6.5 设计模式选择指南"}]}],["$","li","66-学习路径与记忆辅助-32",{"className":"toc-level-3","children":["$","a",null,{"href":"#66-学习路径与记忆辅助","children":"6.6 学习路径与记忆辅助"}]}],["$","li","7-常见架构问题小结-33",{"className":"toc-level-2","children":["$","a",null,{"href":"#7-常见架构问题小结","children":"7. 常见架构问题小结"}]}],["$","li","71-架构与原则先讲职责再讲取舍-34",{"className":"toc-level-3","children":["$","a",null,{"href":"#71-架构与原则先讲职责再讲取舍","children":"7.1 架构与原则：先讲职责，再讲取舍"}]}],["$","li","72-设计模式高频追问-35",{"className":"toc-level-3","children":["$","a",null,{"href":"#72-设计模式高频追问","children":"7.2 设计模式高频追问"}]}],["$","li","73-项目回答检查表-36",{"className":"toc-level-3","children":["$","a",null,{"href":"#73-项目回答检查表","children":"7.3 项目回答检查表"}]}],["$","li","8-整合说明勘误与参考资料-37",{"className":"toc-level-2","children":["$","a",null,{"href":"#8-整合说明勘误与参考资料","children":"8. 整合说明、勘误与参考资料"}]}],["$","li","81-本次整合范围-38",{"className":"toc-level-3","children":["$","a",null,{"href":"#81-本次整合范围","children":"8.1 本次整合范围"}]}],["$","li","82-重要勘误-39",{"className":"toc-level-3","children":["$","a",null,{"href":"#82-重要勘误","children":"8.2 重要勘误"}]}],["$","li","83-优先阅读的原始资料-40",{"className":"toc-level-3","children":["$","a",null,{"href":"#83-优先阅读的原始资料","children":"8.3 优先阅读的原始资料"}]}],["$","li","84-原笔记的补充阅读与工具索引-41",{"className":"toc-level-3","children":["$","a",null,{"href":"#84-原笔记的补充阅读与工具索引","children":"8.4 原笔记的补充阅读与工具索引"}]}]]}]]}]}]]}],["$","footer",null,{"className":"site-footer","children":["$","span",null,{"children":"© 2022–2026 FengCaifan"}]}]]}]
+7:null
+b:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
+6:null
+9:{"metadata":[["$","title","0",{"children":"Caifan's Notes"}],["$","meta","1",{"name":"description","content":"个人开发与学习笔记"}],["$","link","2",{"rel":"icon","href":"/fcfblog/favicon.ico","type":"image/x-icon","sizes":"16x16"}]],"error":null,"digest":"$undefined"}
+11:{"metadata":"$9:metadata","error":null,"digest":"$undefined"}

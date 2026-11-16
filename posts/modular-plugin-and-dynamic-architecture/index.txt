@@ -1,0 +1,630 @@
+1:"$Sreact.fragment"
+2:I[7555,[],""]
+3:I[1295,[],""]
+5:I[9665,[],"OutletBoundary"]
+8:I[4911,[],"AsyncMetadataOutlet"]
+a:I[9665,[],"ViewportBoundary"]
+c:I[9665,[],"MetadataBoundary"]
+e:I[6614,[],""]
+:HL["/fcfblog/_next/static/css/0ae5dd793e516608.css","style"]
+0:{"P":null,"b":"bCC3fH8ggorFQfQxoj4EU","p":"/fcfblog","c":["","posts","modular-plugin-and-dynamic-architecture",""],"i":false,"f":[[["",{"children":["posts",{"children":[["slug","modular-plugin-and-dynamic-architecture","d"],{"children":["__PAGE__",{}]}]}]},"$undefined","$undefined",true],["",["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/fcfblog/_next/static/css/0ae5dd793e516608.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]],["$","html",null,{"lang":"zh-CN","children":["$","body",null,{"children":["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]],"forbidden":"$undefined","unauthorized":"$undefined"}]}]}]]}],{"children":["posts",["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":[["slug","modular-plugin-and-dynamic-architecture","d"],["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L3",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],{"children":["__PAGE__",["$","$1","c",{"children":["$L4",null,["$","$L5",null,{"children":["$L6","$L7",["$","$L8",null,{"promise":"$@9"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],["$","$1","h",{"children":[null,["$","$1","DYXi3OxIJmwngzt_PL04Av",{"children":[["$","$La",null,{"children":"$Lb"}],null]}],["$","$Lc",null,{"children":"$Ld"}]]}],false]],"m":"$undefined","G":["$e","$undefined"],"s":false,"S":true}
+f:"$Sreact.suspense"
+10:I[4911,[],"AsyncMetadata"]
+12:I[6874,["874","static/chunks/874-7618c3fad5f7ba4a.js","858","static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js"],""]
+d:["$","div",null,{"hidden":true,"children":["$","$f",null,{"fallback":null,"children":["$","$L10",null,{"promise":"$@11"}]}]}]
+13:Td47,// 1. 定义URL Router
+class URLRouter {
+    static let shared = URLRouter()
+
+    // URL → ViewController 的映射表
+    private var routes: [String: (URL) -> UIViewController] = [:]
+
+    init() {
+        registerRoutes()
+    }
+
+    // 注册URL规则
+    private func registerRoutes() {
+        // 注册用户详情页
+        register("app://user/detail") { url in
+            let id = url.queryParameters["id"] ?? ""
+            return UserDetailViewController(userId: id)
+        }
+
+        // 注册商品详情页
+        register("app://product/detail") { url in
+            let productId = url.queryParameters["productId"] ?? ""
+            return ProductDetailViewController(productId: productId)
+        }
+
+        // 注册订单页
+        register("app://order/list") { url in
+            return OrderListViewController()
+        }
+    }
+
+    // 注册URL处理器
+    private func register(_ pattern: String, handler: @escaping (URL) -> UIViewController) {
+        routes[pattern] = handler
+    }
+
+    // 处理URL跳转
+    func handle(_ urlString: String) {
+        guard let url = URL(string: urlString),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme,
+              scheme == "app",
+              let host = components.host,
+              let handler = routes[host] else {
+            print("URL Router: 未找到对应的处理器")
+            return
+        }
+
+        let viewController = handler(url)
+        navigateTo(viewController)
+    }
+
+    private func navigateTo(_ viewController: UIViewController) {
+        // 找到当前最顶层的导航控制器
+        if let navigationController = getCurrentNavigationController() {
+            navigationController.pushViewController(viewController, animated: true)
+        } else {
+            // 如果没有导航控制器，就present
+            getCurrentViewController()?.present(viewController, animated: true)
+        }
+    }
+
+    private func getCurrentNavigationController() -> UINavigationController? {
+        return UIApplication.shared.keyWindow?.rootViewController as? UINavigationController
+    }
+
+    private func getCurrentViewController() -> UIViewController? {
+        return UIApplication.shared.keyWindow?.rootViewController
+    }
+}
+
+// 2. 扩展URL：方便解析参数
+extension URL {
+    var queryParameters: [String: String] {
+        var params: [String: String] = [:]
+        guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
+            return params
+        }
+
+        for item in queryItems {
+            params[item.name] = item.value ?? ""
+        }
+        return params
+    }
+}
+
+// 3. 在AppDelegate中拦截URL
+class AppDelegate {
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = nil) -> Bool {
+
+        // 拦截app://开头的URL
+        if url.scheme == "app" {
+            URLRouter.shared.handle(url.absoluteString)
+            return true
+        }
+
+        return false
+    }
+}
+
+// 4. 使用URL Router跳转
+class HomeViewController {
+    func showUserDetail() {
+        URLRouter.shared.handle("app://user/detail?id=123")
+    }
+
+    func showProductDetail() {
+        URLRouter.shared.handle("app://product/detail?productId=456")
+    }
+}
+14:T9c0,// 1. 定义Action（枚举）
+enum UserAction {
+    case fetchUserInfo(userId: String)
+    case updateUser(user: User)
+    case deleteUser(userId: String)
+}
+
+enum ProductAction {
+    case getProductList(page: Int)
+    case getProductDetail(productId: String)
+}
+
+// 2. 定义Target（目标）
+enum Target {
+    case user(UserModuleTarget)
+    case product(ProductModuleTarget)
+}
+
+// 3. 实现Target协议
+protocol UserModuleTarget {
+    func fetchUserInfo(userId: String) -> User?
+    func updateUser(_ user: User) -> Bool
+    func deleteUser(userId: String) -> Bool
+}
+
+// 4. 具体的Target实现
+class UserModule: UserModuleTarget {
+    func fetchUserInfo(userId: String) -> User? {
+        // 从数据库获取用户信息
+        return Database.shared.fetchUser(id: userId)
+    }
+
+    func updateUser(_ user: User) -> Bool {
+        return Database.shared.save(user)
+    }
+
+    func deleteUser(userId: String) -> Bool {
+        return Database.shared.deleteUser(id: userId)
+    }
+}
+
+// 5. 创建Mediator（中介者）
+class Mediator {
+    static let shared = Mediator()
+
+    private let userTarget = UserModule()
+    private let productTarget = ProductModule()
+
+    // 处理User相关的Action
+    func perform(_ target: UserModuleTarget, action: UserAction) -> Any? {
+        switch action {
+        case .fetchUserInfo(let userId):
+            return target.fetchUserInfo(userId: userId)
+
+        case .updateUser(let user):
+            return target.updateUser(user)
+
+        case .deleteUser(let userId):
+            return target.deleteUser(userId: userId)
+        }
+    }
+
+    // 处理Product相关的Action
+    func perform(_ target: ProductModuleTarget, action: ProductAction) -> Any? {
+        switch action {
+        case .getProductList(let page):
+            return target.getProductList(page: page)
+
+        case .getProductDetail(let productId):
+            return target.getProductDetail(productId: productId)
+        }
+    }
+}
+
+// 6. 扩展：提供便捷调用方法
+extension Mediator {
+    func fetchUserInfo(userId: String) -> User? {
+        return perform(userTarget, action: .fetchUserInfo(userId: userId)) as? User
+    }
+
+    func getProductList(page: Int) -> [Product]? {
+        return perform(productTarget, action: .getProductList(page: page)) as? [Product]
+    }
+}
+
+// 7. 使用Mediator
+class HomeViewController {
+    func showUserInfo() {
+        if let user = Mediator.shared.fetchUserInfo(userId: "123") {
+            displayUser(user)
+        }
+    }
+}
+15:T909,// 1. 公共 Interface 模块：调用方与实现方共同依赖“能力合同”
+protocol UserServicing {
+    func fetchUser(id: String) -> User?
+    func updateUser(_ user: User) -> Bool
+}
+
+// 2. UserModule：具体实现只在模块内部可见
+final class UserService: UserServicing {
+    func fetchUser(id: String) -> User? {
+        Database.shared.fetchUser(id: id)
+    }
+
+    func updateUser(_ user: User) -> Bool {
+        Database.shared.save(user)
+    }
+}
+
+// 3. 基础模块：最小服务容器。key 是协议的唯一身份，不依赖易冲突的字符串。
+final class ServiceContainer {
+    static let shared = ServiceContainer()
+    private var services: [ObjectIdentifier: Any] = [:]
+    private let lock = NSLock()
+
+    func register<T>(_ protocolType: T.Type, implementation: T) {
+        lock.lock(); defer { lock.unlock() }
+        services[ObjectIdentifier(protocolType)] = implementation
+    }
+
+    func resolve<T>(_ protocolType: T.Type) -> T? {
+        lock.lock(); defer { lock.unlock() }
+        return services[ObjectIdentifier(protocolType)] as? T
+    }
+}
+
+// 4. App 装配期 / 模块启动期：协议 → 具体实现。
+// 不建议在 +load 或静态初始化中做耗时业务初始化。
+enum UserModuleAssembly {
+    static func registerServices() {
+        ServiceContainer.shared.register(UserServicing.self,
+                                         implementation: UserService())
+    }
+}
+
+// 5. 调用方：只 import 公共协议和容器，完全不知道 UserService 的存在。
+final class HomeViewController: UIViewController {
+    private let userService: UserServicing
+
+    // 推荐构造器注入：依赖显式，测试时可直接传 Mock。
+    init(userService: UserServicing) {
+        self.userService = userService
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func showUserInfo() {
+        if let user = userService.fetchUser(id: "123") {
+            displayUser(user)
+        }
+    }
+}
+
+// App 装配：resolve 一次后注入，不让 HomeViewController 感知容器。
+UserModuleAssembly.registerServices()
+let service: UserServicing = ServiceContainer.shared.resolve(UserServicing.self)!
+let homeVC = HomeViewController(userService: service)
+16:T660,//  优点1：最彻底解耦，只依赖协议
+protocol UserServicing {
+    func fetchUser(id: String) -> User?
+}
+
+class HomeViewController {
+    private let userService: UserServicing  // 只依赖协议，不依赖具体实现
+
+    init(userService: UserServicing) {
+        self.userService = userService
+    }
+}
+
+//  优点2：易测试，可以Mock协议
+class MockUserService: UserServicing {
+    func fetchUser(id: String) -> User? {
+        return User(name: "Mock", age: 0)  // 测试数据
+    }
+}
+
+let mockVC = HomeViewController(userService: MockUserService())
+
+//  优点3：运行时替换实现
+// 开发环境用Mock，生产环境用真实实现
+#if DEBUG
+let userService = MockUserService()
+#else
+let userService = UserService()
+#endif
+ServiceContainer.shared.register(UserServicing.self, implementation: userService)
+
+//  优点4：类型安全，编译期检查
+// userService.fetchUser() 编译期检查参数和返回值
+
+//  缺点1：过度设计，小项目用不上
+// 5个页面的App，直接import就行，用Protocol-Service是杀鸡用牛刀
+
+//  缺点2：学习成本高，需要理解依赖注入
+// 什么是依赖注入？
+// 为什么不直接创建对象？
+// 为什么要用协议？
+// 初学者很难理解
+
+//  缺点3：运行时开销，容器解析有性能损耗
+// 每次都要从容器查找：container.resolve(UserServicing.self)
+// 虽然开销不大，但比直接创建对象慢
+
+//  缺点4：代码量大，每个服务都要定义协议
+protocol UserServicing { ... }
+protocol OrderServicing { ... }
+protocol PaymentServicing { ... }
+// 服务很多时，协议文件很多
+17:T8aa,//  问题：如果要页面跳转，是不是要import具体类？
+
+//  方案1：定义路由协议
+protocol UserRoutingServicing {
+    func getUserDetailViewController(userId: String) -> UIViewController?
+}
+
+//  实现时还是要import具体类
+class UserRoutingService: UserRoutingServicing {
+    func getUserDetailViewController(userId: String) -> UIViewController? {
+        //  这里还是要 import UserDetailViewController
+        return UserDetailViewController(userId: userId)
+    }
+}
+
+// 注册服务
+ServiceContainer.shared.register(UserRoutingServicing.self,
+                                implementation: UserRoutingService())
+
+// 使用（调用者不依赖具体类）
+class HomeViewController {
+    private let userRoutingService: UserRoutingServicing
+
+    init(userRoutingService: UserRoutingServicing) {
+        self.userRoutingService = userRoutingService
+    }
+
+    func showUserDetail() {
+        // 不需要 import UserDetailViewController
+        if let userVC = userRoutingService.getUserDetailViewController(userId: "123") {
+            navigationController?.pushViewController(userVC, animated: true)
+        }
+    }
+}
+
+//  缺点：Service实现内部还是要import具体的ViewController
+
+//  方案2：更彻底的解耦 - 返回路由信息，不直接返回ViewController
+protocol UserRoutingServicing {
+    func getUserDetailRoute(userId: String) -> Route?
+}
+
+struct Route {
+    let url: String  // 用URL表示路由
+    // 或者
+    let viewControllerType: Any.Type  // 用类型表示
+    let parameters: [String: Any]
+}
+
+class UserRoutingService: UserRoutingServicing {
+    func getUserDetailRoute(userId: String) -> Route? {
+        // 返回路由信息，不创建具体的ViewController
+        return Route(url: "app://user/detail?id=\(userId)")
+    }
+}
+
+// 使用
+class HomeViewController {
+    func showUserDetail() {
+        if let route = userRoutingService.getUserDetailRoute(userId: "123") {
+            // 结合URL Router使用
+            URLRouter.shared.handle(route.url)
+        }
+    }
+}
+
+//  方案3：最彻底解耦 - Protocol-Service + URL Router 组合
+// Protocol-Service 用于方法调用（数据层）
+// URL Router 用于页面跳转（UI层）
+18:T438,// 定义路由协议
+protocol AppRouter {
+    func navigateToUserHome(userId: String)
+    func navigateToProduct(productId: String)
+    func navigateToOrder(orderId: String)
+}
+
+// 路由实现
+class AppRouterImpl: AppRouter {
+    func navigateToUserHome(userId: String) {
+        let userVC = UserViewController(userId: userId)
+        navigationController?.pushViewController(userVC, animated: true)
+    }
+}
+
+// URL路由
+class URLRouter {
+    static func handle(url: URL) {
+        guard let scheme = url.scheme,
+              let host = url.host else { return }
+
+        switch (scheme, host) {
+        case ("app", "user"):
+            let userId = url.queryParameters["id"] ?? ""
+            AppRouter.shared.navigateToUserHome(userId: userId)
+
+        case ("app", "product"):
+            let productId = url.queryParameters["id"] ?? ""
+            AppRouter.shared.navigateToProduct(productId: productId)
+
+        default:
+            break
+        }
+    }
+}
+
+// 使用
+// app://user?id=123
+// app://product?id=456
+URLRouter.handle(url: URL(string: "app://user?id=123")!)
+19:T662,// WebView加载H5页面
+class DynamicViewController: UIViewController {
+    private var webView: WKWebView!
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // 配置WebView
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = WKUserContentController()
+
+        // 注册JSBridge
+        configuration.userContentController.add(self, name: "AppBridge")
+
+        webView = WKWebView(frame: view.bounds, configuration: configuration)
+        view.addSubview(webView)
+
+        // 加载H5页面
+        loadDynamicPage()
+    }
+
+    private func loadDynamicPage() {
+        // 从服务器获取页面URL
+        let urlString = "https://example.com/dynamic-page"
+        if let url = URL(string: urlString) {
+            webView.load(URLRequest(url: url))
+        }
+    }
+}
+
+// JSBridge实现
+extension DynamicViewController: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any],
+              let action = body["action"] as? String else { return }
+
+        switch action {
+        case "getUserInfo":
+            // 获取用户信息
+            let userInfo = ["name": "张三", "age": 25]
+            webView.evaluateJavaScript("updateUserInfo(\(userInfo))")
+
+        case "navigateTo":
+            // 页面跳转
+            if let pageName = body["pageName"] as? String {
+                navigateToPage(pageName)
+            }
+
+        default:
+            break
+        }
+    }
+}
+1a:T46d,// 远程配置管理
+class RemoteConfigManager {
+    static let shared = RemoteConfigManager()
+
+    private var config: [String: Any] = [:]
+
+    func fetchConfig() {
+        // 从服务器获取配置
+        let url = URL(string: "https://api.example.com/config")!
+
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+            DispatchQueue.main.async {
+                self.config = json
+                self.notifyConfigUpdate()
+            }
+        }.resume()
+    }
+
+    func isFeatureEnabled(_ featureName: String) -> Bool {
+        return config[featureName] as? Bool ?? false
+    }
+
+    func getConfigValue(_ key: String) -> Any? {
+        return config[key]
+    }
+
+    private func notifyConfigUpdate() {
+        NotificationCenter.default.post(name: .configDidUpdate, object: nil)
+    }
+}
+
+// 使用
+if RemoteConfigManager.shared.isFeatureEnabled("new_feature") {
+    // 启用新功能
+    showNewFeature()
+} else {
+    // 使用旧功能
+    showOldFeature()
+}
+1b:T469,import FlexLayout
+
+class DynamicUIView: UIView {
+    private let container = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+
+    private func setupUI() {
+        addSubview(container)
+
+        // 从配置文件获取UI结构
+        let uiConfig = fetchUIConfig()
+
+        // 动态创建UI
+        container.flex.define { flex in
+            for item in uiConfig.items {
+                if item.type == "label" {
+                    flex.addItem()
+                        .height(item.height)
+                        .margin(item.margin)
+                } else if item.type == "button" {
+                    flex.addItem()
+                        .height(item.height)
+                        .margin(item.margin)
+                }
+            }
+        }
+
+        container.flex.layout(mode: .adjustContainer)
+    }
+
+    private func fetchUIConfig() -> UIConfig {
+        // 从服务器获取UI配置
+        return UIConfig(items: [
+            UIItem(type: "label", height: 50, margin: 10),
+            UIItem(type: "button", height: 44, margin: 20)
+        ])
+    }
+}
+1c:T4cd,// 运营活动动态化方案
+class CampaignManager {
+    static let shared = CampaignManager()
+
+    func showCampaign(campaignId: String) {
+        // 从服务器获取活动配置
+        fetchCampaignConfig(campaignId: campaignId) { config in
+            switch config.type {
+            case "h5":
+                self.showH5Campaign(config)
+
+            case "native":
+                self.showNativeCampaign(config)
+
+            case "rn":
+                self.showRNCampaign(config)
+
+            default:
+                break
+            }
+        }
+    }
+
+    private func showH5Campaign(_ config: CampaignConfig) {
+        let vc = WebViewController(url: config.url)
+        UIViewController.current?.present(vc, animated: true)
+    }
+
+    private func showNativeCampaign(_ config: CampaignConfig) {
+        let vc = NativeCampaignViewController(config: config)
+        UIViewController.current?.present(vc, animated: true)
+    }
+
+    private func showRNCampaign(_ config: CampaignConfig) {
+        let vc = RNCampaignViewController(moduleName: config.moduleName)
+        UIViewController.current?.present(vc, animated: true)
+    }
+}
+
+// 使用
+CampaignManager.shared.showCampaign(campaignId: "spring_festival_2026")
+4:["$","div",null,{"className":"blog-shell","children":[["$","header",null,{"className":"masthead","children":["$","div",null,{"className":"masthead-inner","children":[["$","$L12",null,{"href":"/","className":"brand-title","children":"Caifan's Notes"}],["$","nav",null,{"className":"top-nav","children":["$","$L12",null,{"href":"/","className":"nav-link","children":"← 返回列表"}]}]]}]}],["$","div",null,{"className":"article-page-wrap","children":[["$","article",null,{"className":"article-main","children":[["$","header",null,{"className":"article-header","children":[["$","h1",null,{"className":"article-title","children":"iOS 组件化、插件化与动态化架构设计笔记"}],["$","div",null,{"className":"article-meta","children":[["$","time",null,{"children":"2025-06-22"}],["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"children":"工程化与架构"}],[["$","span",null,{"className":"meta-sep","children":"·"}],["$","span",null,{"className":"article-tags","children":"组件化 / 插件化 / 依赖注入"}]]]}]]}],["$","div",null,{"className":"markdown-body","children":[["$","p","p-0",{"children":"组件化解决代码复用，插件化解决业务差异，动态化解决发版效率——三者分别解决不同维度的工程问题。"}],"\n",["$","hr","hr-0",{}],"\n",["$","h2","h2-0",{"id":"1-三种架构的核心区别","children":"1. 三种架构的核心区别"}],"\n",["$","h3","h3-0",{"id":"11-核心概念对比","children":"1.1 核心概念对比"}],"\n",["$","div","div-0",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"架构模式"}],["$","th","th-1",{"children":"核心问题"}],["$","th","th-2",{"children":"解决方案"}],["$","th","th-3",{"children":"组合时机"}],["$","th","th-4",{"children":"典型场景"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"组件化"}],["$","td","td-1",{"children":"代码重复、耦合严重"}],["$","td","td-2",{"children":"拆分独立模块"}],["$","td","td-3",{"children":"编译期"}],["$","td","td-4",{"children":"跨业务复用（用户中心、支付）"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"插件化"}],["$","td","td-1",{"children":"业务差异大、难以扩展"}],["$","td","td-2",{"children":"运行时动态组合"}],["$","td","td-3",{"children":"运行时"}],["$","td","td-4",{"children":"多房型、多玩法（语音房）"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"动态化"}],["$","td","td-1",{"children":"发版周期长、无法热修复"}],["$","td","td-2",{"children":"动态下发代码"}],["$","td","td-3",{"children":"运行时"}],["$","td","td-4",{"children":"运营活动、快速迭代"}]]}]]}]]}]}],"\n",["$","h3","h3-1",{"id":"12-形象类比","children":"1.2 形象类比"}],"\n",["$","pre","pre-0",{"children":["$","code","code-0",{"children":"组件化 = 乐高积木\n→ 标准化的积木块，可以组合成不同的模型\n\n插件化 = 电脑配件\n→ CPU、内存、显卡可以独立更换，按需组装\n\n动态化 = 云计算\n→ 功能在服务器端，按需加载，无需更新App\n"}]}],"\n",["$","hr","hr-1",{}],"\n",["$","h2","h2-1",{"id":"2-组件化架构设计与落地","children":"2. 组件化架构设计与落地"}],"\n",["$","h3","h3-2",{"id":"21-什么是组件化","children":"2.1 什么是组件化？"}],"\n",["$","p","p-1",{"children":[["$","strong","strong-0",{"children":"一句话理解"}],"：把App拆成多个独立模块，每个模块像乐高积木一样可以独立使用和组合。"]}],"\n",["$","p","p-2",{"children":[["$","strong","strong-0",{"children":"核心特征"}],"："]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"独立编译"}],"：每个组件可以独立编译、测试"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"单向依赖"}],"：组件间依赖关系清晰，禁止循环依赖"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"接口通信"}],"：通过协议或路由通信，不直接依赖具体实现"]}],"\n"]}],"\n",["$","p","p-3",{"children":[["$","strong","strong-0",{"children":"生活类比"}],"："]}],"\n",["$","blockquote","blockquote-0",{"children":["\n",["$","p","p-0",{"children":["组件化就像",["$","strong","strong-0",{"children":"乐高积木"}],"："]}],"\n",["$","ul","ul-0",{"children":["\n",["$","li","li-0",{"children":"基础组件：标准的长条、方块（可复用）"}],"\n",["$","li","li-1",{"children":"业务组件：组合好的车轮、车体（半成品）"}],"\n",["$","li","li-2",{"children":"主工程：最终的成品（组合所有积木）"}],"\n"]}],"\n"]}],"\n",["$","h3","h3-3",{"id":"22-组件化演进历史为什么会有3种方案","children":"2.2 组件化演进历史（为什么会有3种方案？）"}],"\n",["$","p","p-4",{"children":[["$","strong","strong-0",{"children":"面试常问"}],"：组件化有几种实现方案？为什么会有这么多方案？"]}],"\n",["$","blockquote","blockquote-1",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"推荐学习顺序（按上一个方案的痛点理解下一个）"}],"：\n",["$","code","code-0",{"children":"直接 import"}],"（问题起点） → ",["$","strong","strong-1",{"children":"URL Router"}],"（先学页面跳转解耦） → ",["$","strong","strong-2",{"children":"Target-Action"}],"（再学跨模块动态调用） → ",["$","strong","strong-3",{"children":"Protocol-Service"}],"（最后学协议、服务容器与依赖注入）。"]}],"\n",["$","p","p-1",{"children":"不要把三者理解为互相替代：Router 最适合 UI 路由 / Deep Link，Target-Action 适合遗留或低频动态能力调用，Protocol-Service 适合长期维护的核心服务调用；大型工程通常组合使用。"}],"\n"]}],"\n",["$","hr","hr-2",{}],"\n",["$","h4","h4-0",{"children":["$","strong","strong-0",{"children":"时代0：直接import → 耦合严重（问题根源）"}]}],"\n",["$","pre","pre-1",{"children":["$","code","code-0",{"className":"language-swift","children":"//  早期做法：直接依赖\n// HomeViewController.swift\nimport UserModule  // 强依赖\nimport OrderModule  // 强依赖\n\nclass HomeViewController {\n    func showUserDetail() {\n        let userVC = UserDetailViewController()  // 直接创建\n        navigationController?.pushViewController(userVC, animated: true)\n    }\n\n    func showOrderList() {\n        let orderVC = OrderListViewController()  // 直接创建\n        navigationController?.pushViewController(orderVC, animated: true)\n    }\n}\n"}]}],"\n",["$","p","p-5",{"children":[["$","strong","strong-0",{"children":"痛点"}],"："]}],"\n",["$","ul","ul-1",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"编译依赖"}],"：UserModule改了，HomeModule要重新编译"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"代码复用差"}],"：UserModule无法在其他App使用"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"团队协作难"}],"：A和B同时改HomeModule，经常冲突"]}],"\n"]}],"\n",["$","hr","hr-3",{}],"\n",["$","h4","h4-1",{"children":["$","strong","strong-0",{"children":"时代1：URL Router → 解决页面跳转解耦"}]}],"\n",["$","pre","pre-2",{"children":["$","code","code-0",{"className":"language-swift","children":"//  URL Router方案（蘑菇街、美团早期）\n// 问题：直接import耦合严重，怎么解决页面跳转的解耦？\n\nclass HomeViewController {\n    func showUserDetail() {\n        // 不import UserModule了！\n        URLRouter.shared.handle(\"app://user/detail?id=123\")\n    }\n\n    func showOrderList() {\n        URLRouter.shared.handle(\"app://order/list\")\n    }\n}\n"}]}],"\n",["$","p","p-6",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-2",{"children":["\n",["$","li","li-0",{"children":"完全解耦：不需要import"}],"\n",["$","li","li-1",{"children":"支持推送跳转：推送携带URL直接跳转"}],"\n",["$","li","li-2",{"children":"灵活配置：URL可以动态下发"}],"\n"]}],"\n",["$","p","p-7",{"children":[["$","strong","strong-0",{"children":"缺点"}],"："]}],"\n",["$","ul","ul-3",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"类型不安全"}],"：URL字符串写错，编译期不报错"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"参数传递受限"}],"：只能传字符串，复杂对象要序列化"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"只支持跳转"}],"：无法调用方法，无法获取返回值"]}],"\n"]}],"\n",["$","hr","hr-4",{}],"\n",["$","h4","h4-2",{"children":["$","strong","strong-0",{"children":"时代2：Target-Action → 解决方法调用解耦"}]}],"\n",["$","pre","pre-3",{"children":["$","code","code-0",{"className":"language-swift","children":"//  Target-Action方案（casatwy方案）\n// 问题：URL Router只能跳转页面，不能调用方法\n// 比如：OrderModule需要调用UserModule获取用户信息\n\n//  URL Router做不到\n// \"app://user/getUserInfo?id=123\" → 返回什么？怎么返回？\n\n//  Target-Action方案\nclass HomeViewController {\n    func getUserInfo() {\n        // 不import UserModule\n        let user = Mediator.shared.fetchUserInfo(userId: \"123\")\n        print(user.name)\n    }\n}\n"}]}],"\n",["$","p","p-8",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-4",{"children":["\n",["$","li","li-0",{"children":"支持方法调用（不只是跳转）"}],"\n",["$","li","li-1",{"children":"参数字典可承载复杂对象，且可取得返回值"}],"\n",["$","li","li-2",{"children":"支持复杂对象：直接传User对象"}],"\n"]}],"\n",["$","p","p-9",{"children":[["$","strong","strong-0",{"children":"缺点"}],"："]}],"\n",["$","ul","ul-5",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"仍是弱类型"}],"：Target / Action / 参数 key 写错通常只能运行时发现"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"学习成本高"}],"：Target、Action、Mediator概念多"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"代码量大"}],"：每个方法都要定义枚举"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"仍有一定耦合"}],"：需要知道Mediator的存在"]}],"\n"]}],"\n",["$","hr","hr-5",{}],"\n",["$","h4","h4-3",{"children":["$","strong","strong-0",{"children":"时代3：Protocol-Service → 最彻底解耦"}]}],"\n",["$","pre","pre-4",{"children":["$","code","code-0",{"className":"language-swift","children":"//  Protocol-Service方案（DI依赖注入）\n// 问题：Target-Action还是需要知道Mediator\n// 能不能连Mediator也不用知道？\n\nclass HomeViewController {\n    private let userService: UserServicing  // 只依赖协议\n\n    init(userService: UserServicing = ServiceContainer.shared.get(UserServicing.self)) {\n        self.userService = userService\n    }\n\n    func getUserInfo() {\n        // 不依赖具体实现，只依赖协议\n        let user = userService.fetchUser(id: \"123\")\n    }\n}\n"}]}],"\n",["$","p","p-10",{"children":[["$","strong","strong-0",{"children":"优点"}],"："]}],"\n",["$","ul","ul-6",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"最彻底解耦"}],"：只依赖协议"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"易测试"}],"：可以Mock协议"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"替换实现"}],"：运行时替换"]}],"\n"]}],"\n",["$","p","p-11",{"children":[["$","strong","strong-0",{"children":"缺点"}],"："]}],"\n",["$","ul","ul-7",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"过度设计"}],"：小项目用不上"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"学习成本高"}],"：需要理解DI"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"运行时开销"}],"：容器解析有性能损耗"]}],"\n"]}],"\n",["$","hr","hr-6",{}],"\n",["$","h3","h3-4",{"id":"23-方案对比总览","children":"2.3 方案对比总览"}],"\n",["$","div","div-1",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"方案"}],["$","th","th-1",{"children":"核心技术"}],["$","th","th-2",{"children":"复杂度"}],["$","th","th-3",{"children":"灵活性"}],["$","th","th-4",{"children":"典型应用"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"URL Router"}],["$","td","td-1",{"children":"URL Scheme + 拦截"}],["$","td","td-2",{"children":"⭐⭐⭐"}],["$","td","td-3",{"children":"⭐⭐⭐⭐"}],["$","td","td-4",{"children":"跨页面跳转"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"Target-Action"}],["$","td","td-1",{"children":"Target-Action模式"}],["$","td","td-2",{"children":"⭐⭐⭐⭐"}],["$","td","td-3",{"children":"⭐⭐⭐"}],["$","td","td-4",{"children":"跨模块调用"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"Protocol-Service"}],["$","td","td-1",{"children":"协议 + 服务注册"}],["$","td","td-2",{"children":"⭐⭐⭐⭐⭐"}],["$","td","td-3",{"children":"⭐⭐⭐⭐"}],["$","td","td-4",{"children":"完全解耦"}]]}]]}]]}]}],"\n",["$","hr","hr-7",{}],"\n",["$","h3","h3-5",{"id":"24-方案一url-routerurl路由方案","children":"2.4 方案一：URL Router（URL路由方案）"}],"\n",["$","h4","h4-4",{"children":["$","strong","strong-0",{"children":"核心思想"}]}],"\n",["$","pre","pre-5",{"children":["$","code","code-0",{"children":"页面跳转不用直接import，而是通过URL跳转：\n\"app://user/detail?id=123\" → 跳转到用户详情页\n"}]}],"\n",["$","h4","h4-5",{"children":["$","strong","strong-0",{"children":"实现原理"}]}],"\n",["$","pre","pre-6",{"children":["$","code","code-0",{"children":"1. 定义URL规则：app://user/detail?id=123\n2. 注册URL处理器：告诉系统这个URL对应哪个页面\n3. 拦截URL跳转：在AppDelegate里拦截app://开头的URL\n4. 解析参数：解析?id=123\n5. 创建页面：创建对应的ViewController\n6. 执行跳转：push到导航栈\n"}]}],"\n",["$","h4","h4-6",{"children":["$","strong","strong-0",{"children":"完整代码实现"}]}],"\n",["$","pre","pre-7",{"children":["$","code","code-0",{"className":"language-swift","children":"$13"}]}],"\n",["$","h4","h4-7",{"children":["$","strong","strong-0",{"children":"URL Router 的优缺点"}]}],"\n",["$","div","div-2",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"优点"}],["$","th","th-2",{"children":"缺点"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"解耦性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"页面间完全解耦，不需要import"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"灵活性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"可以动态配置URL规则"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"可测试"}],["$","td","td-1",{"children":"⭐⭐⭐"}],["$","td","td-2",{"children":"URL规则可以单独测试"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"维护性"}],["$","td","td-1",{"children":"⭐⭐"}],["$","td","td-2",{"children":"集中管理URL规则，易于维护"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"性能"}],["$","td","td-1",{"children":"⭐⭐⭐"}],["$","td","td-2",{"children":"字符串解析有性能开销"}]]}],["$","tr","tr-5",{"children":[["$","td","td-0",{"children":"类型安全"}],["$","td","td-1",{"children":"⭐"}],["$","td","td-2",{"children":"参数都是字符串，没有类型检查"}]]}],["$","tr","tr-6",{"children":[["$","td","td-0",{"children":"编译期检查"}],["$","td","td-1",{"children":"⭐"}],["$","td","td-2",{"children":"运行时才能发现URL错误"}]]}]]}]]}]}],"\n",["$","h4","h4-8",{"children":["$","strong","strong-0",{"children":"详细优缺点分析"}]}],"\n",["$","pre","pre-8",{"children":["$","code","code-0",{"className":"language-swift","children":"//  优点1：完全解耦，不需要import\n// 不需要知道UserModule的存在\nURLRouter.shared.handle(\"app://user/detail?id=123\")\n\n//  优点2：支持推送跳转\n// 推送 payload: {\"url\": \"app://user/detail?id=123\"}\n// AppDelegate直接拦截跳转\nfunc application(_ app: UIApplication, open url: URL, options: ...) {\n    if url.scheme == \"app\" {\n        URLRouter.shared.handle(url.absoluteString)\n        return true\n    }\n}\n\n//  优点3：支持动态配置\n// 比如做AB测试：一半用户跳转到新页面\nlet url = remoteConfig[\"user_detail_url\"] ?? \"app://user/detail\"\nURLRouter.shared.handle(url)\n\n//  缺点1：类型不安全\nURLRouter.shared.handle(\"app://user/detaill?id=123\")  // ← 拼写错误！运行时才发现\n\n//  缺点2：参数传递受限\n// 只能传字符串，不能传递复杂对象\nlet user = User(name: \"张三\", age: 25)\nURLRouter.shared.handle(\"app://user/detail?user=\\(user)\")  // 怎么传？\n\n//  缺点3：只能跳转，不能调用方法\n// 无法获取返回值\nlet result = URLRouter.shared.handle(\"app://user/getInfo?id=123\")  // 怎么获取返回值？\n"}]}],"\n",["$","h4","h4-9",{"children":["$","strong","strong-0",{"children":"URL Router 适用场景"}]}],"\n",["$","pre","pre-9",{"children":["$","code","code-0",{"children":" 适用场景：\n- 跨页面跳转（Push、Present）\n- 跨模块跳转（不同业务模块）\n- 需要动态配置跳转规则\n- 推送跳转（从推送跳转到指定页面）\n- H5页面跳转原生页面\n\n 不适用场景：\n- 模块间方法调用\n- 需要传递复杂对象\n- 需要获取返回值\n- 需要类型安全的调用\n"}]}],"\n",["$","hr","hr-8",{}],"\n",["$","h3","h3-6",{"id":"25-方案二target-action目标-动作模式","children":"2.5 方案二：Target-Action（目标-动作模式）"}],"\n",["$","h4","h4-10",{"children":["$","strong","strong-0",{"children":"核心思想"}]}],"\n",["$","pre","pre-10",{"children":["$","code","code-0",{"children":"不直接调用其他模块的方法，而是通过\"目标-动作\"的方式：\n\"我要对UserModule做点什么\" → \"UserModule处理这个动作\"\n"}]}],"\n",["$","h4","h4-11",{"children":["$","strong","strong-0",{"children":"实现原理"}]}],"\n",["$","pre","pre-11",{"children":["$","code","code-0",{"children":"1. 定义Target（目标）：UserModule、ProductModule\n2. 定义Action（动作）：FetchUserInfo、GetProductList\n3. 创建Mediator（中介者）：管理Target和Action的映射\n4. 调用时：mediator.perform(UserModule.self, .fetchUserInfo(id))\n5. 分发执行：找到对应的Target，执行对应的Action\n"}]}],"\n",["$","h4","h4-12",{"children":["$","strong","strong-0",{"children":"完整代码实现"}]}],"\n",["$","pre","pre-12",{"children":["$","code","code-0",{"className":"language-swift","children":"$14"}]}],"\n",["$","h4","h4-13",{"children":["$","strong","strong-0",{"children":"Target-Action 的优缺点"}]}],"\n",["$","div","div-3",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"优点"}],["$","th","th-2",{"children":"缺点"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"解耦性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"模块间通过Target-Action解耦"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"灵活性"}],["$","td","td-1",{"children":"⭐⭐⭐"}],["$","td","td-2",{"children":"可以动态添加新的Action"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"可测试性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"Target可以单独测试"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"维护性"}],["$","td","td-1",{"children":"⭐⭐⭐"}],["$","td","td-2",{"children":"Action集中管理，易于维护"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"性能"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"直接调用，性能好"}]]}],["$","tr","tr-5",{"children":[["$","td","td-0",{"children":"类型安全"}],["$","td","td-1",{"children":"⭐⭐⭐"}],["$","td","td-2",{"children":"编译期类型检查，比URL方案好"}]]}],["$","tr","tr-6",{"children":[["$","td","td-0",{"children":"学习曲线"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"概念多，学习成本高"}]]}]]}]]}]}],"\n",["$","h4","h4-14",{"children":["$","strong","strong-0",{"children":"详细优缺点分析"}]}],"\n",["$","pre","pre-13",{"children":["$","code","code-0",{"className":"language-swift","children":"//  优点1：类型安全，编译期检查\nenum UserAction {\n    case fetchUserInfo(userId: String)  // 枚举定义，编译期检查\n}\nMediator.shared.perform(userTarget, action: .fetchUserInfo(userId: \"123\"))\n\n//  优点2：支持复杂对象\nlet user = User(name: \"张三\", age: 25)\nMediator.shared.perform(userTarget, action: .updateUser(user))\n\n//  优点3：支持方法调用，可以获取返回值\n//  可以获取返回值\nlet user = Mediator.shared.fetchUserInfo(userId: \"123\") as? User\n\n//  优点4：性能好，直接调用，没有字符串解析开销\n\n//  缺点1：学习成本高，概念多\n// Target（目标）\n// Action（动作）\n// Mediator（中介者）\n// 需要理解这些概念才能使用\n\n//  缺点2：代码量大，每个方法都要定义\nenum UserAction {\n    case fetchUserInfo(userId: String)\n    case updateUser(user: User)\n    case deleteUser(userId: String)\n    case ...  // 方法很多时，枚举很大\n}\n\n//  缺点3：仍有一定耦合，需要知道Mediator\nclass HomeViewController {\n    func getUserInfo() {\n        // 还是依赖了Mediator\n        let user = Mediator.shared.fetchUserInfo(userId: \"123\")\n    }\n}\n\n//  缺点4：不支持推送跳转\n// 推送无法携带枚举，只能用URL\n"}]}],"\n",["$","h4","h4-15",{"children":["$","strong","strong-0",{"children":"Target-Action 如何实现页面跳转？"}]}],"\n",["$","pre","pre-14",{"children":["$","code","code-0",{"className":"language-swift","children":"//  问题：如果要页面跳转，是不是要import具体类？\n// 让我们看看实际怎么做的\n\n//  方案1：返回 UIViewController 类型（不依赖具体类）\nprotocol UserModuleTarget {\n    func getUserDetailViewController(userId: String) -> UIViewController?\n}\n\nclass UserModule: UserModuleTarget {\n    func getUserDetailViewController(userId: String) -> UIViewController? {\n        //  注意：这里还是要 import UserDetailViewController\n        // 但调用者不需要 import\n        return UserDetailViewController(userId: userId)\n    }\n}\n\n// 使用（调用者不依赖具体类）\nclass HomeViewController {\n    func showUserDetail() {\n        // 不需要 import UserModule\n        // 不需要 import UserDetailViewController\n        if let userVC = Mediator.shared.getUserDetailViewController(userId: \"123\") {\n            navigationController?.pushViewController(userVC, animated: true)\n        }\n    }\n}\n\n//  缺点：Mediator内部还是要import具体的ViewController\n// 所以Target-Action实现页面跳转，本质上还是有一定的耦合\n"}]}],"\n",["$","p","p-12",{"children":[["$","strong","strong-0",{"children":"结论"}],"："]}],"\n",["$","ul","ul-8",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"调用方解耦"}],"：HomeViewController不需要import具体类"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"Mediator耦合"}],"：Mediator内部还是要import具体类"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"权衡"}],"：比直接import好，但不如URL Router彻底解耦"]}],"\n"]}],"\n",["$","hr","hr-9",{}],"\n",["$","h4","h4-16",{"children":["$","strong","strong-0",{"children":"Target-Action 适用场景"}]}],"\n",["$","pre","pre-15",{"children":["$","code","code-0",{"children":" 适用场景：\n- 模块间方法调用（获取数据、更新状态）\n- 需要传递复杂对象\n- 需要类型安全的调用\n- 需要更好的性能\n- 需要获取返回值\n\n 页面跳转场景：\n- 可以用，但Mediator内部还是要import具体类\n- 不如URL Router彻底解耦\n\n 不适用场景：\n- 简单的页面跳转（用URL Router更简单）\n- 跨App跳转（用URL Scheme）\n- 推送跳转（用URL Router）\n- 需要动态配置\n- 需要完全解耦（Mediator内部还是有耦合）\n"}]}],"\n",["$","hr","hr-10",{}],"\n",["$","h3","h3-7",{"id":"26-方案三protocol-service协议-服务方案","children":"2.6 方案三：Protocol-Service（协议-服务方案）"}],"\n",["$","h4","h4-17",{"children":["$","strong","strong-0",{"children":"核心思想"}]}],"\n",["$","pre","pre-16",{"children":["$","code","code-0",{"children":"最彻底的解耦方案：\n- 定义协议：定义组件提供的能力\n- 注册服务：每个组件注册自己的服务\n- 依赖注入：通过容器注入依赖\n- 完全解耦：组件间只依赖协议，不依赖具体实现\n"}]}],"\n",["$","h4","h4-18",{"children":["$","strong","strong-0",{"children":"实现原理"}]}],"\n",["$","pre","pre-17",{"children":["$","code","code-0",{"children":"1. 定义服务协议：UserServicing、ProductServicing\n2. 实现服务：UserServiceImpl、ProductServiceImpl\n3. 注册到容器：把服务注册到ServiceContainer\n4. 从容器获取：通过容器获取服务，不依赖具体实现\n"}]}],"\n",["$","p","p-13",{"children":"调用链："}],"\n",["$","pre","pre-18",{"children":["$","code","code-0",{"className":"language-text","children":"调用模块只依赖 UserServicing 协议\n        │ resolve(UserServicing.self)\n        ▼\nServiceContainer（保存“协议 → 实现”的映射）\n        ▼\nUserService（用户模块的具体实现）\n"}]}],"\n",["$","blockquote","blockquote-2",{"children":["\n",["$","p","p-0",{"children":["协议应放在调用方和实现方都能依赖的",["$","strong","strong-0",{"children":"公共 Interface / Core 模块"}],"，不能只放在 UserModule 内；否则调用方为了 import 协议仍会反向依赖 UserModule，解耦失效。"]}],"\n"]}],"\n",["$","h4","h4-19",{"children":["$","strong","strong-0",{"children":"完整代码实现"}]}],"\n",["$","pre","pre-19",{"children":["$","code","code-0",{"className":"language-swift","children":"$15"}]}],"\n",["$","p","p-14",{"children":[["$","strong","strong-0",{"children":"为什么这比 Target-Action 类型安全？"}]," ",["$","code","code-0",{"children":"userService.fetchUser(id: \"123\")"}]," 的方法名、参数与返回类型均由 ",["$","code","code-1",{"children":"UserServicing"}]," 在编译期校验；不再依赖 ",["$","code","code-2",{"children":"\"User\""}],"、",["$","code","code-3",{"children":"\"fetchUser\""}],"、",["$","code","code-4",{"children":"[String: Any]"}]," 这类运行时字符串约定。"]}],"\n",["$","blockquote","blockquote-3",{"children":["\n",["$","p","p-0",{"children":[["$","strong","strong-0",{"children":"术语精度"}],"：容器创建对象并通过 ",["$","code","code-0",{"children":"init(userService:)"}]," 传入依赖，才是典型的",["$","strong","strong-1",{"children":"构造器注入（DI）"}],"。若业务对象内部自行调用 ",["$","code","code-1",{"children":"ServiceContainer.shared.resolve(...)"}],"，严格说属于 ",["$","strong","strong-2",{"children":"Service Locator（服务定位器）"}],"。AppDIContainer 一类框架可同时作为 DI 容器与服务定位器使用；优先采用构造器注入，让依赖显式且更易测试。"]}],"\n"]}],"\n",["$","h4","h4-20",{"children":["$","strong","strong-0",{"children":"Protocol-Service 的优缺点"}]}],"\n",["$","div","div-4",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"优点"}],["$","th","th-2",{"children":"缺点"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"解耦性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐⭐"}],["$","td","td-2",{"children":"完全解耦，只依赖协议"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"灵活性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐⭐"}],["$","td","td-2",{"children":"可以动态替换实现"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"可测试性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐⭐"}],["$","td","td-2",{"children":"协议可以Mock，测试很方便"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"维护性"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"协议集中管理，易于维护"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"性能"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"直接调用，性能好"}]]}],["$","tr","tr-5",{"children":[["$","td","td-0",{"children":"类型安全"}],["$","td","td-1",{"children":"⭐⭐⭐⭐⭐"}],["$","td","td-2",{"children":"编译期类型检查，最安全"}]]}],["$","tr","tr-6",{"children":[["$","td","td-0",{"children":"学习曲线"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"需要理解依赖注入"}]]}]]}]]}]}],"\n",["$","h4","h4-21",{"children":["$","strong","strong-0",{"children":"详细优缺点分析"}]}],"\n",["$","pre","pre-20",{"children":["$","code","code-0",{"className":"language-swift","children":"$16"}]}],"\n",["$","h4","h4-22",{"children":["$","strong","strong-0",{"children":"Protocol-Service 如何实现页面跳转？"}]}],"\n",["$","pre","pre-21",{"children":["$","code","code-0",{"className":"language-swift","children":"$17"}]}],"\n",["$","p","p-15",{"children":[["$","strong","strong-0",{"children":"结论"}],"："]}],"\n",["$","ul","ul-9",{"children":["\n",["$","li","li-0",{"children":["$","strong","strong-0",{"children":"Protocol-Service实现页面跳转，Service内部还是要import具体类"}]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"推荐做法"}],"：Protocol-Service（方法调用） + URL Router（页面跳转）组合使用"]}],"\n"]}],"\n",["$","hr","hr-11",{}],"\n",["$","h4","h4-23",{"children":["$","strong","strong-0",{"children":"Protocol-Service 适用场景"}]}],"\n",["$","pre","pre-22",{"children":["$","code","code-0",{"children":" 适用场景：\n- 大型项目（20+个页面）\n- 需要完全解耦（方法调用层面）\n- 需要高可测试性\n- 团队协作（不同团队负责不同服务）\n- 需要Mock测试\n- 需要运行时替换实现\n\n 页面跳转场景：\n- 可以用，但Service内部还是要import具体类\n- 推荐和URL Router组合使用\n\n 不适用场景：\n- 小型项目（过度设计）\n- 快速原型（开发速度优先）\n- 团队经验不足\n- 页面跳转（推荐用URL Router）\n"}]}],"\n",["$","hr","hr-12",{}],"\n",["$","h3","h3-8",{"id":"27-三种方案对比总结","children":"2.7 三种方案对比总结"}],"\n",["$","h4","h4-24",{"children":["$","strong","strong-0",{"children":"面试常问：组件化有几种实现方案？页面跳转怎么做？"}]}],"\n",["$","pre","pre-23",{"children":["$","code","code-0",{"children":"A: 主要有3种主流方案：\n\n1. URL Router方案（URL路由）\n   - 适合：跨页面跳转、推送跳转\n   - 优点：完全解耦、灵活可配置\n   - 缺点：类型不安全、字符串硬编码\n   - 页面跳转： 最推荐，完全解耦\n\n2. Target-Action方案（目标-动作）\n   - 适合：模块间方法调用\n   - 优点：类型安全、性能好\n   - 缺点：学习成本高、代码量大\n   - 页面跳转： 可以用，但Mediator内部还是要import具体类\n\n3. Protocol-Service方案（协议-服务）\n   - 适合：大型项目、完全解耦\n   - 优点：最彻底解耦、可测试性强\n   - 缺点：过度设计、学习成本高\n   - 页面跳转： 可以用，但Service内部还是要import具体类\n\n实际项目中通常会组合使用多种方案。\n"}]}],"\n",["$","h4","h4-25",{"children":["$","strong","strong-0",{"children":"关键区别：页面跳转的耦合程度"}]}],"\n",["$","div","div-5",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"方案"}],["$","th","th-1",{"children":"调用方耦合"}],["$","th","th-2",{"children":"内部耦合"}],["$","th","th-3",{"children":"推荐度"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"URL Router"}],["$","td","td-1",{"children":"无耦合（只传字符串）"}],["$","td","td-2",{"children":"无耦合（通过映射表）"}],["$","td","td-3",{"children":"⭐⭐⭐⭐⭐"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"Target-Action"}],["$","td","td-1",{"children":"无耦合（返回UIViewController）"}],["$","td","td-2",{"children":"有耦合（Mediator要import）"}],["$","td","td-3",{"children":"⭐⭐⭐"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"Protocol-Service"}],["$","td","td-1",{"children":"无耦合（返回UIViewController）"}],["$","td","td-2",{"children":"有耦合（Service要import）"}],["$","td","td-3",{"children":"⭐⭐⭐"}]]}]]}]]}]}],"\n",["$","p","p-16",{"children":[["$","strong","strong-0",{"children":"结论"}],"："]}],"\n",["$","pre","pre-24",{"children":["$","code","code-0",{"children":"页面跳转 → URL Router（最彻底解耦）\n方法调用 → Target-Action 或 Protocol-Service\n\n不要用Target-Action或Protocol-Service做页面跳转！\n因为它们的内部还是要import具体的ViewController，没有彻底解耦。\n"}]}],"\n",["$","h4","h4-26",{"children":["$","strong","strong-0",{"children":"如何选择方案？（决策树）"}]}],"\n",["$","pre","pre-25",{"children":["$","code","code-0",{"children":"1. 你的项目规模？\n\n   小型项目（< 10个页面）\n   → 直接import，不用组件化\n\n   中型项目（10-20个页面）\n   → URL Router（页面跳转） + Target-Action（方法调用）\n\n   大型项目（> 20个页面）\n   → Protocol-Service（完全解耦） + URL Router（推送跳转）\n\n2. 你的主要需求？\n\n   跨页面跳转 + 推送跳转\n   → URL Router\n\n   模块间方法调用 + 传递复杂对象\n   → Target-Action\n\n   完全解耦 + 高可测试性\n   → Protocol-Service\n\n3. 你的团队能力？\n\n   初级团队 + 快速迭代\n   → URL Router（学习成本低）\n\n   中级团队 + 追求质量\n   → Target-Action（平衡）\n\n   高级团队 + 大型项目\n   → Protocol-Service（最规范）\n"}]}],"\n",["$","h4","h4-27",{"children":["$","strong","strong-0",{"children":"组合使用（推荐）"}]}],"\n",["$","pre","pre-26",{"children":["$","code","code-0",{"children":"最佳实践：组合使用多种方案\n\n页面跳转 → URL Router（最彻底解耦）\n模块调用 → Target-Action 或 Protocol-Service\n完全解耦 → Protocol-Service\n\n根据具体场景选择最合适的方案\n"}]}],"\n",["$","h4","h4-28",{"children":["$","strong","strong-0",{"children":"实际项目中的组合方案"}]}],"\n",["$","pre","pre-27",{"children":["$","code","code-0",{"className":"language-swift","children":"// 大型项目的标准组合：\n// 1. URL Router（页面跳转）\nURLRouter.shared.handle(\"app://user/detail?id=123\")\n\n// 2. Protocol-Service（方法调用 - 数据层）\nclass HomeViewController {\n    private let userService: UserServicing\n\n    init(userService: UserServicing) {\n        self.userService = userService\n    }\n\n    func loadUserInfo() {\n        // 方法调用用Protocol-Service\n        let user = userService.fetchUser(id: \"123\")\n        // 页面跳转用URL Router\n        URLRouter.shared.handle(\"app://user/detail?id=\\(user.id)\")\n    }\n}\n\n//  不要这样用：\n//  用Protocol-Service做页面跳转（内部还是要import）\nlet userVC = userRoutingService.getUserDetailViewController(userId: \"123\")\n\n//  推荐这样用：\n//  Protocol-Service（方法调用） + URL Router（页面跳转）\n"}]}],"\n",["$","h4","h4-29",{"children":["$","strong","strong-0",{"children":"分层架构"}]}],"\n",["$","pre","pre-28",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────────┐\n│           Main Application              │  ← 主工程（组装层）\n├─────────────────────────────────────────┤\n│    Business Components (业务组件)        │\n│  ├─ User Component (用户模块)           │\n│  ├─ Product Component (商品模块)        │\n│  ├─ Order Component (订单模块)          │\n│  └─ Payment Component (支付模块)        │\n├─────────────────────────────────────────┤\n│    Foundation Components (基础组件)      │\n│  ├─ Network Component (网络层)          │\n│  ├─ Database Component (数据库)         │\n│  ├─ UI Component (UI库)                 │\n│  └─ Utility Component (工具类)          │\n└─────────────────────────────────────────┘\n"}]}],"\n",["$","h4","h4-30",{"children":["$","strong","strong-0",{"children":"依赖规则"}]}],"\n",["$","pre","pre-29",{"children":["$","code","code-0",{"children":"业务组件 → 基础组件 \n基础组件 → 业务组件 \n\nMain → 业务组件 \n业务组件 → Main \n\n组件A → 组件B \n组件B → 组件A  (循环依赖)\n"}]}],"\n",["$","h3","h3-9",{"id":"23-组件化落地实践","children":"2.3 组件化落地实践"}],"\n",["$","h4","h4-31",{"children":["$","strong","strong-0",{"children":"1. 组件拆分原则"}]}],"\n",["$","pre","pre-30",{"children":["$","code","code-0",{"className":"language-swift","children":"//  错误：巨石应用\n// 所有代码都在主工程\n\n//  正确：按业务拆分\nProject/\n├── MainApp/              # 主工程\n├── UserModule/           # 用户组件\n├── ProductModule/        # 商品组件\n├── OrderModule/          # 订单组件\n├── PaymentModule/        # 支付组件\n├── NetworkModule/        # 网络组件\n└── UIModule/             # UI组件\n"}]}],"\n",["$","h4","h4-32",{"children":["$","strong","strong-0",{"children":"2. 组件间通信 - 路由设计"}]}],"\n",["$","pre","pre-31",{"children":["$","code","code-0",{"className":"language-swift","children":"$18"}]}],"\n",["$","h4","h4-33",{"children":["$","strong","strong-0",{"children":"3. 组件间通信 - 事件总线"}]}],"\n",["$","pre","pre-32",{"children":["$","code","code-0",{"className":"language-swift","children":"// 定义事件\nenum AppEvent {\n    case userLogin(User)\n    case userLogout\n    case orderCreated(Order)\n}\n\n// 事件总线\nclass EventBus {\n    static let shared = EventBus()\n    private var listeners: [String: [(AppEvent) -> Void]] = [:]\n\n    func subscribe(_ event: AppEvent, handler: @escaping (AppEvent) -> Void) {\n        let key = String(describing: event)\n        if listeners[key] == nil {\n            listeners[key] = []\n        }\n        listeners[key]?.append(handler)\n    }\n\n    func post(_ event: AppEvent) {\n        let key = String(describing: event)\n        listeners[key]?.forEach { handler in\n            handler(event)\n        }\n    }\n}\n\n// 使用\nEventBus.shared.subscribe(.userLogin) { event in\n    if case .userLogin(let user) = event {\n        print(\"用户登录：\\(user.name)\")\n    }\n}\n\nEventBus.shared.post(.userLogin(User(name: \"张三\")))\n"}]}],"\n",["$","h4","h4-34",{"children":["$","strong","strong-0",{"children":"4. 组件化Podfile配置"}]}],"\n",["$","pre","pre-33",{"children":["$","code","code-0",{"className":"language-ruby","children":"# Podfile\nplatform :ios, '13.0'\n\nuse_frameworks!\n\n# 基础组件\ndef base_pods\n  pod 'NetworkModule', :path => './Modules/NetworkModule'\n  pod 'DatabaseModule', :path => './Modules/DatabaseModule'\n  pod 'UIModule', :path => './Modules/UIModule'\nend\n\n# 业务组件\ndef business_pods\n  pod 'UserModule', :path => './Modules/UserModule'\n  pod 'ProductModule', :path => './Modules/ProductModule'\n  pod 'OrderModule', :path => './Modules/OrderModule'\n  pod 'PaymentModule', :path => './Modules/PaymentModule'\nend\n\ntarget 'MainApp' do\n  base_pods\n  business_pods\nend\n"}]}],"\n",["$","h3","h3-10",{"id":"27-组件化面试高频问题","children":"2.7 组件化面试高频问题"}],"\n",["$","h4","h4-35",{"children":["$","strong","strong-0",{"children":"Q1: 组件化有几种实现方案？"}]}],"\n",["$","p","p-17",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-34",{"children":["$","code","code-0",{"children":"主要有3种主流方案：\n\n1. URL Router方案\n   - 原理：通过URL Scheme跳转\n   - 适合：页面跳转、推送跳转\n   - 优点：完全解耦、可配置\n   - 缺点：类型不安全\n\n2. Target-Action方案\n   - 原理：Mediator模式 + 枚举\n   - 适合：模块间方法调用\n   - 优点：类型安全、性能好\n   - 缺点：学习成本高\n\n3. Protocol-Service方案\n   - 原理：协议 + 依赖注入\n   - 适合：大型项目、完全解耦\n   - 优点：最彻底解耦、可测试\n   - 缺点：过度设计\n\n实际项目中通常会组合使用多种方案。\n"}]}],"\n",["$","h4","h4-36",{"children":["$","strong","strong-0",{"children":"Q2: URL Router的URL解析是怎么做的？"}]}],"\n",["$","p","p-18",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-35",{"children":["$","code","code-0",{"children":"URL解析的关键步骤：\n\n1. 字符串转URL对象\n   URL(string: \"app://user/detail?id=123\")\n\n2. 提取Components\n   URLComponents(url: url)\n\n3. 解析Host（确定跳转哪个页面）\n   components.host = \"user/detail\"\n\n4. 解析Query参数（提取?id=123）\n   components.queryItems = [(\"id\", \"123\")]\n\n5. 查找注册的处理器\n   routes[\"user/detail\"]?(url)\n\n6. 创建目标ViewController\n   UserDetailViewController(userId: \"123\")\n\n7. 执行跳转\n   navigationController.pushViewController(vc, animated: true)\n"}]}],"\n",["$","h4","h4-37",{"children":["$","strong","strong-0",{"children":"Q3: Target-Action和Mediator是什么关系？"}]}],"\n",["$","p","p-19",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-36",{"children":["$","code","code-0",{"children":"Target-Action是Mediator模式的一种实现方式：\n\n- Target：目标对象（UserModule、ProductModule）\n- Action：动作（fetchUserInfo、getProductList）\n- Mediator：中介者，管理Target和Action的映射\n\n本质是设计模式中的\"中介者模式\"：\n- 不直接调用其他模块\n- 所有调用都通过Mediator转发\n- 实现模块间的解耦\n"}]}],"\n",["$","h4","h4-38",{"children":["$","strong","strong-0",{"children":"Q4: 为什么Protocol-Service方案能实现完全解耦？"}]}],"\n",["$","p","p-20",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-37",{"children":["$","code","code-0",{"children":"Protocol-Service实现完全解耦的核心：\n\n1. 定义协议：只定义接口，不依赖具体实现\n   protocol UserServicing {\n       func fetchUser(id: String) -> User?\n   }\n\n2. 依赖协议：调用者只依赖协议\n   class HomeViewController {\n       let userService: UserServicing  // 只依赖协议\n   }\n\n3. 注入实现：运行时注入具体实现\n   container.register(UserServicing.self, implementation: UserService())\n\n4. 替换实现：可以随时替换具体实现\n   container.register(UserServicing.self, implementation: MockUserService())\n\n5. 编译期检查：协议确保类型安全\n   调用userService.fetchUser()时，编译期检查\n\n这样就实现了：\n- 调用者不依赖具体实现\n- 具体实现可以随时替换\n- 编译期类型安全\n"}]}],"\n",["$","h4","h4-39",{"children":["$","strong","strong-0",{"children":"Q5: 组件化如何避免循环依赖？"}]}],"\n",["$","p","p-21",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-38",{"children":["$","code","code-0",{"children":"避免循环依赖的几种方法：\n\n1. 单向依赖规则（架构层面）\n   Presentation → Business → Data\n   禁止反向依赖\n\n2. 使用协议（技术层面）\n   moduleA → protocol ← moduleB\n   两者都依赖协议，不互相依赖\n\n3. 依赖注入（框架层面）\n   通过容器注入依赖，不允许直接import\n\n4. 架构分层（组织层面）\n   严格按照层次组织，跨层需要通过接口\n\n5. Code Review检查\n   禁止循环依赖的代码合并\n"}]}],"\n",["$","h4","h4-40",{"children":["$","strong","strong-0",{"children":"Q6: 组件化后如何提升编译速度？"}]}],"\n",["$","p","p-22",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-39",{"children":["$","code","code-0",{"children":"组件化提升编译速度的原理：\n\n1. 并行编译\n   不同组件可以并行编译\n   主工程只负责组装\n\n2. 增量编译\n   修改UserModule只编译UserModule\n   不需要重新编译其他模块\n\n3. 预编译框架\n   每个组件可以预编译成Framework\n   减少重复编译时间\n\n4. CocoaPods缓存\n   依赖的Pod有缓存机制\n   不需要重新下载和编译\n\n实际效果：\n- 单体项目：编译时间5-10分钟\n- 组件化项目：编译时间1-3分钟\n- 增量编译：10-30秒\n"}]}],"\n",["$","h4","h4-41",{"children":["$","strong","strong-0",{"children":"Q7: 组件化和模块化有什么区别？"}]}],"\n",["$","p","p-23",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-40",{"children":["$","code","code-0",{"children":"组件化和模块化经常被混用，但有细微区别：\n\n模块化（Modular）：\n- 侧重点：代码组织\n- 方式：按功能划分模块\n- 粒度：比组件化粗一些\n- 场景：同一个项目内部\n\n组件化（Component）：\n- 侧重点：代码复用\n- 方式：按可复用性划分\n- 粒度：比模块化细一些\n- 场景：跨项目复用\n\n在iOS开发中：\n- 模块化：把App分成UserModule、OrderModule\n- 组件化：把网络层抽成NetworkComponent（可跨项目复用）\n\n实践中两者经常一起使用。\n"}]}],"\n",["$","h4","h4-42",{"children":["$","strong","strong-0",{"children":"Q8: 组件化后如何保证数据一致性？"}]}],"\n",["$","p","p-24",{"children":[["$","strong","strong-0",{"children":"标准答案"}],"："]}],"\n",["$","pre","pre-41",{"children":["$","code","code-0",{"children":"组件化后数据一致性保证方法：\n\n1. 单一数据源\n   每个数据有唯一的Owner\n   其他组件通过接口访问\n\n2. 状态管理\n   使用Redux、Combine等状态管理方案\n   统一管理共享状态\n\n3. 事件总线\n   通过EventBus或NotificationCenter同步数据\n   一个组件更新，通知其他组件\n\n4. 数据仓库模式\n   所有数据访问都通过Repository\n   Repository内部保证一致性\n\n5. 数据版本控制\n   给数据加版本号\n   避免使用过期数据\n\n实际项目中的做法：\n- 用户数据：UserModule唯一管理\n- 订单数据：OrderModule唯一管理\n- 共享数据：通过EventBus同步\n- 本地缓存：通过Repository统一管理\n"}]}],"\n",["$","hr","hr-13",{}],"\n",["$","h3","h3-11",{"id":"28-组件化最佳实践","children":"2.8 组件化最佳实践"}],"\n",["$","div","div-6",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"收益"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"代码复用"}],["$","td","td-1",{"children":"组件可以在多个App中复用"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"编译速度"}],["$","td","td-1",{"children":"并行编译，提升编译速度"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"团队协作"}],["$","td","td-1",{"children":"不同团队负责不同组件，减少冲突"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"单元测试"}],["$","td","td-1",{"children":"组件独立测试，覆盖率提升"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"业务隔离"}],["$","td","td-1",{"children":"组件间耦合度低，易于维护"}]]}]]}]]}]}],"\n",["$","hr","hr-14",{}],"\n",["$","h2","h2-2",{"id":"3-插件化架构设计与落地","children":"3. 插件化架构设计与落地"}],"\n",["$","h3","h3-12",{"id":"31-什么是插件化","children":"3.1 什么是插件化？"}],"\n",["$","p","p-25",{"children":[["$","strong","strong-0",{"children":"定义"}],"：将App功能拆分成多个",["$","strong","strong-1",{"children":"插件"}],"，运行时按需动态加载和组合。"]}],"\n",["$","p","p-26",{"children":[["$","strong","strong-0",{"children":"核心特征"}],"："]}],"\n",["$","ul","ul-10",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"运行时组合"}],"：插件在运行时动态加载，不是编译期决定"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"热插拔"}],"：插件可以动态加载、卸载"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"独立开发"}],"：每个插件独立开发、测试"]}],"\n",["$","li","li-3",{"children":[["$","strong","strong-0",{"children":"生命周期管理"}],"：统一的插件生命周期管理"]}],"\n"]}],"\n",["$","h3","h3-13",{"id":"32-插件化-vs-组件化","children":"3.2 插件化 vs 组件化"}],"\n",["$","div","div-7",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"特性"}],["$","th","th-1",{"children":"组件化"}],["$","th","th-2",{"children":"插件化"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"组合时机"}],["$","td","td-1",{"children":"编译期"}],["$","td","td-2",{"children":"运行时"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"代码复用"}],["$","td","td-1",{"children":"跨App复用"}],["$","td","td-2",{"children":"App内复用"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"灵活性"}],["$","td","td-1",{"children":"较低"}],["$","td","td-2",{"children":"高"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"复杂度"}],["$","td","td-1",{"children":"较低"}],["$","td","td-2",{"children":"较高"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"典型场景"}],["$","td","td-1",{"children":"跨业务复用"}],["$","td","td-2",{"children":"多房型/多玩法"}]]}]]}]]}]}],"\n",["$","h3","h3-14",{"id":"33-插件化架构设计","children":"3.3 插件化架构设计"}],"\n",["$","h4","h4-43",{"children":["$","strong","strong-0",{"children":"核心组件"}]}],"\n",["$","pre","pre-42",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────────┐\n│           Host Application              │  ← 宿主应用\n├─────────────────────────────────────────┤\n│        Plugin Manager                   │  ← 插件管理器\n│  ├─ Plugin Registry (插件注册表)        │\n│  ├─ Plugin Loader (插件加载器)          │\n│  └─ Plugin Lifecycle (生命周期管理)     │\n├─────────────────────────────────────────┤\n│            Plugins                      │  ← 插件集合\n│  ├─ Plugin A (纯能力型)                 │\n│  ├─ Plugin B (容器型)                   │\n│  └─ Plugin C (UI型)                     │\n├─────────────────────────────────────────┤\n│        Plugin Context                   │  ← 插件上下文\n│  ├─ Shared State (共享状态)             │\n│  ├─ Service Container (服务容器)        │\n│  └─ Event Bus (事件总线)                │\n└─────────────────────────────────────────┘\n"}]}],"\n",["$","h3","h3-15",{"id":"34-插件化落地实践","children":"3.4 插件化落地实践"}],"\n",["$","h4","h4-44",{"children":["$","strong","strong-0",{"children":"1. 插件定义"}]}],"\n",["$","pre","pre-43",{"children":["$","code","code-0",{"className":"language-swift","children":"// 插件协议\nprotocol Plugin {\n    var name: String { get }\n    var version: String { get }\n\n    func onLoad(context: PluginContext)\n    func onUnload()\n}\n\n// 插件上下文\nprotocol PluginContext: AnyObject {\n    var hostViewController: UIViewController { get }\n    var serviceContainer: ServiceContainer { get }\n    var eventBus: EventBus { get }\n}\n\n// 服务容器\nclass ServiceContainer {\n    private var services: [String: Any] = [:]\n\n    func register<T>(_ type: T.Type, instance: T) {\n        let key = String(describing: type)\n        services[key] = instance\n    }\n\n    func resolve<T>(_ type: T.Type) -> T? {\n        let key = String(describing: type)\n        return services[key] as? T\n    }\n}\n"}]}],"\n",["$","h4","h4-45",{"children":["$","strong","strong-0",{"children":"2. 插件实现"}]}],"\n",["$","pre","pre-44",{"children":["$","code","code-0",{"className":"language-swift","children":"// 具体插件：礼物插件\nclass GiftPlugin: Plugin {\n    var name: String { return \"GiftPlugin\" }\n    var version: String { return \"1.0.0\" }\n\n    func onLoad(context: PluginContext) {\n        print(\"礼物插件加载\")\n\n        // 注册服务\n        let giftService = GiftService()\n        context.serviceContainer.register(GiftService.self, instance: giftService)\n\n        // 设置UI\n        setupUI(context: context)\n\n        // 监听事件\n        context.eventBus.subscribe(.sendGift) { [weak self] event in\n            self?.handleSendGift(event)\n        }\n    }\n\n    func onUnload() {\n        print(\"礼物插件卸载\")\n    }\n\n    private func setupUI(context: PluginContext) {\n        let giftButton = UIButton()\n        giftButton.setTitle(\"礼物\", for: .normal)\n        giftButton.addTarget(self, action: #selector(sendGift), for: .touchUpInside)\n\n        context.hostViewController.view.addSubview(giftButton)\n    }\n\n    @objc private func sendGift() {\n        print(\"发送礼物\")\n    }\n\n    private func handleSendGift(_ event: AppEvent) {\n        // 处理送礼事件\n    }\n}\n"}]}],"\n",["$","h4","h4-46",{"children":["$","strong","strong-0",{"children":"3. 插件管理器"}]}],"\n",["$","pre","pre-45",{"children":["$","code","code-0",{"className":"language-swift","children":"class PluginManager {\n    static let shared = PluginManager()\n\n    private var plugins: [Plugin] = []\n    private var context: PluginContext?\n\n    func register(plugin: Plugin) {\n        plugins.append(plugin)\n    }\n\n    func loadPlugins(context: PluginContext) {\n        self.context = context\n\n        // 按优先级排序插件\n        plugins.sort { $0.name < $1.name }\n\n        // 加载所有插件\n        for plugin in plugins {\n            plugin.onLoad(context: context)\n        }\n    }\n\n    func unloadPlugins() {\n        for plugin in plugins {\n            plugin.onUnload()\n        }\n        plugins.removeAll()\n    }\n\n    func getPlugin<T>(_ type: T.Type) -> T? {\n        return plugins.first { $0 is T } as? T\n    }\n}\n"}]}],"\n",["$","h4","h4-47",{"children":["$","strong","strong-0",{"children":"4. 插件优先级"}]}],"\n",["$","pre","pre-46",{"children":["$","code","code-0",{"className":"language-swift","children":"enum PluginPriority: Int {\n    case highest = 10    // 核心能力（RTC、麦位）\n    case high = 100      // UI容器内子插件\n    case normal = 1000   // UI容器插件\n    case low = 10000     // 独立UI插件\n    case lowest = 100000 // 不直接显示的插件\n}\n\nprotocol Plugin {\n    var priority: PluginPriority { get }\n}\n\nclass PluginManager {\n    func loadPlugins(context: PluginContext) {\n        // 按优先级排序\n        plugins.sort { $0.priority.rawValue < $1.priority.rawValue }\n\n        // 按优先级加载\n        for plugin in plugins {\n            plugin.onLoad(context: context)\n        }\n    }\n}\n"}]}],"\n",["$","h4","h4-48",{"children":["$","strong","strong-0",{"children":"5. 插件生命周期管理"}]}],"\n",["$","pre","pre-47",{"children":["$","code","code-0",{"className":"language-swift","children":"protocol PluginLifeCycle {\n    func pluginDidLoad()      // 插件加载完成\n    func pageDidLoad()         // 页面加载完成\n    func pageWillShow()        // 页面即将显示\n    func pageDidShow()         // 页面已经显示\n    func pageWillHide()        // 页面即将隐藏\n    func pageDidHide()         // 页面已经隐藏\n    func pageDestoried()       // 页面销毁\n}\n\nclass BasePlugin: PluginLifeCycle {\n    weak var context: PluginContext?\n\n    func pluginDidLoad() {\n        // 插件初始化\n        registServices()\n    }\n\n    func pageDidLoad() {\n        // 页面加载完成，设置UI\n        setupUI()\n    }\n\n    func pageWillShow() {\n        // 页面即将显示，刷新数据\n        refreshData()\n    }\n\n    func pageDidShow() {\n        // 页面已经显示，开始动画\n        startAnimation()\n    }\n\n    func pageWillHide() {\n        // 页面即将隐藏，暂停动画\n        pauseAnimation()\n    }\n\n    func pageDidHide() {\n        // 页面已经隐藏，停止刷新\n        stopRefresh()\n    }\n\n    func pageDestoried() {\n        // 页面销毁，清理资源\n        cleanup()\n    }\n}\n"}]}],"\n",["$","h3","h3-16",{"id":"35-插件化实战案例语音房","children":"3.5 插件化实战案例（语音房）"}],"\n",["$","pre","pre-48",{"children":["$","code","code-0",{"className":"language-swift","children":"// 语音房插件化架构\nclass AudioLivePluginManager {\n    static func createPlugins(for roomType: RoomType) -> [Plugin] {\n        var plugins: [Plugin] = []\n\n        // 核心插件（最高优先级）\n        plugins.append(RTCPlugin())\n        plugins.append(SeatPlugin())\n        plugins.append(MessagePlugin())\n\n        // 根据房型添加不同插件\n        switch roomType {\n        case .normal:\n            plugins.append(ChatPlugin())\n            plugins.append(GiftPlugin())\n\n        case .theme:\n            plugins.append(GamePlugin())\n            plugins.append(AnimationPlugin())\n\n        case .group:\n            plugins.append(GroupChatPlugin())\n            plugins.append(MultiSeatPlugin())\n        }\n\n        return plugins\n    }\n}\n\n// 使用\nlet plugins = AudioLivePluginManager.createPlugins(for: .theme)\nPluginManager.shared.loadPlugins(context: context)\n"}]}],"\n",["$","h3","h3-17",{"id":"36-插件化收益","children":"3.6 插件化收益"}],"\n",["$","div","div-8",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"收益"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"业务差异"}],["$","td","td-1",{"children":"支持多房型、多玩法组合"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"并行开发"}],["$","td","td-1",{"children":"不同插件可并行开发"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"可测试性"}],["$","td","td-1",{"children":"插件独立测试"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"动态扩展"}],["$","td","td-1",{"children":"运行时动态加载插件"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"故障隔离"}],["$","td","td-1",{"children":"单个插件崩溃不影响整体"}]]}]]}]]}]}],"\n",["$","hr","hr-15",{}],"\n",["$","h2","h2-3",{"id":"4-动态化架构设计与落地","children":"4. 动态化架构设计与落地"}],"\n",["$","h3","h3-18",{"id":"41-什么是动态化","children":"4.1 什么是动态化？"}],"\n",["$","p","p-27",{"children":[["$","strong","strong-0",{"children":"定义"}],"：App的部分功能通过",["$","strong","strong-1",{"children":"动态下发"}],"的方式实现，无需更新App。"]}],"\n",["$","p","p-28",{"children":[["$","strong","strong-0",{"children":"核心特征"}],"："]}],"\n",["$","ul","ul-11",{"children":["\n",["$","li","li-0",{"children":[["$","strong","strong-0",{"children":"动态下发"}],"：代码/配置从服务器下发"]}],"\n",["$","li","li-1",{"children":[["$","strong","strong-0",{"children":"热更新"}],"：无需发版即可更新功能"]}],"\n",["$","li","li-2",{"children":[["$","strong","strong-0",{"children":"灵活配置"}],"：通过配置控制功能开关"]}],"\n"]}],"\n",["$","h3","h3-19",{"id":"42-动态化技术方案","children":"4.2 动态化技术方案"}],"\n",["$","h4","h4-49",{"children":["$","strong","strong-0",{"children":"方案对比"}]}],"\n",["$","div","div-9",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"方案"}],["$","th","th-1",{"children":"技术栈"}],["$","th","th-2",{"children":"适用场景"}],["$","th","th-3",{"children":"复杂度"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"H5/小程序"}],["$","td","td-1",{"children":"WebView"}],["$","td","td-2",{"children":"运营活动页"}],["$","td","td-3",{"children":"⭐"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"React Native"}],["$","td","td-1",{"children":"React + Bridge"}],["$","td","td-2",{"children":"跨平台App"}],["$","td","td-3",{"children":"⭐⭐⭐"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"Flutter"}],["$","td","td-1",{"children":"Dart + Engine"}],["$","td","td-2",{"children":"跨平台App"}],["$","td","td-3",{"children":"⭐⭐⭐⭐"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"Lua/Wax"}],["$","td","td-1",{"children":"Lua脚本"}],["$","td","td-2",{"children":"游戏逻辑"}],["$","td","td-3",{"children":"⭐⭐⭐⭐"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"Flexbox/Yoga"}],["$","td","td-1",{"children":"布局引擎"}],["$","td","td-2",{"children":"动态UI"}],["$","td","td-3",{"children":"⭐⭐⭐"}]]}]]}]]}]}],"\n",["$","h3","h3-20",{"id":"43-动态化架构设计","children":"4.3 动态化架构设计"}],"\n",["$","h4","h4-50",{"children":["$","strong","strong-0",{"children":"分层架构"}]}],"\n",["$","pre","pre-49",{"children":["$","code","code-0",{"children":"┌─────────────────────────────────────────┐\n│         Native Layer (原生层)            │  ← 原生功能\n├─────────────────────────────────────────┤\n│      Dynamic Engine (动态引擎)           │\n│  ├─ JSBridge (JSBridge桥接)             │\n│  ├─ Layout Engine (布局引擎)            │\n│  └─ Render Engine (渲染引擎)            │\n├─────────────────────────────────────────┤\n│       Business Layer (业务层)           │\n│  ├─ H5 Page (H5页面)                    │\n│  ├─ React Native (RN页面)               │\n│  └─ Lua Script (Lua脚本)                │\n├─────────────────────────────────────────┤\n│      Config Layer (配置层)              │  ← 远程配置\n└─────────────────────────────────────────┘\n"}]}],"\n",["$","h3","h3-21",{"id":"44-动态化落地实践","children":"4.4 动态化落地实践"}],"\n",["$","h4","h4-51",{"children":["$","strong","strong-0",{"children":"1. H5动态化"}]}],"\n",["$","pre","pre-50",{"children":["$","code","code-0",{"className":"language-swift","children":"$19"}]}],"\n",["$","h4","h4-52",{"children":["$","strong","strong-0",{"children":"2. React Native动态化"}]}],"\n",["$","pre","pre-51",{"children":["$","code","code-0",{"className":"language-swift","children":"// 加载RN页面\nimport React\n\nclass RNViewController: UIViewController {\n    override func viewDidLoad() {\n        super.viewDidLoad()\n\n        // 创建RN视图\n        let rootView = RCTRootView(\n            bundleURL: URL(string: \"http://localhost:8081/index.bundle?platform=ios\")!,\n            moduleName: \"DynamicPage\",\n            initialProperties: [\"userId\": \"123456\"],\n            launchOptions: nil\n        )\n\n        view = rootView\n    }\n}\n"}]}],"\n",["$","h4","h4-53",{"children":["$","strong","strong-0",{"children":"3. 动态配置"}]}],"\n",["$","pre","pre-52",{"children":["$","code","code-0",{"className":"language-swift","children":"$1a"}]}],"\n",["$","h4","h4-54",{"children":["$","strong","strong-0",{"children":"4. 动态UI（Flexbox）"}]}],"\n",["$","pre","pre-53",{"children":["$","code","code-0",{"className":"language-swift","children":"$1b"}]}],"\n",["$","h3","h3-22",{"id":"45-动态化实战案例运营活动页","children":"4.5 动态化实战案例（运营活动页）"}],"\n",["$","pre","pre-54",{"children":["$","code","code-0",{"className":"language-swift","children":"$1c"}]}],"\n",["$","h3","h3-23",{"id":"46-动态化收益","children":"4.6 动态化收益"}],"\n",["$","div","div-10",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"维度"}],["$","th","th-1",{"children":"收益"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"发版效率"}],["$","td","td-1",{"children":"无需发版即可更新功能"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"A/B测试"}],["$","td","td-1",{"children":"快速验证不同方案"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"运营活动"}],["$","td","td-1",{"children":"快速上线运营活动"}]]}],["$","tr","tr-3",{"children":[["$","td","td-0",{"children":"Bug修复"}],["$","td","td-1",{"children":"关键Bug可热修复"}]]}],["$","tr","tr-4",{"children":[["$","td","td-0",{"children":"个性化"}],["$","td","td-1",{"children":"根据用户配置展示不同UI"}]]}]]}]]}]}],"\n",["$","hr","hr-16",{}],"\n",["$","h2","h2-4",{"id":"5-三种架构的选型决策","children":"5. 三种架构的选型决策"}],"\n",["$","h3","h3-24",{"id":"51-决策树","children":"5.1 决策树"}],"\n",["$","pre","pre-55",{"children":["$","code","code-0",{"children":"1. 你的问题是什么？\n\n   代码重复、跨业务复用？\n   → 组件化\n\n   业务差异大、需要运行时组合？\n   → 插件化\n\n   发版周期长、需要快速迭代？\n   → 动态化\n"}]}],"\n",["$","h3","h3-25",{"id":"52-组合使用","children":"5.2 组合使用"}],"\n",["$","pre","pre-56",{"children":["$","code","code-0",{"children":"组件化 + 插件化 + 动态化 的组合：\n\n┌─────────────────────────────────────────┐\n│         Main Application                │\n├─────────────────────────────────────────┤\n│       Plugin System (插件化)             │\n│  ├─ Plugin A (业务插件)                  │\n│  └─ Plugin B (功能插件)                  │\n├─────────────────────────────────────────┤\n│      Component System (组件化)           │\n│  ├─ User Component                      │\n│  └─ Payment Component                   │\n├─────────────────────────────────────────┤\n│      Dynamic System (动态化)             │\n│  ├─ H5 Page                             │\n│  └─ RN Page                             │\n└─────────────────────────────────────────┘\n"}]}],"\n",["$","h3","h3-26",{"id":"53-实战案例大型app","children":"5.3 实战案例（大型App）"}],"\n",["$","pre","pre-57",{"children":["$","code","code-0",{"className":"language-swift","children":"// 大型App的架构组合\nclass AppArchitecture {\n\n    // 1. 组件化：拆分基础组件\n    let userComponent = UserComponent()\n    let paymentComponent = PaymentComponent()\n\n    // 2. 插件化：业务模块插件化\n    let pluginManager = PluginManager()\n    pluginManager.register(plugin: HomePlugin())\n    pluginManager.register(plugin: MessagePlugin())\n\n    // 3. 动态化：运营活动动态化\n    let campaignManager = CampaignManager()\n\n    func initialize() {\n        // 初始化组件\n        userComponent.setup()\n        paymentComponent.setup()\n\n        // 加载插件\n        pluginManager.loadPlugins()\n\n        // 获取远程配置\n        RemoteConfigManager.shared.fetchConfig()\n    }\n}\n"}]}],"\n",["$","hr","hr-17",{}],"\n",["$","h2","h2-5",{"id":"6-总结与对比","children":"6. 总结与对比"}],"\n",["$","h3","h3-27",{"id":"61-核心区别总结","children":"6.1 核心区别总结"}],"\n",["$","div","div-11",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"架构"}],["$","th","th-1",{"children":"核心问题"}],["$","th","th-2",{"children":"解决方案"}],["$","th","th-3",{"children":"组合时机"}],["$","th","th-4",{"children":"适用场景"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"组件化"}],["$","td","td-1",{"children":"代码重复、耦合严重"}],["$","td","td-2",{"children":"拆分独立模块"}],["$","td","td-3",{"children":"编译期"}],["$","td","td-4",{"children":"跨业务复用"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"插件化"}],["$","td","td-1",{"children":"业务差异大"}],["$","td","td-2",{"children":"运行时动态组合"}],["$","td","td-3",{"children":"运行时"}],["$","td","td-4",{"children":"多房型/多玩法"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"动态化"}],["$","td","td-1",{"children":"发版周期长"}],["$","td","td-2",{"children":"动态下发代码"}],["$","td","td-3",{"children":"运行时"}],["$","td","td-4",{"children":"运营活动/快速迭代"}]]}]]}]]}]}],"\n",["$","h3","h3-28",{"id":"62-落地难度对比","children":"6.2 落地难度对比"}],"\n",["$","div","div-12",{"className":"table-scroll","children":["$","table","table-0",{"className":"md-table","children":[["$","thead","thead-0",{"children":["$","tr","tr-0",{"children":[["$","th","th-0",{"children":"架构"}],["$","th","th-1",{"children":"落地难度"}],["$","th","th-2",{"children":"学习曲线"}],["$","th","th-3",{"children":"维护成本"}],["$","th","th-4",{"children":"推荐指数"}]]}]}],["$","tbody","tbody-0",{"children":[["$","tr","tr-0",{"children":[["$","td","td-0",{"children":"组件化"}],["$","td","td-1",{"children":"⭐⭐"}],["$","td","td-2",{"children":"⭐⭐"}],["$","td","td-3",{"children":"⭐⭐"}],["$","td","td-4",{"children":"⭐⭐⭐⭐⭐"}]]}],["$","tr","tr-1",{"children":[["$","td","td-0",{"children":"插件化"}],["$","td","td-1",{"children":"⭐⭐⭐⭐"}],["$","td","td-2",{"children":"⭐⭐⭐⭐"}],["$","td","td-3",{"children":"⭐⭐⭐"}],["$","td","td-4",{"children":"⭐⭐⭐⭐"}]]}],["$","tr","tr-2",{"children":[["$","td","td-0",{"children":"动态化"}],["$","td","td-1",{"children":"⭐⭐⭐"}],["$","td","td-2",{"children":"⭐⭐⭐"}],["$","td","td-3",{"children":"⭐⭐⭐⭐"}],["$","td","td-4",{"children":"⭐⭐⭐⭐"}]]}]]}]]}]}],"\n",["$","h3","h3-29",{"id":"63-何时使用哪种架构","children":"6.3 何时使用哪种架构？"}],"\n",["$","pre","pre-58",{"children":["$","code","code-0",{"children":"使用组件化的时机：\n 多个App需要复用代码\n 团队规模扩大，需要并行开发\n 代码耦合严重，难以维护\n\n使用插件化的时机：\n 业务差异大，需要运行时组合\n 多房型、多玩法场景\n 需要快速扩展功能\n\n使用动态化的时机：\n 运营活动频繁\n 需要A/B测试\n 关键Bug需要热修复\n"}]}],"\n",["$","hr","hr-18",{}],"\n",["$","h2","h2-6",{"id":"7-参考资料","children":"7. 参考资料"}],"\n",["$","h3","h3-30",{"id":"优质文章","children":"优质文章"}],"\n",["$","ul","ul-12",{"children":["\n",["$","li","li-0",{"children":["$","a","a-0",{"href":"https://juejin.cn/post/6844903607589160968","children":"iOS组件化架构漫谈"}]}],"\n",["$","li","li-1",{"children":["$","a","a-0",{"href":"https://juejin.cn/post/6844903472984123399","children":"iOS插件化架构设计"}]}],"\n",["$","li","li-2",{"children":["$","a","a-0",{"href":"https://juejin.cn/post/6844903811820457992","children":"iOS动态化方案对比"}]}],"\n"]}],"\n",["$","h3","h3-31",{"id":"开源项目","children":"开源项目"}],"\n",["$","ul","ul-13",{"children":["\n",["$","li","li-0",{"children":["$","a","a-0",{"href":"https://github.com/gitklip/Bifrost","children":"Bifrost (iOS Plugin Framework)"}]}],"\n",["$","li","li-1",{"children":["$","a","a-0",{"href":"https://github.com/bang590/JSPatch","children":"JSPatch (Hotfix)"}]}],"\n",["$","li","li-2",{"children":["$","a","a-0",{"href":"https://github.com/aliyun/aliyun-oss-ios-sdk","children":"FlexLib (Dynamic UI)"}]}],"\n"]}],"\n",["$","hr","hr-19",{}],"\n",["$","p","p-29",{"children":[["$","strong","strong-0",{"children":"最后更新"}],"：2026-09-23\n",["$","strong","strong-1",{"children":"状态"}],"： 已完善（补充组件化学习顺序与 Swift Protocol-Service 注册 / 注入细节）"]}],"\n",["$","p","p-30",{"children":[["$","strong","strong-0",{"children":"Sources"}],":"]}],"\n",["$","ul","ul-14",{"children":["\n",["$","li","li-0",{"children":"语音房重构实战经验"}],"\n",["$","li","li-1",{"children":"iOS架构设计最佳实践"}],"\n",["$","li","li-2",{"children":"大厂架构演进案例分析"}],"\n"]}]]}],["$","footer",null,{"className":"article-pager","children":[["$","div",null,{"className":"pager-item","children":["$","$L12",null,{"href":"/posts/ios-network-layers-and-protocols-guide","children":[["$","span",null,{"className":"pager-hint","children":"上一篇"}],["$","span",null,{"className":"pager-title","children":"计算机网络分层与 TCP、TLS、HTTP/2、HTTP/3 协议总结"}]]}]}],["$","div",null,{"className":"pager-item right","children":["$","$L12",null,{"href":"/posts/ios-client-architecture-complete-guide","children":[["$","span",null,{"className":"pager-hint","children":"下一篇"}],["$","span",null,{"className":"pager-title","children":"iOS 客户端常见架构模式对比：MVC、MVVM、VIPER 与 Clean Architecture"}]]}]}]]}]]}],["$","aside",null,{"className":"article-toc","children":["$","div",null,{"className":"toc-sticky","children":[["$","div",null,{"className":"toc-heading","children":"本文目录"}],["$","ul",null,{"className":"toc-list","children":[["$","li","1-三种架构的核心区别-0",{"className":"toc-level-2","children":["$","a",null,{"href":"#1-三种架构的核心区别","children":"1. 三种架构的核心区别"}]}],["$","li","11-核心概念对比-1",{"className":"toc-level-3","children":["$","a",null,{"href":"#11-核心概念对比","children":"1.1 核心概念对比"}]}],["$","li","12-形象类比-2",{"className":"toc-level-3","children":["$","a",null,{"href":"#12-形象类比","children":"1.2 形象类比"}]}],["$","li","2-组件化架构设计与落地-3",{"className":"toc-level-2","children":["$","a",null,{"href":"#2-组件化架构设计与落地","children":"2. 组件化架构设计与落地"}]}],["$","li","21-什么是组件化-4",{"className":"toc-level-3","children":["$","a",null,{"href":"#21-什么是组件化","children":"2.1 什么是组件化？"}]}],["$","li","22-组件化演进历史为什么会有3种方案-5",{"className":"toc-level-3","children":["$","a",null,{"href":"#22-组件化演进历史为什么会有3种方案","children":"2.2 组件化演进历史（为什么会有3种方案？）"}]}],["$","li","23-方案对比总览-6",{"className":"toc-level-3","children":["$","a",null,{"href":"#23-方案对比总览","children":"2.3 方案对比总览"}]}],["$","li","24-方案一url-routerurl路由方案-7",{"className":"toc-level-3","children":["$","a",null,{"href":"#24-方案一url-routerurl路由方案","children":"2.4 方案一：URL Router（URL路由方案）"}]}],["$","li","25-方案二target-action目标-动作模式-8",{"className":"toc-level-3","children":["$","a",null,{"href":"#25-方案二target-action目标-动作模式","children":"2.5 方案二：Target-Action（目标-动作模式）"}]}],["$","li","26-方案三protocol-service协议-服务方案-9",{"className":"toc-level-3","children":["$","a",null,{"href":"#26-方案三protocol-service协议-服务方案","children":"2.6 方案三：Protocol-Service（协议-服务方案）"}]}],["$","li","27-三种方案对比总结-10",{"className":"toc-level-3","children":["$","a",null,{"href":"#27-三种方案对比总结","children":"2.7 三种方案对比总结"}]}],["$","li","23-组件化落地实践-11",{"className":"toc-level-3","children":["$","a",null,{"href":"#23-组件化落地实践","children":"2.3 组件化落地实践"}]}],["$","li","27-组件化面试高频问题-12",{"className":"toc-level-3","children":["$","a",null,{"href":"#27-组件化面试高频问题","children":"2.7 组件化面试高频问题"}]}],["$","li","28-组件化最佳实践-13",{"className":"toc-level-3","children":["$","a",null,{"href":"#28-组件化最佳实践","children":"2.8 组件化最佳实践"}]}],["$","li","3-插件化架构设计与落地-14",{"className":"toc-level-2","children":["$","a",null,{"href":"#3-插件化架构设计与落地","children":"3. 插件化架构设计与落地"}]}],["$","li","31-什么是插件化-15",{"className":"toc-level-3","children":["$","a",null,{"href":"#31-什么是插件化","children":"3.1 什么是插件化？"}]}],["$","li","32-插件化-vs-组件化-16",{"className":"toc-level-3","children":["$","a",null,{"href":"#32-插件化-vs-组件化","children":"3.2 插件化 vs 组件化"}]}],["$","li","33-插件化架构设计-17",{"className":"toc-level-3","children":["$","a",null,{"href":"#33-插件化架构设计","children":"3.3 插件化架构设计"}]}],["$","li","34-插件化落地实践-18",{"className":"toc-level-3","children":["$","a",null,{"href":"#34-插件化落地实践","children":"3.4 插件化落地实践"}]}],["$","li","35-插件化实战案例语音房-19",{"className":"toc-level-3","children":["$","a",null,{"href":"#35-插件化实战案例语音房","children":"3.5 插件化实战案例（语音房）"}]}],["$","li","36-插件化收益-20",{"className":"toc-level-3","children":["$","a",null,{"href":"#36-插件化收益","children":"3.6 插件化收益"}]}],["$","li","4-动态化架构设计与落地-21",{"className":"toc-level-2","children":["$","a",null,{"href":"#4-动态化架构设计与落地","children":"4. 动态化架构设计与落地"}]}],["$","li","41-什么是动态化-22",{"className":"toc-level-3","children":["$","a",null,{"href":"#41-什么是动态化","children":"4.1 什么是动态化？"}]}],["$","li","42-动态化技术方案-23",{"className":"toc-level-3","children":["$","a",null,{"href":"#42-动态化技术方案","children":"4.2 动态化技术方案"}]}],["$","li","43-动态化架构设计-24",{"className":"toc-level-3","children":["$","a",null,{"href":"#43-动态化架构设计","children":"4.3 动态化架构设计"}]}],["$","li","44-动态化落地实践-25",{"className":"toc-level-3","children":["$","a",null,{"href":"#44-动态化落地实践","children":"4.4 动态化落地实践"}]}],["$","li","45-动态化实战案例运营活动页-26",{"className":"toc-level-3","children":["$","a",null,{"href":"#45-动态化实战案例运营活动页","children":"4.5 动态化实战案例（运营活动页）"}]}],["$","li","46-动态化收益-27",{"className":"toc-level-3","children":["$","a",null,{"href":"#46-动态化收益","children":"4.6 动态化收益"}]}],["$","li","5-三种架构的选型决策-28",{"className":"toc-level-2","children":["$","a",null,{"href":"#5-三种架构的选型决策","children":"5. 三种架构的选型决策"}]}],["$","li","51-决策树-29",{"className":"toc-level-3","children":["$","a",null,{"href":"#51-决策树","children":"5.1 决策树"}]}],["$","li","52-组合使用-30",{"className":"toc-level-3","children":["$","a",null,{"href":"#52-组合使用","children":"5.2 组合使用"}]}],["$","li","53-实战案例大型app-31",{"className":"toc-level-3","children":["$","a",null,{"href":"#53-实战案例大型app","children":"5.3 实战案例（大型App）"}]}],["$","li","6-总结与对比-32",{"className":"toc-level-2","children":["$","a",null,{"href":"#6-总结与对比","children":"6. 总结与对比"}]}],["$","li","61-核心区别总结-33",{"className":"toc-level-3","children":["$","a",null,{"href":"#61-核心区别总结","children":"6.1 核心区别总结"}]}],["$","li","62-落地难度对比-34",{"className":"toc-level-3","children":["$","a",null,{"href":"#62-落地难度对比","children":"6.2 落地难度对比"}]}],["$","li","63-何时使用哪种架构-35",{"className":"toc-level-3","children":["$","a",null,{"href":"#63-何时使用哪种架构","children":"6.3 何时使用哪种架构？"}]}],["$","li","7-参考资料-36",{"className":"toc-level-2","children":["$","a",null,{"href":"#7-参考资料","children":"7. 参考资料"}]}],["$","li","优质文章-37",{"className":"toc-level-3","children":["$","a",null,{"href":"#优质文章","children":"优质文章"}]}],["$","li","开源项目-38",{"className":"toc-level-3","children":["$","a",null,{"href":"#开源项目","children":"开源项目"}]}]]}]]}]}]]}],["$","footer",null,{"className":"site-footer","children":["$","span",null,{"children":"© 2022–2026 FengCaifan"}]}]]}]
+7:null
+b:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
+6:null
+9:{"metadata":[["$","title","0",{"children":"Caifan's Notes"}],["$","meta","1",{"name":"description","content":"个人开发与学习笔记"}],["$","link","2",{"rel":"icon","href":"/fcfblog/favicon.ico","type":"image/x-icon","sizes":"16x16"}]],"error":null,"digest":"$undefined"}
+11:{"metadata":"$9:metadata","error":null,"digest":"$undefined"}

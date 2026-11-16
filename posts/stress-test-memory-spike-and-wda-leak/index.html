@@ -1,0 +1,159 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">Monkey 压测内存持续上涨排查记录</h1><div class="article-meta"><time>2024-06-09</time><span class="meta-sep">·</span><span>性能优化与排查</span><span class="meta-sep">·</span><span class="article-tags">内存优化 / Instruments / 自动化测试</span></div></header><div class="markdown-body"><h2 id="主要问题">主要问题</h2>
+<ul>
+<li>
+<p><strong>Feed列表狂刷，导致crash；</strong></p>
+<ul>
+<li>debug可以复现 crash</li>
+</ul>
+</li>
+<li>
+<p><strong>语音房持续发礼物内存异常，导致crash；</strong></p>
+<ul>
+<li>debug无法复现</li>
+</ul>
+</li>
+<li>
+<p><strong>语音房退出房间后，内存没有明显下降；</strong></p>
+<ul>
+<li>debug可以复现</li>
+</ul>
+</li>
+</ul>
+<h2 id="object-object"><strong>排查方案及优化的Case：</strong></h2>
+<h3 id="object-object"><strong>1、Feed列表狂刷，导致crash；</strong></h3>
+<h4><strong>已处理的Case:</strong></h4>
+<ul>
+<li>~~<strong>将Feed中Cell的图片控件都使用缩略图，包括广告Cell。</strong>~~~~【Fix】~~</li>
+<li>~~<strong>将SDWebImage的图片缓存设置阈值缩小</strong>~~~~（imageCache）。~~~~【Fix】~~</li>
+</ul>
+<pre><code>线上：高端机型，从300MB ——&gt; 200MB；低端机型，从200MB ——&gt; 150MB；
+低端机型：【iPhone8_4,iPhone8_2,iPhone8_1,iPhone9_1,iPhone9_2,iPhone10_1,iPhone10_2,iPhone10_3,iPhone10_5,iPhone10_4,iPhone10_6,iPhone11_8,iPhone12_8】
+线下：统一从300MB ——&gt; 200MB；
+</code></pre>
+<ul>
+<li>~~<strong>收到内存警告时，SDWebImage清理缓存</strong>~~~~。~~~~【Fix】~~</li>
+</ul>
+<h4>**验证及效果：**<strong>有效</strong></h4>
+<ul>
+<li>线下：Monkey包运行了2个多小时没有crash。</li>
+<li>线上：<strong>线上crash降了很多，估计是因FOOM的crash降低了</strong>。</li>
+</ul>
+<h2 id="2语音房内存异常导致crash">2、语音房内存异常，导致crash</h2>
+<h4><strong>排查方案及处理了的Case：</strong></h4>
+<h5>阶段1</h5>
+<ul>
+<li>
+<p><strong>1、使用XCode工具，查找内存泄露问题</strong>：</p>
+<ul>
+<li>
+<p>使用debug memory graph，排查内存泄露。</p>
+<ul>
+<li>只查到声网SDK，没有释放；<!-- -->
+<ul>
+<li>后续跟声网对接。<strong>声网说是一个单例，不会释放。但是应该只有几十KB，不会很大</strong>。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>使用Instrument，查看发礼物消息过程中的内存走势：</p>
+<ul>
+<li>
+<p>~~bug1：查到进入房间，内存异常：原因：【老的下载代码对兼容MP4有问题，导致每次都会重新下载】~~</p>
+<ul>
+<li>~~代码已修复，不会出现一进来的峰值问题。~~~~【Fix】~~</li>
+</ul>
+</li>
+<li>
+<p>~~排查到日志库里，生成的DateFormater太多，可优化：~~~~【Done，没问题】~~</p>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>2、Monkey脚本单独跑收礼端、收消息端、发消息、发单击礼物、发连击礼物。</strong></p>
+<ul>
+<li>目前唯有：【拉起礼物面板 ——&gt; 发连击礼物  ——&gt; 点击屏幕取消连击  ——&gt; 消息发出去】，这条路径有问题。</li>
+</ul>
+</li>
+<li>
+<p><strong>3、写测试代码，走与Monkey包一摸一样的路径（定时器调用相关流程对应函数），查看内存走势：</strong></p>
+<ul>
+<li>跑了大于1小时，内存没有问题，走势非常稳定。</li>
+<li><strong>排查脚本本身是否存在问题</strong></li>
+<li>~~monkey包全日志分析~~~~【Done，没问题】~~</li>
+</ul>
+</li>
+<li>
+<p>~~<strong>4、语音房内存缓存也在收到警告后进行清理：</strong>~~~~【Fix】~~</p>
+</li>
+<li>
+<p>~~<strong>5、check送礼流程代码</strong>~~~~【Done，没问题】~~</p>
+</li>
+</ul>
+<h5>阶段2</h5>
+<ul>
+<li>
+<p><strong>6</strong>、~~<strong>本地安装脚本运行环境，尝试一边XCode debug，一边脚本运行点击等测试事件。</strong>~~~~<strong>【Done】</strong>~~</p>
+<ul>
+<li>因为WDA依赖目标项目，所以每次运行脚本都会导致target项目重启。所以这方案暂时行不通。</li>
+</ul>
+</li>
+<li>
+<p><strong>7</strong>、<strong>排查到WDA本身存在内存泄露，而且会影响target项目的内存</strong>。</p>
+<ul>
+<li>WDA本身内存有问题：<a href="https://github.com/facebookarchive/WebDriverAgent/issues/178">https://github.com/facebookarchive/WebDriverAgent/issues/178</a></li>
+<li>可能是因为它底层使用的XCText是与target项目进行绑定的，所以会导致WDA本身的内存问题影响到target项目。</li>
+<li>QA已确认使用其他测试框架进行重新测试。【TODO】</li>
+</ul>
+</li>
+</ul>
+<h2 id="3语音房退出后内存未完全释放">3、语音房退出后，内存未完全释放</h2>
+<h3 id="object-object"><strong>排查方案及处理了的Case：</strong></h3>
+<ul>
+<li>
+<p>~~使用工具排查内存泄露，确保所有自有类有执行deinit方法。~~~~【Done，没问题】~~</p>
+<ul>
+<li>~~目前已确认不存在未释放的自有类和组件。都执行了deinit方法。~~</li>
+</ul>
+</li>
+<li>
+<p>查看缓存问题，尤其是图片</p>
+<ul>
+<li>目前排查到语音房图片背景很大，有10MB+，如果直接不加载这图片，则语音房内存不会那么高。【TODO】</li>
+<li>后续排查其他缓存和单例情况。【TODO】</li>
+</ul>
+</li>
+</ul>
+<h2 id="当前结论">当前结论</h2>
+<ul>
+<li><strong>Feed列表狂刷 和 语音房持续发礼物， 内存异常上涨，最终导致crash。是由WDA本身内存泄露导致的。后续QA切换测试方案后，再持续跟进。</strong></li>
+<li>语音房内存未完全释放，持续排除中。</li>
+</ul>
+<h4>顺带修复的内存Case</h4>
+<ul>
+<li>
+<p>Feed内存：</p>
+<ul>
+<li>将Feed中Cell的图片控件都使用缩略图，包括广告Cell。【Fix】</li>
+<li>将SDWebImage的图片缓存设置阈值缩小（imageCache）。【Fix】</li>
+<li>收到内存警告时，SDWebImage清理缓存。【Fix】</li>
+</ul>
+</li>
+<li>
+<p>语音房内存：</p>
+<ul>
+<li>进入房间，内存异常（下载）【Fix】</li>
+<li>语音房内存缓存也在收到警告后进行清理**：**【Fix】</li>
+<li>声网SDK 【排除，暂不修复】</li>
+<li>排查到日志库里，生成的DateFormater太多，可优化；【Fix】</li>
+</ul>
+</li>
+<li>
+<p>退出语音房后，内存未完全降下来：</p>
+<ul>
+<li>自由类内存泄露，都执行了deinit方法。【排除】</li>
+</ul>
+</li>
+</ul></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/swift-advanced-programming-notes/"><span class="pager-hint">上一篇</span><span class="pager-title">Swift 进阶学习笔记：值类型、协议扩展与闭包</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/json-model-logging-frozen-frames-optimization/"><span class="pager-hint">下一篇</span><span class="pager-title">字典转模型阶段同步打印日志导致页面卡顿的排查</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#主要问题">主要问题</a></li><li class="toc-level-2"><a href="#排查方案及优化的case">排查方案及优化的Case：</a></li><li class="toc-level-3"><a href="#1feed列表狂刷导致crash">1、Feed列表狂刷，导致crash；</a></li><li class="toc-level-2"><a href="#2语音房内存异常导致crash">2、语音房内存异常，导致crash</a></li><li class="toc-level-2"><a href="#3语音房退出后内存未完全释放">3、语音房退出后，内存未完全释放</a></li><li class="toc-level-3"><a href="#排查方案及处理了的case">排查方案及处理了的Case：</a></li><li class="toc-level-2"><a href="#当前结论">当前结论</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"stress-test-memory-spike-and-wda-leak\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"stress-test-memory-spike-and-wda-leak\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"stress-test-memory-spike-and-wda-leak\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"d8FxoiSe36g5EJEogJ4shv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"Monkey 压测内存持续上涨排查记录\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2024-06-09\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"性能优化与排查\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"内存优化 / Instruments / 自动化测试\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"h2\",\"h2-0\",{\"id\":\"主要问题\",\"children\":\"主要问题\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Feed列表狂刷，导致crash；\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"debug可以复现 crash\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"语音房持续发礼物内存异常，导致crash；\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"debug无法复现\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"语音房退出房间后，内存没有明显下降；\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"debug可以复现\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"object-object\",\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"排查方案及优化的Case：\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"object-object\",\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"1、Feed列表狂刷，导致crash；\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"已处理的Case:\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"~~\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"将Feed中Cell的图片控件都使用缩略图，包括广告Cell。\"}],\"~~~~【Fix】~~\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"~~\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"将SDWebImage的图片缓存设置阈值缩小\"}],\"~~~~（imageCache）。~~~~【Fix】~~\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"线上：高端机型，从300MB ——\u003e 200MB；低端机型，从200MB ——\u003e 150MB；\\n低端机型：【iPhone8_4,iPhone8_2,iPhone8_1,iPhone9_1,iPhone9_2,iPhone10_1,iPhone10_2,iPhone10_3,iPhone10_5,iPhone10_4,iPhone10_6,iPhone11_8,iPhone12_8】\\n线下：统一从300MB ——\u003e 200MB；\\n\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"~~\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"收到内存警告时，SDWebImage清理缓存\"}],\"~~~~。~~~~【Fix】~~\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h4\",\"h4-1\",{\"children\":[\"**验证及效果：**\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"有效\"}]]}],\"\\n\",[\"$\",\"ul\",\"ul-3\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"线下：Monkey包运行了2个多小时没有crash。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"线上：\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"线上crash降了很多，估计是因FOOM的crash降低了\"}],\"。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"2语音房内存异常导致crash\",\"children\":\"2、语音房内存异常，导致crash\"}],\"\\n\",[\"$\",\"h4\",\"h4-2\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"排查方案及处理了的Case：\"}]}],\"\\n\",[\"$\",\"h5\",\"h5-0\",{\"children\":\"阶段1\"}],\"\\n\",[\"$\",\"ul\",\"ul-4\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"1、使用XCode工具，查找内存泄露问题\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"使用debug memory graph，排查内存泄露。\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"只查到声网SDK，没有释放；\",\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"后续跟声网对接。\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"声网说是一个单例，不会释放。但是应该只有几十KB，不会很大\"}],\"。\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"使用Instrument，查看发礼物消息过程中的内存走势：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"~~bug1：查到进入房间，内存异常：原因：【老的下载代码对兼容MP4有问题，导致每次都会重新下载】~~\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"~~代码已修复，不会出现一进来的峰值问题。~~~~【Fix】~~\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"~~排查到日志库里，生成的DateFormater太多，可优化：~~~~【Done，没问题】~~\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"2、Monkey脚本单独跑收礼端、收消息端、发消息、发单击礼物、发连击礼物。\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"目前唯有：【拉起礼物面板 ——\u003e 发连击礼物  ——\u003e 点击屏幕取消连击  ——\u003e 消息发出去】，这条路径有问题。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"3、写测试代码，走与Monkey包一摸一样的路径（定时器调用相关流程对应函数），查看内存走势：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"跑了大于1小时，内存没有问题，走势非常稳定。\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"排查脚本本身是否存在问题\"}]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"~~monkey包全日志分析~~~~【Done，没问题】~~\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"~~\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"4、语音房内存缓存也在收到警告后进行清理：\"}],\"~~~~【Fix】~~\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"~~\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"5、check送礼流程代码\"}],\"~~~~【Done，没问题】~~\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h5\",\"h5-1\",{\"children\":\"阶段2\"}],\"\\n\",[\"$\",\"ul\",\"ul-5\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"6\"}],\"、~~\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"本地安装脚本运行环境，尝试一边XCode debug，一边脚本运行点击等测试事件。\"}],\"~~~~\",[\"$\",\"strong\",\"strong-2\",{\"children\":\"【Done】\"}],\"~~\"]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"因为WDA依赖目标项目，所以每次运行脚本都会导致target项目重启。所以这方案暂时行不通。\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"7\"}],\"、\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"排查到WDA本身存在内存泄露，而且会影响target项目的内存\"}],\"。\"]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"WDA本身内存有问题：\",[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/facebookarchive/WebDriverAgent/issues/178\",\"children\":\"https://github.com/facebookarchive/WebDriverAgent/issues/178\"}]]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"可能是因为它底层使用的XCText是与target项目进行绑定的，所以会导致WDA本身的内存问题影响到target项目。\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"QA已确认使用其他测试框架进行重新测试。【TODO】\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"3语音房退出后内存未完全释放\",\"children\":\"3、语音房退出后，内存未完全释放\"}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"object-object\",\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"排查方案及处理了的Case：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-6\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"~~使用工具排查内存泄露，确保所有自有类有执行deinit方法。~~~~【Done，没问题】~~\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"~~目前已确认不存在未释放的自有类和组件。都执行了deinit方法。~~\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"查看缓存问题，尤其是图片\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"目前排查到语音房图片背景很大，有10MB+，如果直接不加载这图片，则语音房内存不会那么高。【TODO】\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"后续排查其他缓存和单例情况。【TODO】\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h2\",\"h2-4\",{\"id\":\"当前结论\",\"children\":\"当前结论\"}],\"\\n\",[\"$\",\"ul\",\"ul-7\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Feed列表狂刷 和 语音房持续发礼物， 内存异常上涨，最终导致crash。是由WDA本身内存泄露导致的。后续QA切换测试方案后，再持续跟进。\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"语音房内存未完全释放，持续排除中。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"h4\",\"h4-3\",{\"children\":\"顺带修复的内存Case\"}],\"\\n\",[\"$\",\"ul\",\"ul-8\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"Feed内存：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"将Feed中Cell的图片控件都使用缩略图，包括广告Cell。【Fix】\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"将SDWebImage的图片缓存设置阈值缩小（imageCache）。【Fix】\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"收到内存警告时，SDWebImage清理缓存。【Fix】\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"语音房内存：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"进入房间，内存异常（下载）【Fix】\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"语音房内存缓存也在收到警告后进行清理**：**【Fix】\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"声网SDK 【排除，暂不修复】\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"排查到日志库里，生成的DateFormater太多，可优化；【Fix】\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"退出语音房后，内存未完全降下来：\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"自由类内存泄露，都执行了deinit方法。【排除】\"}],\"\\n\"]}],\"\\n\"]}],\"\\n\"]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/swift-advanced-programming-notes\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Swift 进阶学习笔记：值类型、协议扩展与闭包\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/json-model-logging-frozen-frames-optimization\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"字典转模型阶段同步打印日志导致页面卡顿的排查\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"主要问题-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#主要问题\",\"children\":\"主要问题\"}]}],[\"$\",\"li\",\"排查方案及优化的case-1\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#排查方案及优化的case\",\"children\":\"排查方案及优化的Case：\"}]}],[\"$\",\"li\",\"1feed列表狂刷导致crash-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#1feed列表狂刷导致crash\",\"children\":\"1、Feed列表狂刷，导致crash；\"}]}],[\"$\",\"li\",\"2语音房内存异常导致crash-3\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#2语音房内存异常导致crash\",\"children\":\"2、语音房内存异常，导致crash\"}]}],[\"$\",\"li\",\"3语音房退出后内存未完全释放-4\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#3语音房退出后内存未完全释放\",\"children\":\"3、语音房退出后，内存未完全释放\"}]}],[\"$\",\"li\",\"排查方案及处理了的case-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#排查方案及处理了的case\",\"children\":\"排查方案及处理了的Case：\"}]}],[\"$\",\"li\",\"当前结论-6\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#当前结论\",\"children\":\"当前结论\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

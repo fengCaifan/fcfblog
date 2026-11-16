@@ -1,0 +1,663 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">iOS 列表与渲染卡顿治理：预排版、异步绘制与公屏流控</h1><div class="article-meta"><time>2026-04-22</time><span class="meta-sep">·</span><span>性能优化与排查</span><span class="meta-sep">·</span><span class="article-tags">卡顿优化 / 异步绘制 / 列表优化</span></div></header><div class="markdown-body"><p>卡顿本质是主线程无法在帧预算内完成工作；监控主线程+drops+布局耗时，再用工具和架构手段拆解热点。</p>
+<hr/>
+<h2 id="2-卡顿优化">2. 卡顿优化</h2>
+<h3 id="21-卡顿原理">2.1 卡顿原理</h3>
+<p><strong>屏幕刷新机制</strong>：</p>
+<pre><code>iOS 设备刷新率：
+- 60Hz：iPhone 8 及以前，16.67ms/帧
+- 120Hz：iPhone 13 Pro 及以后，8.33ms/帧
+
+VSync（垂直同步信号）：
+- 每 16.67ms（60Hz）或 8.33ms（120Hz）触发一次
+- 系统在此时间点完成屏幕渲染
+</code></pre>
+<p><strong>卡顿定义</strong>：</p>
+<pre><code>主线程在一个 VSync 周期内（16.67ms）未能完成渲染工作
+→ 错过 VSync 信号
+→ 掉帧
+→ 连续掉帧 → 用户感知卡顿
+</code></pre>
+<p><strong>渲染流水线</strong>：</p>
+<pre><code>Layout（计算布局）→ Display（绘制）→ Prepare（图片解码）→ Commit（提交）
+</code></pre>
+<h3 id="22-卡顿监控">2.2 卡顿监控</h3>
+<p><strong>方案一：RunLoop Observer</strong></p>
+<pre><code class="language-objective-c">static CGFloat kFPS = 60;
+static CGFloat kDuration = 0;
+
+// 监控 RunLoop 状态切换耗时
+- (void)setupRunLoopMonitoring {
+    CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(
+        CFAllocatorGetDefault(),
+        kCFRunLoopAllActivities,
+        YES,
+        0,
+        ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
+            if (activity == kCFRunLoopBeforeSources ||
+                activity == kCFRunLoopAfterWaiting) {
+
+                CFRunLoopActivity currentActivity = activity;
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    // 记录开始时间
+                    CFDateRef startDate = CFDateCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent());
+
+                    // 等待状态切换
+                    while (currentActivity == activity) {
+                        [NSThread sleepForTimeInterval:0.001];
+                    }
+
+                    // 计算耗时
+                    CFDateRef endDate = CFDateCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent());
+                    CFTimeInterval duration = CFDateGetTimeIntervalSinceDate(endDate, startDate);
+
+                    if (duration &gt; 1.0 / kFPS - 0.01) {
+                        // 卡顿发生，记录堆栈
+                        [self recordStackTrace];
+                    }
+                });
+            }
+        }
+    );
+
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+    CFRelease(observer);
+}
+</code></pre>
+<p><strong>方案二：CADisplayLink 帧率检测</strong></p>
+<pre><code class="language-swift">class FPSMonitor {
+    private var displayLink: CADisplayLink?
+    private var lastTimestamp: CFTimeInterval = 0
+    private var frameCount: Int = 0
+
+    func startMonitoring() {
+        displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFired))
+        displayLink?.add(to: .main, forMode: .common)
+        lastTimestamp = CACurrentMediaTime()
+    }
+
+    @objc private func displayLinkFired() {
+        frameCount += 1
+        let currentTimestamp = CACurrentMediaTime()
+        let duration = currentTimestamp - lastTimestamp
+
+        if duration &gt;= 1.0 {
+            let fps = Double(frameCount) / duration
+            print(&quot;FPS: \(fps)&quot;)
+
+            if fps &lt; 50 {
+                print(&quot; 检测到卡顿！FPS: \(fps)&quot;)
+            }
+
+            frameCount = 0
+            lastTimestamp = currentTimestamp
+        }
+    }
+}
+</code></pre>
+<p><strong>方案三：子线程 Ping 主线程（微信 Matrix）</strong></p>
+<pre><code class="language-objective-c">// 子线程定期 ping 主线程
+- (void)startMainThreadPing {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        while (YES) {
+            dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_semaphore_signal(semaphore);
+            });
+
+            // 等待主线程响应
+            dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC);
+            if (dispatch_semaphore_wait(semaphore, timeout) != 0) {
+                // 主线程超时未响应，记录堆栈
+                [self recordMainThreadStack];
+            }
+
+            [NSThread sleepForTimeInterval:0.01];
+        }
+    });
+}
+
+// 记录主线程堆栈
+- (void)recordMainThreadStack {
+    thread_t thread = pthread_main_thread_np();
+    uintptr_t buffer[128];
+    int count = thread_get_stack_frames(thread, buffer, sizeof(buffer) / sizeof(uintptr_t));
+
+    for (int i = 0; i &lt; count; i++) {
+        printf(&quot;%p\n&quot;, (void *)buffer[i]);
+    }
+}
+</code></pre>
+<h3 id="23-卡顿原因与优化">2.3 卡顿原因与优化</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>卡顿原因</th><th>检测方法</th><th>优化手段</th></tr></thead><tbody><tr><td>主线程耗时计算</td><td>Time Profiler</td><td>移到子线程、异步处理</td></tr><tr><td>大量对象创建</td><td>Allocations</td><td>对象池、懒加载</td></tr><tr><td>AutoLayout 约束过多</td><td>Time Profiler</td><td>减少约束、AsyncDisplayKit</td></tr><tr><td>离屏渲染</td><td>Core Animation Instruments</td><td>圆角裁剪、阴影优化</td></tr><tr><td>主线程 I/O</td><td>System Trace</td><td>移到子线程</td></tr><tr><td>图片解码</td><td>Time Profiler</td><td>预解码、降采样</td></tr><tr><td>锁竞争</td><td>Time Profiler</td><td>无锁数据结构、减少锁</td></tr></tbody></table></div>
+<p><strong>离屏渲染优化</strong>：</p>
+<pre><code class="language-swift">//  触发离屏渲染
+imageView.layer.cornerRadius = 10
+imageView.layer.masksToBounds = true
+imageView.layer.shadowColor = UIColor.black.cgColor
+imageView.layer.shadowOpacity = 0.5
+
+//  优化圆角
+imageView.layer.cornerRadius = 10
+imageView.layer.masksToBounds = true
+// 设置 layer.shouldRasterize = true 缓存渲染结果
+imageView.layer.shouldRasterize = true
+imageView.layer.rasterizationScale = UIScreen.main.scale
+
+//  优化阴影
+imageView.layer.shadowColor = UIColor.black.cgColor
+imageView.layer.shadowOpacity = 0.5
+imageView.layer.shadowOffset = CGSize(width: 0, height: 2)
+imageView.layer.shadowRadius = 4
+// 使用 shadowPath 而不是 layer 的边界
+imageView.layer.shadowPath = UIBezierPath(rect: imageView.bounds).cgPath
+</code></pre>
+<p><strong>图片解码优化</strong>：</p>
+<pre><code class="language-swift">//  主线程解码
+let image = UIImage(named: &quot;large.jpg&quot;) // 在主线程解码
+imageView.image = image
+
+//  预解码到子线程
+DispatchQueue.global(qos: .userInitiated).async {
+    let image = UIImage(named: &quot;large.jpg&quot;)
+    // 强制解码
+    let cgImage = image?.cgImage
+    let decodedImage = UIImage(cgImage: cgImage!, scale: image!.scale, orientation: image!.imageOrientation)
+
+    DispatchQueue.main.async {
+        imageView.image = decodedImage
+    }
+}
+</code></pre>
+<hr/>
+<h2 id="3-内存优化">3. 内存优化</h2>
+<h3 id="31-内存分类">3.1 内存分类</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>类型</th><th>说明</th><th>示例</th><th>可回收</th></tr></thead><tbody><tr><td>Clean Memory</td><td>可从磁盘重新加载</td><td>代码段、只读数据</td><td>是</td></tr><tr><td>Dirty Memory</td><td>已修改，无法回收</td><td>堆对象、图片缓存</td><td>否</td></tr><tr><td>Compressed Memory</td><td>系统压缩的 dirty pages</td><td>不活跃的 dirty pages</td><td>是（解压后）</td></tr></tbody></table></div>
+<h3 id="32-oom-与-jetsam">3.2 OOM 与 Jetsam</h3>
+<p><strong>Jetsam 机制</strong>：</p>
+<pre><code>内存压力 → memorystatus_monitor → 按优先级杀进程
+优先级（从高到低）：
+1. 前台 App
+2. Audio App
+3. 后台 App - Recent
+4. 后台 App - Long-term
+5. 后台 App - Suspended
+</code></pre>
+<p><strong>监控 OOM</strong>：</p>
+<pre><code class="language-swift">func checkMemoryPressure() {
+    var stats = vm_statistics64()
+    var count = mach_msg_type_number_t(MemoryLayout&lt;vm_statistics64&gt;.size / MemoryLayout&lt;integer_t&gt;.size)
+
+    let result = withUnsafeMutablePointer(to: &amp;stats) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &amp;count)
+        }
+    }
+
+    if result == KERN_SUCCESS {
+        let free = stats.free_count
+        let active = stats.active_count
+        let inactive = stats.inactive_count
+        let wired = stats.wire_count
+        let total = free + active + inactive + wired
+
+        let usage = Double(active + wired) / Double(total)
+        print(&quot;Memory usage: \(usage * 100)%&quot;)
+
+        if usage &gt; 0.85 {
+            print(&quot; High memory pressure!&quot;)
+        }
+    }
+}
+</code></pre>
+<h3 id="33-内存优化策略">3.3 内存优化策略</h3>
+<p><strong>大图降采样</strong>：</p>
+<pre><code class="language-objective-c">UIImage * downsampleImage(UIImage *image, CGSize size) {
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)UIImageJPEGRepresentation(image, 1), nil);
+
+    NSDictionary *options = @{
+        (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageIfAbsent: @YES,
+        (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @(MAX(size.width, size.height)),
+        (__bridge NSString *)kCGImageSourceShouldCacheImmediately: @YES
+    };
+
+    CGImageRef thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+    UIImage *result = [UIImage imageWithCGImage:thumbnail];
+
+    CGImageRelease(thumbnail);
+    CFRelease(source);
+
+    return result;
+}
+</code></pre>
+<p><strong>图片内存计算</strong>：</p>
+<pre><code>1024 x 1024 图片的内存占用：
+- 未解码（磁盘）：~300KB（JPEG 压缩）
+- 解码后（内存）：1024 x 1024 x 4 字节 = 4MB
+- 使用 @3x 设备：1024 x 1024 x 4 x 3 = 12MB
+</code></pre>
+<p><strong>避免内存泄漏</strong>：</p>
+<pre><code class="language-objective-c">//  循环引用
+self.handler = ^{
+    [self doSomething];
+};
+
+//  使用 weak
+__weak typeof(self) weakSelf = self;
+self.handler = ^{
+    __strong typeof(weakSelf) strongSelf = weakSelf;
+    if (strongSelf) {
+        [strongSelf doSomething];
+    }
+};
+</code></pre>
+<hr/>
+<h2 id="4-instruments-工具使用">4. Instruments 工具使用</h2>
+<h3 id="41-time-profilercpu-分析">4.1 Time Profiler（CPU 分析）</h3>
+<p><strong>使用场景</strong>：分析 CPU 密集型操作、定位性能热点</p>
+<p><strong>使用步骤</strong>：</p>
+<pre><code>1. Xcode → Product → Profile (⌘+I)
+2. 选择 &quot;Time Profiler&quot;
+3. 点击红色按钮开始录制
+4. 操作 App，触发性能问题
+5. 停止录制，分析结果
+</code></pre>
+<p><strong>关键指标</strong>：</p>
+<pre><code>- Running Time：函数总耗时
+- Self Time：函数自身耗时（不包括子函数）
+- Symbol Name：函数名
+- Binary：所在二进制文件
+</code></pre>
+<p><strong>优化技巧</strong>：</p>
+<pre><code>1. 勾选 &quot;Invert Call Tree&quot;（倒置调用树）
+   - 查看最耗时的叶子函数
+
+2. 勾选 &quot;Separate by Thread&quot;（按线程分离）
+   - 排查主线程耗时
+
+3. 勾选 &quot;Hide System Libraries&quot;（隐藏系统库）
+   - 只看 App 代码
+</code></pre>
+<h3 id="42-allocations内存分配">4.2 Allocations（内存分配）</h3>
+<p><strong>使用场景</strong>：监控内存增长、定位内存泄漏、分析内存峰值</p>
+<p><strong>使用步骤</strong>：</p>
+<pre><code>1. 选择 &quot;Allocations&quot; 模板
+2. 录制后操作 App
+3. 查看 &quot;Heap Growth&quot; 图表
+4. 选中特定对象，查看 &quot;Allocations List&quot;
+</code></pre>
+<p><strong>关键指标</strong>：</p>
+<pre><code>- # Living：当前存活对象数量
+- # Overall：累计分配对象数量
+- Bytes：内存占用大小
+- Responsible Caller：分配位置
+</code></pre>
+<p><strong>内存泄漏检测</strong>：</p>
+<pre><code>1. 进入页面，记录内存：A
+2. 退出页面，记录内存：B
+3. 反复多次，如果 B 持续增长 → 内存泄漏
+4. 查看 &quot;Allocations List&quot;，找到未释放的对象
+5. 查看 &quot;Marked Heap&quot;，分析对象引用关系
+</code></pre>
+<h3 id="43-leaks内存泄漏">4.3 Leaks（内存泄漏）</h3>
+<p><strong>使用场景</strong>：自动检测内存泄漏</p>
+<p><strong>使用步骤</strong>：</p>
+<pre><code>1. 选择 &quot;Leaks&quot; 模板
+2. 录制后操作 App
+3. 查看 &quot;Leaks&quot; 时间线
+4. 点击蓝色箭头，查看泄漏详情
+</code></pre>
+<p><strong>泄漏详情</strong>：</p>
+<pre><code>- Leaked Object：泄漏的对象
+- Responsible Frame：泄漏的调用栈
+- Retain Cycle：循环引用链
+</code></pre>
+<p><strong>常见泄漏模式</strong>：</p>
+<pre><code>1. Delegate 未使用 weak
+2. Block 中强引用 self
+3. NSTimer 未 invalidate
+4. Observer 未移除
+</code></pre>
+<h3 id="44-core-animation渲染分析">4.4 Core Animation（渲染分析）</h3>
+<p><strong>使用场景</strong>：检测离屏渲染、帧率问题</p>
+<p><strong>关键指标</strong>：</p>
+<pre><code>- FPS：当前帧率
+- FPS Graph：帧率曲线
+- Color Blended Layers：图层混合（绿色=正常，红色=过度混合）
+- Color Misaligned Images：图片缩放（绿色=正常，红色=需要缩放）
+- Color Offscreen-Rendered Yellow：离屏渲染（黄色=离屏渲染）
+- Color Compositing Fast-Path Blue：光栅化缓存（蓝色=已缓存）
+</code></pre>
+<p><strong>优化离屏渲染</strong>：</p>
+<pre><code class="language-swift">// 查看离屏渲染
+// Color Offscreen-Rendered Yellow 开启后，黄色区域即为离屏渲染
+
+// 优化阴影
+imageView.layer.shadowPath = UIBezierPath(rect: bounds).cgPath
+
+// 优化圆角
+imageView.layer.shouldRasterize = true
+</code></pre>
+<hr/>
+<h2 id="5-实战复杂列表优化方案">5. 实战：复杂列表优化方案</h2>
+<h3 id="51-复杂列表性能瓶颈分析">5.1 复杂列表性能瓶颈分析</h3>
+<p><strong>传统实现的问题：</strong></p>
+<pre><code class="language-swift">//  传统方案：所有操作都在主线程
+class TableViewCell: UITableViewCell {
+    private let avatarView = UIImageView()
+    private let nameLabel = UILabel()
+    private let contentLabel = UILabel()
+
+    func configure(with model: MessageModel) {
+        // 1. 同步下载图片（主线程阻塞）
+        avatarView.kf.setImage(with: URL(string: model.avatarURL))
+
+        // 2. 复杂文本布局计算（主线程耗时）
+        let contentSize = model.content.boundingRect(
+            with: CGSize(width: bounds.width - 80, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: UIFont.systemFont(ofSize: 14)],
+            context: nil
+        ).size
+
+        // 3. 约束计算（AutoLayout耗时）
+        contentLabelHeightConstraint.constant = contentSize.height
+
+        // 4. 圆角图片渲染（触发离屏渲染）
+        avatarView.layer.cornerRadius = 25
+        avatarView.layer.masksToBounds = true
+    }
+}
+</code></pre>
+<p><strong>性能瓶颈识别：</strong></p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>瓶颈类型</th><th>耗时操作</th><th>影响</th></tr></thead><tbody><tr><td>主线程I/O</td><td>图片下载、解压缩</td><td>阻塞主线程，直接卡顿</td></tr><tr><td>文本计算</td><td>boundingRect、NSAttributedString</td><td>大量计算，CPU密集</td></tr><tr><td>布局计算</td><td>AutoLayout约束求解</td><td>O(n)复杂度，频繁触发</td></tr><tr><td>离屏渲染</td><td>圆角、阴影、光栅化</td><td>上下文切换，额外开销</td></tr><tr><td>图片解码</td><td>JPEG/PNG解压缩</td><td>主线程解码，大图尤其明显</td></tr></tbody></table></div>
+<h3 id="52-预排版方案">5.2 预排版方案</h3>
+<p><strong>核心思想：</strong> 将布局计算从主线程移到子线程，缓存布局结果</p>
+<pre><code class="language-swift">// 1. 定义布局模型
+struct MessageLayoutModel {
+    let avatarFrame: CGRect
+    let nameLabelFrame: CGRect
+    let contentLabelFrame: CGRect
+    let cellHeight: CGFloat
+}
+
+// 2. 布局计算器（子线程操作）
+class MessageLayoutCalculator {
+    static func calculateLayout(
+        model: MessageModel,
+        containerWidth: CGFloat
+    ) -&gt; MessageLayoutModel {
+
+        // 头像位置
+        let avatarFrame = CGRect(x: 15, y: 10, width: 50, height: 50)
+
+        // 昵称位置
+        let nameMaxWidth = containerWidth - 80
+        let nameSize = model.nickname.boundingRect(
+            with: CGSize(width: nameMaxWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: UIFont.boldSystemFont(ofSize: 16)],
+            context: nil
+        ).size
+        let nameLabelFrame = CGRect(x: 75, y: 10, width: nameSize.width, height: nameSize.height)
+
+        // 内容位置（使用Core Text优化）
+        let contentMaxWidth = containerWidth - 80
+        let contentSize = calculateContentSize(text: model.content, maxWidth: contentMaxWidth)
+        let contentLabelFrame = CGRect(x: 75, y: nameLabelFrame.maxY + 5, width: contentSize.width, height: contentSize.height)
+
+        // 总高度
+        let cellHeight = max(70, contentLabelFrame.maxY + 10)
+
+        return MessageLayoutModel(
+            avatarFrame: avatarFrame,
+            nameLabelFrame: nameLabelFrame,
+            contentLabelFrame: contentLabelFrame,
+            cellHeight: cellHeight
+        )
+    }
+
+    // 使用Core Text优化文本计算
+    static func calculateContentSize(text: String, maxWidth: CGFloat) -&gt; CGSize {
+        let attrString = NSAttributedString(string: text, attributes: [.font: UIFont.systemFont(ofSize: 14)])
+        let framesetter = CTFramesetterCreateWithAttributedString(attrString)
+        let constraints = CGSize(width: maxWidth, height: .greatestFiniteMagnitude)
+        let suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(framesetter, CFRange(location: 0, length: 0), nil, constraints, nil)
+        return suggestedSize
+    }
+}
+
+// 3. 数据模型扩展（缓存布局）
+class MessageModel {
+    var id: String
+    var nickname: String
+    var content: String
+    var avatarURL: String
+
+    private var _cachedLayout: MessageLayoutModel?
+
+    func calculateLayout(containerWidth: CGFloat) -&gt; MessageLayoutModel {
+        if let cached = _cachedLayout {
+            return cached
+        }
+
+        let layout = MessageLayoutCalculator.calculateLayout(model: self, containerWidth: containerWidth)
+        _cachedLayout = layout
+        return layout
+    }
+}
+
+// 4. 后台预计算
+class DataSourceManager {
+    func preloadLayouts(for models: [MessageModel], containerWidth: CGFloat) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            for model in models {
+                _ = model.calculateLayout(containerWidth: containerWidth)
+                ImageDownloader.shared.downloadImage(from: model.avatarURL)
+            }
+        }
+    }
+}
+</code></pre>
+<h3 id="53-异步绘制方案">5.3 异步绘制方案</h3>
+<p><strong>异步绘制架构：</strong></p>
+<pre><code class="language-swift">// 异步绘制的Layer
+class AsyncDisplayLayer: CALayer {
+    override func display() {
+        guard needsAsyncDisplay() else {
+            super.display()
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            UIGraphicsBeginImageContextWithOptions(self.bounds.size, !self.isOpaque, self.contentsScale)
+            self.draw(in: UIGraphicsGetCurrentContext()!)
+            let image = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+
+            DispatchQueue.main.async {
+                self.contents = image?.cgImage
+            }
+        }
+    }
+
+    func draw(in context: CGContext) {
+        // 子类重写此方法实现具体的绘制逻辑
+    }
+
+    func needsAsyncDisplay() -&gt; Bool {
+        return true
+    }
+}
+</code></pre>
+<p><strong>富文本Cell异步绘制：</strong></p>
+<pre><code class="language-swift">class RichTextCell: UITableViewCell {
+    private let asyncLayer = AsyncDisplayLayer()
+
+    func configure(with model: MessageModel) {
+        asyncLayer.bounds = bounds
+        asyncLayer.drawTask = { [weak self] context in
+            guard let self = self else { return }
+
+            // 绘制背景
+            self.drawBackground(in: context)
+
+            // 绘制头像
+            self.drawAvatar(in: context, from: model.avatarURL)
+
+            // 绘制昵称
+            self.drawNickname(in: context, text: model.nickname)
+
+            // 绘制富文本内容
+            self.drawRichText(in: context, text: model.content)
+        }
+
+        asyncLayer.setNeedsDisplay()
+    }
+
+    private func drawRichText(in context: CGContext, text: String) {
+        let contentFrame = CGRect(x: 75, y: 35, width: bounds.width - 90, height: 100)
+
+        // 使用Core Text绘制复杂文本
+        let attrString = NSMutableAttributedString(string: text)
+        attrString.addAttributes([.font: UIFont.systemFont(ofSize: 14), .foregroundColor: UIColor.darkGray], range: NSRange(location: 0, length: attrString.length))
+
+        let framesetter = CTFramesetterCreateWithAttributedString(attrString)
+        let path = CGPath(rect: contentFrame, transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
+
+        CTFrameDraw(frame, context)
+    }
+}
+</code></pre>
+<h3 id="54-综合优化策略">5.4 综合优化策略</h3>
+<p><strong>按需加载：</strong></p>
+<pre><code class="language-swift">extension ComplexListViewController: UIScrollViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // 开始滚动：暂停图片加载
+        ImageDownloader.shared.suspend()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        // 完全停止：恢复图片加载
+        ImageDownloader.shared.resume()
+        preloadVisibleImages()
+    }
+
+    private func preloadVisibleImages() {
+        let visibleIndexPaths = tableView.indexPathsForVisibleRows ?? []
+
+        for indexPath in visibleIndexPaths {
+            let model = dataSource[indexPath.row]
+
+            // 预加载前后几行的图片
+            for offset in -2...2 {
+                let targetRow = indexPath.row + offset
+                if targetRow &gt;= 0 &amp;&amp; targetRow &lt; dataSource.count {
+                    let targetModel = dataSource[targetRow]
+                    ImageDownloader.shared.downloadImage(from: targetModel.avatarURL)
+                }
+            }
+        }
+    }
+}
+</code></pre>
+<p><strong>RunLoop空闲时加载：</strong></p>
+<pre><code class="language-swift">class RunLoopQueueLoader {
+    private var taskQueue: [() -&gt; Void] = []
+    private let maxQueueSize = 100
+
+    func addTask(_ task: @escaping () -&gt; Void) {
+        guard taskQueue.count &lt; maxQueueSize else { return }
+        taskQueue.append(task)
+    }
+
+    func start() {
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, { [weak self] observer, activity in
+            self?.processTasks()
+        })
+
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultModes)
+    }
+
+    private func processTasks() {
+        guard !taskQueue.isEmpty else { return }
+
+        let task = taskQueue.removeFirst()
+        task()
+    }
+}
+
+// 使用示例
+class ViewController: UIViewController {
+    private let loader = RunLoopQueueLoader()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        loader.start()
+
+        // 添加任务
+        loader.addTask {
+            // 预加载图片
+            self.preloadImages()
+        }
+
+        loader.addTask {
+            // 预计算布局
+            self.preloadLayouts()
+        }
+    }
+}
+</code></pre>
+<h3 id="55-高吞吐消息列表优化语音房--im-公屏">5.5 高吞吐消息列表优化（语音房 / IM 公屏）</h3>
+<p>与「普通列表卡顿」相比，公屏类场景多了 <strong>多消息类型、富文本、气泡与装饰、瞬时消息风暴</strong>。</p>
+<p><strong>观测：</strong></p>
+<ul>
+<li><strong>线下</strong>：<strong>Time Profiler</strong> 盯 layout/富文本热点；<strong>Core Animation</strong> 看离屏与大图 GPU；<strong>Allocations</strong> 看 Cell 是否短时间创建过多对象</li>
+<li><strong>线上</strong>：<strong>CADisplayLink</strong> 统计 FPS；<strong>RunLoop Observer + 子线程信号量</strong>：关注 <code>kCFRunLoopBeforeSources</code> / <code>kCFRunLoopAfterWaiting</code> 等阶段是否 <strong>超过阈值</strong></li>
+</ul>
+<p><strong>架构层优化（MessageKit 思路）：</strong></p>
+<ul>
+<li><strong>布局与展示解耦</strong>：高度与 glyph 在 <strong>后台</strong> 算好再上屏</li>
+<li><strong>TextKit 预排版</strong>：<code>NSTextStorage</code> + <code>NSLayoutManager</code> + <code>NSTextContainer</code> 在子线程得到 <strong>boundingRect</strong> 与行信息</li>
+<li><strong>高频更新少用 Auto Layout</strong>：改为 <strong>手动 frame</strong>，position / size <strong>分步计算</strong></li>
+</ul>
+<p><strong>图片与气泡优化：</strong></p>
+<ul>
+<li><strong>Downsample</strong>：显示尺寸远小于像素尺寸时必须降采样；远程图 <strong>后台解码</strong> 再回主线程赋值</li>
+<li><strong>第三方加载器</strong>：可配置 <strong>大图缩小、避免在主线程自动 setImage、缩略像素尺寸</strong></li>
+<li><strong>气泡</strong>：优先 <strong>resizable image</strong>；复杂静态气泡可用 <strong><code>shouldRasterize</code> + 合适 <code>rasterizationScale</code></strong></li>
+</ul>
+<p><strong>列表数据与流控：</strong></p>
+<ul>
+<li><strong>UICollectionView + DiffableDataSource</strong>：在 burst 场景下对 <strong>当前 snapshot 做增量 append</strong>，避免每次全量 snapshot 导致 <strong>大范围 diff</strong></li>
+<li><strong>展示条数上限</strong>：仅保留最近 N 条（产品约定）</li>
+<li><strong>流控</strong>：<strong>缓冲队列 + 定时批量刷新</strong>，可提供 <strong>快进 / 暂停</strong> 模式</li>
+</ul>
+<hr/>
+<h2 id="7-常见问题整理">7. 常见问题整理</h2>
+<h3 id="71-启动优化">7.1 启动优化</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>问题</th><th>答案要点</th><th>难度</th></tr></thead><tbody><tr><td>App 启动流程？</td><td>dyld 加载 → Rebase/Bind → ObjC setup → main</td><td>⭐⭐⭐⭐</td></tr><tr><td>如何优化启动速度？</td><td>二进制重排、减少动态库、移除 +load、异步初始化</td><td>⭐⭐⭐⭐⭐</td></tr><tr><td>什么是二进制重排？</td><td>将启动时调用的函数排列到相邻 Page，减少 Page Fault</td><td>⭐⭐⭐⭐⭐</td></tr><tr><td>如何监控启动时间？</td><td>DYLD_PRINT_STATISTICS、sysctl 获取进程启动时间</td><td>⭐⭐⭐⭐</td></tr></tbody></table></div>
+<h3 id="72-卡顿优化">7.2 卡顿优化</h3>
+<hr/>
+<h2 id="8-参考资料">8. 参考资料</h2>
+<h3 id="优质文章">优质文章</h3>
+<ul>
+<li><a href="https://juejin.cn/post/6844904165773328392">iOS App启动优化与二进制重排</a></li>
+<li><a href="https://www.jianshu.com/p/8e0b38719278">美团App冷启动治理</a></li>
+<li><a href="https://developer.apple.com/videos/play/wwdc2018/416/">iOS Memory Deep Dive</a></li>
+<li><a href="https://medium.com/@chandra.welim/xcode-instruments-find-memory-leaks-in-5-minutes-not-hours-4f80982e3682">Xcode Instruments: Find Memory Leaks in 5 Minutes</a></li>
+<li><a href="https://medium.com/@asherazeem25/mastering-ios-profiler-instruments-a-complete-guide-to-performance-optimization-9a4813a059a1">Mastering iOS Profiler Instruments</a></li>
+<li><a href="https://medium.com/@garejakirit/crash-analytics-in-ios-2026-a-complete-practical-guide-d2c0b9c0cec5">Crash Analytics in iOS (2026): A Complete Practical Guide</a></li>
+<li><a href="https://www.zoho.com/apptics/digest/ios-crash-debugging-guide.html">The ultimate guide to symbolica ting iOS crash reports</a></li>
+</ul>
+<h3 id="开源项目">开源项目</h3>
+<ul>
+<li><a href="https://github.com/Tencent/MLeaksFinder">MLeaksFinder</a> - 腾讯内存泄漏检测工具</li>
+<li><a href="https://github.com/Tencent/OOMDetector">OOMDetector</a> - 腾讯 OOM 监控工具</li>
+<li><a href="https://github.com/CocoaLumberjack/CocoaLumberjack">CocoaLumberjack</a> - 日志框架</li>
+<li><a href="https://github.com/microsoft/plcrashreporter">PLCrashReporter</a> - 崩溃报告框架</li>
+</ul>
+<h3 id="apple-官方文档">Apple 官方文档</h3></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/startup-optimization-pre-main-and-post-main/"><span class="pager-hint">上一篇</span><span class="pager-title">iOS 冷启动优化笔记：pre-main、Clang 插桩二进制重排与启动项分级</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/memory-optimization-oom-and-jetsam/"><span class="pager-hint">下一篇</span><span class="pager-title">iOS 内存优化：Jetsam 机制、Dirty Memory 与 FOOM 排查</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#2-卡顿优化">2. 卡顿优化</a></li><li class="toc-level-3"><a href="#21-卡顿原理">2.1 卡顿原理</a></li><li class="toc-level-3"><a href="#22-卡顿监控">2.2 卡顿监控</a></li><li class="toc-level-3"><a href="#23-卡顿原因与优化">2.3 卡顿原因与优化</a></li><li class="toc-level-2"><a href="#3-内存优化">3. 内存优化</a></li><li class="toc-level-3"><a href="#31-内存分类">3.1 内存分类</a></li><li class="toc-level-3"><a href="#32-oom-与-jetsam">3.2 OOM 与 Jetsam</a></li><li class="toc-level-3"><a href="#33-内存优化策略">3.3 内存优化策略</a></li><li class="toc-level-2"><a href="#4-instruments-工具使用">4. Instruments 工具使用</a></li><li class="toc-level-3"><a href="#41-time-profilercpu-分析">4.1 Time Profiler（CPU 分析）</a></li><li class="toc-level-3"><a href="#42-allocations内存分配">4.2 Allocations（内存分配）</a></li><li class="toc-level-3"><a href="#43-leaks内存泄漏">4.3 Leaks（内存泄漏）</a></li><li class="toc-level-3"><a href="#44-core-animation渲染分析">4.4 Core Animation（渲染分析）</a></li><li class="toc-level-2"><a href="#5-实战复杂列表优化方案">5. 实战：复杂列表优化方案</a></li><li class="toc-level-3"><a href="#51-复杂列表性能瓶颈分析">5.1 复杂列表性能瓶颈分析</a></li><li class="toc-level-3"><a href="#52-预排版方案">5.2 预排版方案</a></li><li class="toc-level-3"><a href="#53-异步绘制方案">5.3 异步绘制方案</a></li><li class="toc-level-3"><a href="#54-综合优化策略">5.4 综合优化策略</a></li><li class="toc-level-3"><a href="#55-高吞吐消息列表优化语音房--im-公屏">5.5 高吞吐消息列表优化（语音房 / IM 公屏）</a></li><li class="toc-level-2"><a href="#7-常见问题整理">7. 常见问题整理</a></li><li class="toc-level-3"><a href="#71-启动优化">7.1 启动优化</a></li><li class="toc-level-3"><a href="#72-卡顿优化">7.2 卡顿优化</a></li><li class="toc-level-2"><a href="#8-参考资料">8. 参考资料</a></li><li class="toc-level-3"><a href="#优质文章">优质文章</a></li><li class="toc-level-3"><a href="#开源项目">开源项目</a></li><li class="toc-level-3"><a href="#apple-官方文档">Apple 官方文档</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"lag-optimization-monitoring-and-governance\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"lag-optimization-monitoring-and-governance\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"lag-optimization-monitoring-and-governance\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"hoe-JYOaSo1IUM5pcal50v\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n13:T605,static CGFloat kFPS = 60;\nstatic CGFloat kDuration = 0;\n\n// 监控 RunLoop 状态切换耗时\n- (void)setupRunLoopMonitoring {\n    CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(\n        CFAllocatorGetDefault(),\n        kCFRunLoopAllActivities,\n        YES,\n        0,\n        ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {\n            if (activity == kCFRunLoopBeforeSources ||\n                activity == kCFRunLoopAfterWaiting) {\n\n                CFRunLoopActivity currentActivity = activity;\n                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{\n                    // 记录开始时间\n                    CFDateRef startDate = CFDateCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent());\n\n                    // 等待状态切换\n                    while (currentActivity == activity) {\n                        [NSThread sleepForTimeInterval:0.001];\n                    }\n\n                    // 计算耗时\n                    CFDateRef endDate = CFDateCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent());\n                    CFTimeInterval duration = CFDateGetTimeIntervalSinceDate(endDate, startDate);\n\n                    if (duration \u003e 1.0 / kFPS - 0.01) {\n                        // 卡顿发生，记录堆栈\n                        [self recordStackTrace];\n                    }\n                });\n            }\n        }\n    );\n\n    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);\n    CFRelease(observer);\n}\n14:Tbf9,"])</script><script>self.__next_f.push([1,"// 1. 定义布局模型\nstruct MessageLayoutModel {\n    let avatarFrame: CGRect\n    let nameLabelFrame: CGRect\n    let contentLabelFrame: CGRect\n    let cellHeight: CGFloat\n}\n\n// 2. 布局计算器（子线程操作）\nclass MessageLayoutCalculator {\n    static func calculateLayout(\n        model: MessageModel,\n        containerWidth: CGFloat\n    ) -\u003e MessageLayoutModel {\n\n        // 头像位置\n        let avatarFrame = CGRect(x: 15, y: 10, width: 50, height: 50)\n\n        // 昵称位置\n        let nameMaxWidth = containerWidth - 80\n        let nameSize = model.nickname.boundingRect(\n            with: CGSize(width: nameMaxWidth, height: .greatestFiniteMagnitude),\n            options: [.usesLineFragmentOrigin],\n            attributes: [.font: UIFont.boldSystemFont(ofSize: 16)],\n            context: nil\n        ).size\n        let nameLabelFrame = CGRect(x: 75, y: 10, width: nameSize.width, height: nameSize.height)\n\n        // 内容位置（使用Core Text优化）\n        let contentMaxWidth = containerWidth - 80\n        let contentSize = calculateContentSize(text: model.content, maxWidth: contentMaxWidth)\n        let contentLabelFrame = CGRect(x: 75, y: nameLabelFrame.maxY + 5, width: contentSize.width, height: contentSize.height)\n\n        // 总高度\n        let cellHeight = max(70, contentLabelFrame.maxY + 10)\n\n        return MessageLayoutModel(\n            avatarFrame: avatarFrame,\n            nameLabelFrame: nameLabelFrame,\n            contentLabelFrame: contentLabelFrame,\n            cellHeight: cellHeight\n        )\n    }\n\n    // 使用Core Text优化文本计算\n    static func calculateContentSize(text: String, maxWidth: CGFloat) -\u003e CGSize {\n        let attrString = NSAttributedString(string: text, attributes: [.font: UIFont.systemFont(ofSize: 14)])\n        let framesetter = CTFramesetterCreateWithAttributedString(attrString)\n        let constraints = CGSize(width: maxWidth, height: .greatestFiniteMagnitude)\n        let suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(framesetter, CFRange(location: 0, length: 0), nil, constraints, nil)\n        return suggestedSize\n    }\n}\n\n// 3. 数据模型扩展（缓存布局）\nclass MessageModel {\n    var id: String\n    var nickname: String\n    var content: String\n    var avatarURL: String\n\n    private var _cachedLayout: MessageLayoutModel?\n\n    func calculateLayout(containerWidth: CGFloat) -\u003e MessageLayoutModel {\n        if let cached = _cachedLayout {\n            return cached\n        }\n\n        let layout = MessageLayoutCalculator.calculateLayout(model: self, containerWidth: containerWidth)\n        _cachedLayout = layout\n        return layout\n    }\n}\n\n// 4. 后台预计算\nclass DataSourceManager {\n    func preloadLayouts(for models: [MessageModel], containerWidth: CGFloat) {\n        DispatchQueue.global(qos: .userInitiated).async {\n            for model in models {\n                _ = model.calculateLayout(containerWidth: containerWidth)\n                ImageDownloader.shared.downloadImage(from: model.avatarURL)\n            }\n        }\n    }\n}\n"])</script><script>self.__next_f.push([1,"15:T585,class RichTextCell: UITableViewCell {\n    private let asyncLayer = AsyncDisplayLayer()\n\n    func configure(with model: MessageModel) {\n        asyncLayer.bounds = bounds\n        asyncLayer.drawTask = { [weak self] context in\n            guard let self = self else { return }\n\n            // 绘制背景\n            self.drawBackground(in: context)\n\n            // 绘制头像\n            self.drawAvatar(in: context, from: model.avatarURL)\n\n            // 绘制昵称\n            self.drawNickname(in: context, text: model.nickname)\n\n            // 绘制富文本内容\n            self.drawRichText(in: context, text: model.content)\n        }\n\n        asyncLayer.setNeedsDisplay()\n    }\n\n    private func drawRichText(in context: CGContext, text: String) {\n        let contentFrame = CGRect(x: 75, y: 35, width: bounds.width - 90, height: 100)\n\n        // 使用Core Text绘制复杂文本\n        let attrString = NSMutableAttributedString(string: text)\n        attrString.addAttributes([.font: UIFont.systemFont(ofSize: 14), .foregroundColor: UIColor.darkGray], range: NSRange(location: 0, length: attrString.length))\n\n        let framesetter = CTFramesetterCreateWithAttributedString(attrString)\n        let path = CGPath(rect: contentFrame, transform: nil)\n        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)\n\n        CTFrameDraw(frame, context)\n    }\n}\n16:T463,class RunLoopQueueLoader {\n    private var taskQueue: [() -\u003e Void] = []\n    private let maxQueueSize = 100\n\n    func addTask(_ task: @escaping () -\u003e Void) {\n        guard taskQueue.count \u003c maxQueueSize else { return }\n        taskQueue.append(task)\n    }\n\n    func start() {\n        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, { [weak self] observer, activity in\n            self?.processTasks()\n        })\n\n        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultModes)\n    }\n\n    private func processTasks() {\n        guard !taskQueue.isEmpty el"])</script><script>self.__next_f.push([1,"se { return }\n\n        let task = taskQueue.removeFirst()\n        task()\n    }\n}\n\n// 使用示例\nclass ViewController: UIViewController {\n    private let loader = RunLoopQueueLoader()\n\n    override func viewDidLoad() {\n        super.viewDidLoad()\n        loader.start()\n\n        // 添加任务\n        loader.addTask {\n            // 预加载图片\n            self.preloadImages()\n        }\n\n        loader.addTask {\n            // 预计算布局\n            self.preloadLayouts()\n        }\n    }\n}\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"iOS 列表与渲染卡顿治理：预排版、异步绘制与公屏流控\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2026-04-22\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"性能优化与排查\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"卡顿优化 / 异步绘制 / 列表优化\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"p\",\"p-0\",{\"children\":\"卡顿本质是主线程无法在帧预算内完成工作；监控主线程+drops+布局耗时，再用工具和架构手段拆解热点。\"}],\"\\n\",[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h2\",\"h2-0\",{\"id\":\"2-卡顿优化\",\"children\":\"2. 卡顿优化\"}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"21-卡顿原理\",\"children\":\"2.1 卡顿原理\"}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"屏幕刷新机制\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"iOS 设备刷新率：\\n- 60Hz：iPhone 8 及以前，16.67ms/帧\\n- 120Hz：iPhone 13 Pro 及以后，8.33ms/帧\\n\\nVSync（垂直同步信号）：\\n- 每 16.67ms（60Hz）或 8.33ms（120Hz）触发一次\\n- 系统在此时间点完成屏幕渲染\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"卡顿定义\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"主线程在一个 VSync 周期内（16.67ms）未能完成渲染工作\\n→ 错过 VSync 信号\\n→ 掉帧\\n→ 连续掉帧 → 用户感知卡顿\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"渲染流水线\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"Layout（计算布局）→ Display（绘制）→ Prepare（图片解码）→ Commit（提交）\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"22-卡顿监控\",\"children\":\"2.2 卡顿监控\"}],\"\\n\",[\"$\",\"p\",\"p-4\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"方案一：RunLoop Observer\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$13\"}]}],\"\\n\",[\"$\",\"p\",\"p-5\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"方案二：CADisplayLink 帧率检测\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"class FPSMonitor {\\n    private var displayLink: CADisplayLink?\\n    private var lastTimestamp: CFTimeInterval = 0\\n    private var frameCount: Int = 0\\n\\n    func startMonitoring() {\\n        displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFired))\\n        displayLink?.add(to: .main, forMode: .common)\\n        lastTimestamp = CACurrentMediaTime()\\n    }\\n\\n    @objc private func displayLinkFired() {\\n        frameCount += 1\\n        let currentTimestamp = CACurrentMediaTime()\\n        let duration = currentTimestamp - lastTimestamp\\n\\n        if duration \u003e= 1.0 {\\n            let fps = Double(frameCount) / duration\\n            print(\\\"FPS: \\\\(fps)\\\")\\n\\n            if fps \u003c 50 {\\n                print(\\\" 检测到卡顿！FPS: \\\\(fps)\\\")\\n            }\\n\\n            frameCount = 0\\n            lastTimestamp = currentTimestamp\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-6\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"方案三：子线程 Ping 主线程（微信 Matrix）\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-5\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 子线程定期 ping 主线程\\n- (void)startMainThreadPing {\\n    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{\\n        while (YES) {\\n            dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);\\n\\n            dispatch_async(dispatch_get_main_queue(), ^{\\n                dispatch_semaphore_signal(semaphore);\\n            });\\n\\n            // 等待主线程响应\\n            dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC);\\n            if (dispatch_semaphore_wait(semaphore, timeout) != 0) {\\n                // 主线程超时未响应，记录堆栈\\n                [self recordMainThreadStack];\\n            }\\n\\n            [NSThread sleepForTimeInterval:0.01];\\n        }\\n    });\\n}\\n\\n// 记录主线程堆栈\\n- (void)recordMainThreadStack {\\n    thread_t thread = pthread_main_thread_np();\\n    uintptr_t buffer[128];\\n    int count = thread_get_stack_frames(thread, buffer, sizeof(buffer) / sizeof(uintptr_t));\\n\\n    for (int i = 0; i \u003c count; i++) {\\n        printf(\\\"%p\\\\n\\\", (void *)buffer[i]);\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"23-卡顿原因与优化\",\"children\":\"2.3 卡顿原因与优化\"}],\"\\n\",[\"$\",\"div\",\"div-0\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"卡顿原因\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"检测方法\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"优化手段\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"主线程耗时计算\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Time Profiler\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"移到子线程、异步处理\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"大量对象创建\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Allocations\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"对象池、懒加载\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"AutoLayout 约束过多\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Time Profiler\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"减少约束、AsyncDisplayKit\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"离屏渲染\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Core Animation Instruments\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"圆角裁剪、阴影优化\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"主线程 I/O\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"System Trace\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"移到子线程\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"图片解码\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Time Profiler\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"预解码、降采样\"}]]}],[\"$\",\"tr\",\"tr-6\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"锁竞争\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Time Profiler\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"无锁数据结构、减少锁\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"p\",\"p-7\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"离屏渲染优化\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-6\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"//  触发离屏渲染\\nimageView.layer.cornerRadius = 10\\nimageView.layer.masksToBounds = true\\nimageView.layer.shadowColor = UIColor.black.cgColor\\nimageView.layer.shadowOpacity = 0.5\\n\\n//  优化圆角\\nimageView.layer.cornerRadius = 10\\nimageView.layer.masksToBounds = true\\n// 设置 layer.shouldRasterize = true 缓存渲染结果\\nimageView.layer.shouldRasterize = true\\nimageView.layer.rasterizationScale = UIScreen.main.scale\\n\\n//  优化阴影\\nimageView.layer.shadowColor = UIColor.black.cgColor\\nimageView.layer.shadowOpacity = 0.5\\nimageView.layer.shadowOffset = CGSize(width: 0, height: 2)\\nimageView.layer.shadowRadius = 4\\n// 使用 shadowPath 而不是 layer 的边界\\nimageView.layer.shadowPath = UIBezierPath(rect: imageView.bounds).cgPath\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-8\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"图片解码优化\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-7\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"//  主线程解码\\nlet image = UIImage(named: \\\"large.jpg\\\") // 在主线程解码\\nimageView.image = image\\n\\n//  预解码到子线程\\nDispatchQueue.global(qos: .userInitiated).async {\\n    let image = UIImage(named: \\\"large.jpg\\\")\\n    // 强制解码\\n    let cgImage = image?.cgImage\\n    let decodedImage = UIImage(cgImage: cgImage!, scale: image!.scale, orientation: image!.imageOrientation)\\n\\n    DispatchQueue.main.async {\\n        imageView.image = decodedImage\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-1\",{}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"3-内存优化\",\"children\":\"3. 内存优化\"}],\"\\n\",[\"$\",\"h3\",\"h3-3\",{\"id\":\"31-内存分类\",\"children\":\"3.1 内存分类\"}],\"\\n\",[\"$\",\"div\",\"div-1\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"类型\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"说明\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"示例\"}],[\"$\",\"th\",\"th-3\",{\"children\":\"可回收\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Clean Memory\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"可从磁盘重新加载\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"代码段、只读数据\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"是\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Dirty Memory\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"已修改，无法回收\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"堆对象、图片缓存\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"否\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Compressed Memory\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"系统压缩的 dirty pages\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"不活跃的 dirty pages\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"是（解压后）\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h3\",\"h3-4\",{\"id\":\"32-oom-与-jetsam\",\"children\":\"3.2 OOM 与 Jetsam\"}],\"\\n\",[\"$\",\"p\",\"p-9\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Jetsam 机制\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-8\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"内存压力 → memorystatus_monitor → 按优先级杀进程\\n优先级（从高到低）：\\n1. 前台 App\\n2. Audio App\\n3. 后台 App - Recent\\n4. 后台 App - Long-term\\n5. 后台 App - Suspended\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-10\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"监控 OOM\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-9\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"func checkMemoryPressure() {\\n    var stats = vm_statistics64()\\n    var count = mach_msg_type_number_t(MemoryLayout\u003cvm_statistics64\u003e.size / MemoryLayout\u003cinteger_t\u003e.size)\\n\\n    let result = withUnsafeMutablePointer(to: \u0026stats) {\\n        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {\\n            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, \u0026count)\\n        }\\n    }\\n\\n    if result == KERN_SUCCESS {\\n        let free = stats.free_count\\n        let active = stats.active_count\\n        let inactive = stats.inactive_count\\n        let wired = stats.wire_count\\n        let total = free + active + inactive + wired\\n\\n        let usage = Double(active + wired) / Double(total)\\n        print(\\\"Memory usage: \\\\(usage * 100)%\\\")\\n\\n        if usage \u003e 0.85 {\\n            print(\\\" High memory pressure!\\\")\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-5\",{\"id\":\"33-内存优化策略\",\"children\":\"3.3 内存优化策略\"}],\"\\n\",[\"$\",\"p\",\"p-11\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"大图降采样\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-10\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"UIImage * downsampleImage(UIImage *image, CGSize size) {\\n    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)UIImageJPEGRepresentation(image, 1), nil);\\n\\n    NSDictionary *options = @{\\n        (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageIfAbsent: @YES,\\n        (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @(MAX(size.width, size.height)),\\n        (__bridge NSString *)kCGImageSourceShouldCacheImmediately: @YES\\n    };\\n\\n    CGImageRef thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);\\n    UIImage *result = [UIImage imageWithCGImage:thumbnail];\\n\\n    CGImageRelease(thumbnail);\\n    CFRelease(source);\\n\\n    return result;\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-12\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"图片内存计算\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-11\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1024 x 1024 图片的内存占用：\\n- 未解码（磁盘）：~300KB（JPEG 压缩）\\n- 解码后（内存）：1024 x 1024 x 4 字节 = 4MB\\n- 使用 @3x 设备：1024 x 1024 x 4 x 3 = 12MB\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-13\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"避免内存泄漏\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-12\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"//  循环引用\\nself.handler = ^{\\n    [self doSomething];\\n};\\n\\n//  使用 weak\\n__weak typeof(self) weakSelf = self;\\nself.handler = ^{\\n    __strong typeof(weakSelf) strongSelf = weakSelf;\\n    if (strongSelf) {\\n        [strongSelf doSomething];\\n    }\\n};\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-2\",{}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"4-instruments-工具使用\",\"children\":\"4. Instruments 工具使用\"}],\"\\n\",[\"$\",\"h3\",\"h3-6\",{\"id\":\"41-time-profilercpu-分析\",\"children\":\"4.1 Time Profiler（CPU 分析）\"}],\"\\n\",[\"$\",\"p\",\"p-14\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用场景\"}],\"：分析 CPU 密集型操作、定位性能热点\"]}],\"\\n\",[\"$\",\"p\",\"p-15\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用步骤\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-13\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. Xcode → Product → Profile (⌘+I)\\n2. 选择 \\\"Time Profiler\\\"\\n3. 点击红色按钮开始录制\\n4. 操作 App，触发性能问题\\n5. 停止录制，分析结果\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-16\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"关键指标\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-14\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"- Running Time：函数总耗时\\n- Self Time：函数自身耗时（不包括子函数）\\n- Symbol Name：函数名\\n- Binary：所在二进制文件\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-17\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"优化技巧\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-15\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. 勾选 \\\"Invert Call Tree\\\"（倒置调用树）\\n   - 查看最耗时的叶子函数\\n\\n2. 勾选 \\\"Separate by Thread\\\"（按线程分离）\\n   - 排查主线程耗时\\n\\n3. 勾选 \\\"Hide System Libraries\\\"（隐藏系统库）\\n   - 只看 App 代码\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-7\",{\"id\":\"42-allocations内存分配\",\"children\":\"4.2 Allocations（内存分配）\"}],\"\\n\",[\"$\",\"p\",\"p-18\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用场景\"}],\"：监控内存增长、定位内存泄漏、分析内存峰值\"]}],\"\\n\",[\"$\",\"p\",\"p-19\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用步骤\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-16\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. 选择 \\\"Allocations\\\" 模板\\n2. 录制后操作 App\\n3. 查看 \\\"Heap Growth\\\" 图表\\n4. 选中特定对象，查看 \\\"Allocations List\\\"\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-20\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"关键指标\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-17\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"- # Living：当前存活对象数量\\n- # Overall：累计分配对象数量\\n- Bytes：内存占用大小\\n- Responsible Caller：分配位置\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-21\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"内存泄漏检测\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-18\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. 进入页面，记录内存：A\\n2. 退出页面，记录内存：B\\n3. 反复多次，如果 B 持续增长 → 内存泄漏\\n4. 查看 \\\"Allocations List\\\"，找到未释放的对象\\n5. 查看 \\\"Marked Heap\\\"，分析对象引用关系\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-8\",{\"id\":\"43-leaks内存泄漏\",\"children\":\"4.3 Leaks（内存泄漏）\"}],\"\\n\",[\"$\",\"p\",\"p-22\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用场景\"}],\"：自动检测内存泄漏\"]}],\"\\n\",[\"$\",\"p\",\"p-23\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用步骤\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-19\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. 选择 \\\"Leaks\\\" 模板\\n2. 录制后操作 App\\n3. 查看 \\\"Leaks\\\" 时间线\\n4. 点击蓝色箭头，查看泄漏详情\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-24\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"泄漏详情\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-20\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"- Leaked Object：泄漏的对象\\n- Responsible Frame：泄漏的调用栈\\n- Retain Cycle：循环引用链\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-25\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"常见泄漏模式\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-21\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. Delegate 未使用 weak\\n2. Block 中强引用 self\\n3. NSTimer 未 invalidate\\n4. Observer 未移除\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-9\",{\"id\":\"44-core-animation渲染分析\",\"children\":\"4.4 Core Animation（渲染分析）\"}],\"\\n\",[\"$\",\"p\",\"p-26\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用场景\"}],\"：检测离屏渲染、帧率问题\"]}],\"\\n\",[\"$\",\"p\",\"p-27\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"关键指标\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-22\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"- FPS：当前帧率\\n- FPS Graph：帧率曲线\\n- Color Blended Layers：图层混合（绿色=正常，红色=过度混合）\\n- Color Misaligned Images：图片缩放（绿色=正常，红色=需要缩放）\\n- Color Offscreen-Rendered Yellow：离屏渲染（黄色=离屏渲染）\\n- Color Compositing Fast-Path Blue：光栅化缓存（蓝色=已缓存）\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-28\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"优化离屏渲染\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-23\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"// 查看离屏渲染\\n// Color Offscreen-Rendered Yellow 开启后，黄色区域即为离屏渲染\\n\\n// 优化阴影\\nimageView.layer.shadowPath = UIBezierPath(rect: bounds).cgPath\\n\\n// 优化圆角\\nimageView.layer.shouldRasterize = true\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-3\",{}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"5-实战复杂列表优化方案\",\"children\":\"5. 实战：复杂列表优化方案\"}],\"\\n\",[\"$\",\"h3\",\"h3-10\",{\"id\":\"51-复杂列表性能瓶颈分析\",\"children\":\"5.1 复杂列表性能瓶颈分析\"}],\"\\n\",[\"$\",\"p\",\"p-29\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"传统实现的问题：\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-24\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"//  传统方案：所有操作都在主线程\\nclass TableViewCell: UITableViewCell {\\n    private let avatarView = UIImageView()\\n    private let nameLabel = UILabel()\\n    private let contentLabel = UILabel()\\n\\n    func configure(with model: MessageModel) {\\n        // 1. 同步下载图片（主线程阻塞）\\n        avatarView.kf.setImage(with: URL(string: model.avatarURL))\\n\\n        // 2. 复杂文本布局计算（主线程耗时）\\n        let contentSize = model.content.boundingRect(\\n            with: CGSize(width: bounds.width - 80, height: .greatestFiniteMagnitude),\\n            options: [.usesLineFragmentOrigin, .usesFontLeading],\\n            attributes: [.font: UIFont.systemFont(ofSize: 14)],\\n            context: nil\\n        ).size\\n\\n        // 3. 约束计算（AutoLayout耗时）\\n        contentLabelHeightConstraint.constant = contentSize.height\\n\\n        // 4. 圆角图片渲染（触发离屏渲染）\\n        avatarView.layer.cornerRadius = 25\\n        avatarView.layer.masksToBounds = true\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-30\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"性能瓶颈识别：\"}]}],\"\\n\",[\"$\",\"div\",\"div-2\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"瓶颈类型\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"耗时操作\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"影响\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"主线程I/O\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"图片下载、解压缩\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"阻塞主线程，直接卡顿\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"文本计算\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"boundingRect、NSAttributedString\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"大量计算，CPU密集\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"布局计算\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"AutoLayout约束求解\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"O(n)复杂度，频繁触发\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"离屏渲染\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"圆角、阴影、光栅化\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"上下文切换，额外开销\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"图片解码\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"JPEG/PNG解压缩\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"主线程解码，大图尤其明显\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h3\",\"h3-11\",{\"id\":\"52-预排版方案\",\"children\":\"5.2 预排版方案\"}],\"\\n\",[\"$\",\"p\",\"p-31\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"核心思想：\"}],\" 将布局计算从主线程移到子线程，缓存布局结果\"]}],\"\\n\",[\"$\",\"pre\",\"pre-25\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"$14\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-12\",{\"id\":\"53-异步绘制方案\",\"children\":\"5.3 异步绘制方案\"}],\"\\n\",[\"$\",\"p\",\"p-32\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"异步绘制架构：\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-26\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"// 异步绘制的Layer\\nclass AsyncDisplayLayer: CALayer {\\n    override func display() {\\n        guard needsAsyncDisplay() else {\\n            super.display()\\n            return\\n        }\\n\\n        DispatchQueue.global(qos: .userInitiated).async { [weak self] in\\n            guard let self = self else { return }\\n\\n            UIGraphicsBeginImageContextWithOptions(self.bounds.size, !self.isOpaque, self.contentsScale)\\n            self.draw(in: UIGraphicsGetCurrentContext()!)\\n            let image = UIGraphicsGetImageFromCurrentImageContext()\\n            UIGraphicsEndImageContext()\\n\\n            DispatchQueue.main.async {\\n                self.contents = image?.cgImage\\n            }\\n        }\\n    }\\n\\n    func draw(in context: CGContext) {\\n        // 子类重写此方法实现具体的绘制逻辑\\n    }\\n\\n    func needsAsyncDisplay() -\u003e Bool {\\n        return true\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-33\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"富文本Cell异步绘制：\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-27\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"$15\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-13\",{\"id\":\"54-综合优化策略\",\"children\":\"5.4 综合优化策略\"}],\"\\n\",[\"$\",\"p\",\"p-34\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"按需加载：\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-28\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"extension ComplexListViewController: UIScrollViewDelegate {\\n    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {\\n        // 开始滚动：暂停图片加载\\n        ImageDownloader.shared.suspend()\\n    }\\n\\n    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {\\n        // 完全停止：恢复图片加载\\n        ImageDownloader.shared.resume()\\n        preloadVisibleImages()\\n    }\\n\\n    private func preloadVisibleImages() {\\n        let visibleIndexPaths = tableView.indexPathsForVisibleRows ?? []\\n\\n        for indexPath in visibleIndexPaths {\\n            let model = dataSource[indexPath.row]\\n\\n            // 预加载前后几行的图片\\n            for offset in -2...2 {\\n                let targetRow = indexPath.row + offset\\n                if targetRow \u003e= 0 \u0026\u0026 targetRow \u003c dataSource.count {\\n                    let targetModel = dataSource[targetRow]\\n                    ImageDownloader.shared.downloadImage(from: targetModel.avatarURL)\\n                }\\n            }\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-35\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"RunLoop空闲时加载：\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-29\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"$16\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-14\",{\"id\":\"55-高吞吐消息列表优化语音房--im-公屏\",\"children\":\"5.5 高吞吐消息列表优化（语音房 / IM 公屏）\"}],\"\\n\",[\"$\",\"p\",\"p-36\",{\"children\":[\"与「普通列表卡顿」相比，公屏类场景多了 \",[\"$\",\"strong\",\"strong-0\",{\"children\":\"多消息类型、富文本、气泡与装饰、瞬时消息风暴\"}],\"。\"]}],\"\\n\",[\"$\",\"p\",\"p-37\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"观测：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"线下\"}],\"：\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"Time Profiler\"}],\" 盯 layout/富文本热点；\",[\"$\",\"strong\",\"strong-2\",{\"children\":\"Core Animation\"}],\" 看离屏与大图 GPU；\",[\"$\",\"strong\",\"strong-3\",{\"children\":\"Allocations\"}],\" 看 Cell 是否短时间创建过多对象\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"线上\"}],\"：\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"CADisplayLink\"}],\" 统计 FPS；\",[\"$\",\"strong\",\"strong-2\",{\"children\":\"RunLoop Observer + 子线程信号量\"}],\"：关注 \",[\"$\",\"code\",\"code-0\",{\"children\":\"kCFRunLoopBeforeSources\"}],\" / \",[\"$\",\"code\",\"code-1\",{\"children\":\"kCFRunLoopAfterWaiting\"}],\" 等阶段是否 \",[\"$\",\"strong\",\"strong-3\",{\"children\":\"超过阈值\"}]]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-38\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"架构层优化（MessageKit 思路）：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"布局与展示解耦\"}],\"：高度与 glyph 在 \",[\"$\",\"strong\",\"strong-1\",{\"children\":\"后台\"}],\" 算好再上屏\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"TextKit 预排版\"}],\"：\",[\"$\",\"code\",\"code-0\",{\"children\":\"NSTextStorage\"}],\" + \",[\"$\",\"code\",\"code-1\",{\"children\":\"NSLayoutManager\"}],\" + \",[\"$\",\"code\",\"code-2\",{\"children\":\"NSTextContainer\"}],\" 在子线程得到 \",[\"$\",\"strong\",\"strong-1\",{\"children\":\"boundingRect\"}],\" 与行信息\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"高频更新少用 Auto Layout\"}],\"：改为 \",[\"$\",\"strong\",\"strong-1\",{\"children\":\"手动 frame\"}],\"，position / size \",[\"$\",\"strong\",\"strong-2\",{\"children\":\"分步计算\"}]]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-39\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"图片与气泡优化：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Downsample\"}],\"：显示尺寸远小于像素尺寸时必须降采样；远程图 \",[\"$\",\"strong\",\"strong-1\",{\"children\":\"后台解码\"}],\" 再回主线程赋值\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"第三方加载器\"}],\"：可配置 \",[\"$\",\"strong\",\"strong-1\",{\"children\":\"大图缩小、避免在主线程自动 setImage、缩略像素尺寸\"}]]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"气泡\"}],\"：优先 \",[\"$\",\"strong\",\"strong-1\",{\"children\":\"resizable image\"}],\"；复杂静态气泡可用 \",[\"$\",\"strong\",\"strong-2\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"shouldRasterize\"}],\" + 合适 \",[\"$\",\"code\",\"code-1\",{\"children\":\"rasterizationScale\"}]]}]]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-40\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"列表数据与流控：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-3\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"UICollectionView + DiffableDataSource\"}],\"：在 burst 场景下对 \",[\"$\",\"strong\",\"strong-1\",{\"children\":\"当前 snapshot 做增量 append\"}],\"，避免每次全量 snapshot 导致 \",[\"$\",\"strong\",\"strong-2\",{\"children\":\"大范围 diff\"}]]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"展示条数上限\"}],\"：仅保留最近 N 条（产品约定）\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"流控\"}],\"：\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"缓冲队列 + 定时批量刷新\"}],\"，可提供 \",[\"$\",\"strong\",\"strong-2\",{\"children\":\"快进 / 暂停\"}],\" 模式\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-4\",{}],\"\\n\",[\"$\",\"h2\",\"h2-4\",{\"id\":\"7-常见问题整理\",\"children\":\"7. 常见问题整理\"}],\"\\n\",[\"$\",\"h3\",\"h3-15\",{\"id\":\"71-启动优化\",\"children\":\"7.1 启动优化\"}],\"\\n\",[\"$\",\"div\",\"div-3\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"问题\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"答案要点\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"难度\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"App 启动流程？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"dyld 加载 → Rebase/Bind → ObjC setup → main\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"如何优化启动速度？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"二进制重排、减少动态库、移除 +load、异步初始化\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"什么是二进制重排？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"将启动时调用的函数排列到相邻 Page，减少 Page Fault\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"如何监控启动时间？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"DYLD_PRINT_STATISTICS、sysctl 获取进程启动时间\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h3\",\"h3-16\",{\"id\":\"72-卡顿优化\",\"children\":\"7.2 卡顿优化\"}],\"\\n\",[\"$\",\"hr\",\"hr-5\",{}],\"\\n\",[\"$\",\"h2\",\"h2-5\",{\"id\":\"8-参考资料\",\"children\":\"8. 参考资料\"}],\"\\n\",[\"$\",\"h3\",\"h3-17\",{\"id\":\"优质文章\",\"children\":\"优质文章\"}],\"\\n\",[\"$\",\"ul\",\"ul-4\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://juejin.cn/post/6844904165773328392\",\"children\":\"iOS App启动优化与二进制重排\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://www.jianshu.com/p/8e0b38719278\",\"children\":\"美团App冷启动治理\"}]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/videos/play/wwdc2018/416/\",\"children\":\"iOS Memory Deep Dive\"}]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://medium.com/@chandra.welim/xcode-instruments-find-memory-leaks-in-5-minutes-not-hours-4f80982e3682\",\"children\":\"Xcode Instruments: Find Memory Leaks in 5 Minutes\"}]}],\"\\n\",[\"$\",\"li\",\"li-4\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://medium.com/@asherazeem25/mastering-ios-profiler-instruments-a-complete-guide-to-performance-optimization-9a4813a059a1\",\"children\":\"Mastering iOS Profiler Instruments\"}]}],\"\\n\",[\"$\",\"li\",\"li-5\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://medium.com/@garejakirit/crash-analytics-in-ios-2026-a-complete-practical-guide-d2c0b9c0cec5\",\"children\":\"Crash Analytics in iOS (2026): A Complete Practical Guide\"}]}],\"\\n\",[\"$\",\"li\",\"li-6\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://www.zoho.com/apptics/digest/ios-crash-debugging-guide.html\",\"children\":\"The ultimate guide to symbolica ting iOS crash reports\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-18\",{\"id\":\"开源项目\",\"children\":\"开源项目\"}],\"\\n\",[\"$\",\"ul\",\"ul-5\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/Tencent/MLeaksFinder\",\"children\":\"MLeaksFinder\"}],\" - 腾讯内存泄漏检测工具\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/Tencent/OOMDetector\",\"children\":\"OOMDetector\"}],\" - 腾讯 OOM 监控工具\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/CocoaLumberjack/CocoaLumberjack\",\"children\":\"CocoaLumberjack\"}],\" - 日志框架\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/microsoft/plcrashreporter\",\"children\":\"PLCrashReporter\"}],\" - 崩溃报告框架\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-19\",{\"id\":\"apple-官方文档\",\"children\":\"Apple 官方文档\"}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/startup-optimization-pre-main-and-post-main\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"iOS 冷启动优化笔记：pre-main、Clang 插桩二进制重排与启动项分级\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/memory-optimization-oom-and-jetsam\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"iOS 内存优化：Jetsam 机制、Dirty Memory 与 FOOM 排查\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"2-卡顿优化-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#2-卡顿优化\",\"children\":\"2. 卡顿优化\"}]}],[\"$\",\"li\",\"21-卡顿原理-1\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#21-卡顿原理\",\"children\":\"2.1 卡顿原理\"}]}],[\"$\",\"li\",\"22-卡顿监控-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#22-卡顿监控\",\"children\":\"2.2 卡顿监控\"}]}],[\"$\",\"li\",\"23-卡顿原因与优化-3\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#23-卡顿原因与优化\",\"children\":\"2.3 卡顿原因与优化\"}]}],[\"$\",\"li\",\"3-内存优化-4\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#3-内存优化\",\"children\":\"3. 内存优化\"}]}],[\"$\",\"li\",\"31-内存分类-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#31-内存分类\",\"children\":\"3.1 内存分类\"}]}],[\"$\",\"li\",\"32-oom-与-jetsam-6\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#32-oom-与-jetsam\",\"children\":\"3.2 OOM 与 Jetsam\"}]}],[\"$\",\"li\",\"33-内存优化策略-7\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#33-内存优化策略\",\"children\":\"3.3 内存优化策略\"}]}],[\"$\",\"li\",\"4-instruments-工具使用-8\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#4-instruments-工具使用\",\"children\":\"4. Instruments 工具使用\"}]}],[\"$\",\"li\",\"41-time-profilercpu-分析-9\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#41-time-profilercpu-分析\",\"children\":\"4.1 Time Profiler（CPU 分析）\"}]}],[\"$\",\"li\",\"42-allocations内存分配-10\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#42-allocations内存分配\",\"children\":\"4.2 Allocations（内存分配）\"}]}],[\"$\",\"li\",\"43-leaks内存泄漏-11\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#43-leaks内存泄漏\",\"children\":\"4.3 Leaks（内存泄漏）\"}]}],[\"$\",\"li\",\"44-core-animation渲染分析-12\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#44-core-animation渲染分析\",\"children\":\"4.4 Core Animation（渲染分析）\"}]}],[\"$\",\"li\",\"5-实战复杂列表优化方案-13\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#5-实战复杂列表优化方案\",\"children\":\"5. 实战：复杂列表优化方案\"}]}],[\"$\",\"li\",\"51-复杂列表性能瓶颈分析-14\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#51-复杂列表性能瓶颈分析\",\"children\":\"5.1 复杂列表性能瓶颈分析\"}]}],[\"$\",\"li\",\"52-预排版方案-15\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#52-预排版方案\",\"children\":\"5.2 预排版方案\"}]}],[\"$\",\"li\",\"53-异步绘制方案-16\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#53-异步绘制方案\",\"children\":\"5.3 异步绘制方案\"}]}],[\"$\",\"li\",\"54-综合优化策略-17\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#54-综合优化策略\",\"children\":\"5.4 综合优化策略\"}]}],[\"$\",\"li\",\"55-高吞吐消息列表优化语音房--im-公屏-18\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#55-高吞吐消息列表优化语音房--im-公屏\",\"children\":\"5.5 高吞吐消息列表优化（语音房 / IM 公屏）\"}]}],[\"$\",\"li\",\"7-常见问题整理-19\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#7-常见问题整理\",\"children\":\"7. 常见问题整理\"}]}],[\"$\",\"li\",\"71-启动优化-20\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#71-启动优化\",\"children\":\"7.1 启动优化\"}]}],[\"$\",\"li\",\"72-卡顿优化-21\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#72-卡顿优化\",\"children\":\"7.2 卡顿优化\"}]}],[\"$\",\"li\",\"8-参考资料-22\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#8-参考资料\",\"children\":\"8. 参考资料\"}]}],[\"$\",\"li\",\"优质文章-23\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#优质文章\",\"children\":\"优质文章\"}]}],[\"$\",\"li\",\"开源项目-24\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#开源项目\",\"children\":\"开源项目\"}]}],[\"$\",\"li\",\"apple-官方文档-25\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#apple-官方文档\",\"children\":\"Apple 官方文档\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

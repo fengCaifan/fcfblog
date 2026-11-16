@@ -1,0 +1,181 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">Mach-O 文件格式与 dyld 动态链接过程笔记</h1><div class="article-meta"><time>2025-07-20</time><span class="meta-sep">·</span><span>工程化与架构</span><span class="meta-sep">·</span><span class="article-tags">Mach-O / dyld / fishhook</span></div></header><div class="markdown-body"><p>Mach-O 描述段、节与加载命令；静态链接合并目标文件，动态链接在启动时由 dyld 完成重定位与 bind。</p>
+<hr/>
+<h2 id="2-mach-o-文件结构">2. Mach-O 文件结构</h2>
+<h3 id="21-mach-o-组成">2.1 Mach-O 组成</h3>
+<p><strong>Header + Load Commands + Data</strong>：</p>
+<pre><code>┌─────────────────────────────────┐
+│  Header（头部）                   │
+│  - CPU 类型                      │
+│  - 文件类型                       │
+│  - 加载命令数量                   │
+├─────────────────────────────────┤
+│  Load Commands（加载命令）        │
+│  - SEGMENT command（段命令）      │
+│  - DYLIB command（动态库命令）    │
+│  - SYMTAB command（符号表命令）   │
+├─────────────────────────────────┤
+│  Data（数据）                     │
+│  - __TEXT（代码段）               │
+│  - __DATA（数据段）               │
+│  - __LINKEDIT（链接信息）         │
+└─────────────────────────────────┘
+</code></pre>
+<h3 id="22-header头部">2.2 Header（头部）</h3>
+<p><strong>结构</strong>：</p>
+<pre><code class="language-c">struct mach_header_64 {
+    uint32_t    magic;      // 魔数：0xFEEDFACE + 0x01000000 (64-bit)
+    uint32_t    cputype;    // CPU 类型：0x01000007 (ARM64)
+    uint32_t    cpusubtype; // CPU 子类型
+    uint32_t    filetype;   // 文件类型：0x2 (EXECUTE)
+    uint32_t    ncmds;      // 加载命令数量
+    uint32_t    sizeofcmds;  // 加载命令大小
+    uint32_t    flags;      // 标志位
+    uint32_t    reserved;   // 保留字段
+};
+</code></pre>
+<h3 id="23-load-commands加载命令">2.3 Load Commands（加载命令）</h3>
+<p><strong>常用加载命令</strong>：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>命令</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td>`LC_SEGMENT`</td><td>定义段（__TEXT/__DATA）</td><td>代码段、数据段</td></tr><tr><td>`LC_SYMTAB`</td><td>符号表</td><td>存储函数、类名等符号</td></tr><tr><td>`LC_DYSYMTAB`</td><td>动态符号表</td><td>动态库的符号</td></tr><tr><td>`LC_LOAD_DYLIB`</td><td>加载动态库</td><td>`@rpath/System/Library/Frameworks/...`</td></tr><tr><td>`LC_UUID`</td><td>UUID</td><td>唯一标识符</td></tr></tbody></table></div>
+<p><strong>Load Command 示例</strong>：</p>
+<pre><code class="language-bash"># 使用 otool 查看加载命令
+otool -l MyApp
+
+# 输出：
+Load command 1
+  cmd LC_SEGMENT
+  segname __TEXT
+Load command 2
+  cmd LC_SYMTAB
+  symtab
+Load command 3
+  cmd LC_LOAD_DYLIB
+    dylib /usr/lib/libobjc.A.dylib
+</code></pre>
+<h3 id="24-segment段和-section节">2.4 Segment（段）和 Section（节）</h3>
+<p><strong>段与节的层次</strong>：</p>
+<pre><code>Segment（段）
+  └── Section（节）
+      └── Raw Data（原始数据）
+</code></pre>
+<p><strong>常见 Segment</strong>：</p>
+<pre><code class="language-bash"># 使用 size 命令查看段和节
+size -x -m MyApp
+
+# 输出：
+Segment __TEXT: 0x1000
+  Section __text: 0x31 (addr 0x100000f50 offset 3920)
+  Section __stubs: 0x6 (addr 0x100000f82 offset 3970)
+
+Segment __DATA: 0x1000
+  Section __nl_symbol_ptr: 0x8 (addr 0x100001000 offset 4096)
+</code></pre>
+<p><strong>__TEXT 段</strong>：</p>
+<pre><code>- 只读代码段
+- 包含机器码
+- 存储位置：从 0x100000000 开始（ASLR 后会随机偏移）
+</code></pre>
+<p><strong>__DATA 段</strong>：</p>
+<pre><code>- 可读写数据段
+- 包含：
+  - 已初始化数据（__data）
+  - 未初始化数据（__bss）
+- 存储位置：紧跟在 __TEXT 后
+</code></pre>
+<h3 id="25-符号表symbol-table">2.5 符号表（Symbol Table）</h3>
+<p><strong>符号表结构</strong>：</p>
+<pre><code>&lt;起始地址&gt; &lt;结束地址&gt; &lt;函数&gt; [&lt;文件名：行号&gt;]
+</code></pre>
+<p><strong>示例</strong>：</p>
+<pre><code class="language-bash"># 使用 nm 查看符号表
+nm -nm MyApp
+
+# 输出：
+                     (undefined) external _printf (from System)
+0000000100000f50 (__TEXT,__text) external _main
+0000000100001128 (__TEXT,__text) non-external _Person.description
+</code></pre>
+<p><strong>符号类型</strong>：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>符号</th><th>说明</th></tr></thead><tbody><tr><td>`external`</td><td>外部符号（可被其他模块链接）</td></tr><tr><td>`non-external`</td><td>内部符号（仅当前模块使用）</td></tr><tr><td>`undefined`</td><td>未定义（需要在其他库中查找）</td></tr></tbody></table></div>
+<hr/>
+<h2 id="3-dyld-动态链接">3. dyld 动态链接</h2>
+<h3 id="31-dyld-简介">3.1 dyld 简介</h3>
+<p><strong>dyld（Dynamic Linker）</strong>：</p>
+<pre><code>作用：动态链接器，在程序启动时加载所有依赖的动态库
+
+位置：/usr/lib/dyld
+</code></pre>
+<p><strong>启动流程</strong>：</p>
+<pre><code>1. Kernel 加载 dyld
+2. dyld 加载 Mach-O 主程序
+3. dyld 加载共享缓存（系统动态库）
+4. dyld 递归加载所有依赖的动态库
+5. Rebase &amp; Bind（符号重定位）
+6. ObjC Runtime Setup
+7. 初始化（+load、constructor）
+8. 跳转到 main()
+</code></pre>
+<h3 id="32-rebase--bind符号重定位">3.2 Rebase &amp; Bind（符号重定位）</h3>
+<p><strong>Rebase（重定位）</strong>：</p>
+<pre><code>作用：修正内部指针地址
+
+原因：ASLR（地址空间布局随机化）导致加载地址不确定
+
+过程：
+1. 读取所有 Rebase 指针
+2. 加上 ASLR 偏移值
+3. 写回指针位置
+</code></pre>
+<p><strong>Bind（绑定）</strong>：</p>
+<pre><code>作用：绑定外部符号（动态库中的函数）
+
+过程：
+1. 读取所有 Bind 指针
+2. 通过符号名查找动态库中的符号地址
+3. 将地址写入指针位置
+</code></pre>
+<p><strong>优化</strong>：</p>
+<pre><code>1. Rebase 使用并发处理（多线程同时处理）
+2. Bind 使用递归查找
+3. 共享缓存：系统动态库预绑定，减少 Bind 时间
+</code></pre>
+<h3 id="33-objc-runtime-setup">3.3 ObjC Runtime Setup</h3>
+<p><strong>setup 过程</strong>：</p>
+<pre><code>1. 读取所有 ObjC 类、Category、Protocol
+2. 注册所有类（objc_readClassPair）
+3. 插入 Category 方法到类的方法列表
+4. 调用所有 +load 方法
+</code></pre>
+<p><strong>优化</strong>：</p>
+<pre><code>1. 缓存类信息
+2. 延迟 +load 调用（按需加载）
+3. 移除无用类（Dead Code Stripping）
+</code></pre>
+<hr/>
+<hr/>
+<h2 id="7-常见问题整理">7. 常见问题整理</h2>
+<h3 id="71-编译流程">7.1 编译流程</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>问题</th><th>答案要点</th><th>难度</th></tr></thead><tbody><tr><td>iOS 应用的编译流程？</td><td>预处理 → 编译 → 汇编 → 链接 → 签名</td><td>⭐⭐⭐</td></tr><tr><td>预处理的作用？</td><td>处理 # 指令，展开宏、包含头文件</td><td>⭐⭐⭐</td></tr><tr><td>AST 是什么？</td><td>抽象语法树，表示代码结构</td><td>⭐⭐⭐⭐</td></tr></tbody></table></div>
+<h3 id="72-mach-o-文件">7.2 Mach-O 文件</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>问题</th><th>答案要点</th><th>难度</th></tr></thead><tbody><tr><td>Mach-O 的组成？</td><td>Header + Load Commands + Data</td><td>⭐⭐⭐⭐</td></tr><tr><td>__TEXT 和 __DATA 的区别？</td><td>__TEXT：只读代码；__DATA：可读写数据</td><td>⭐⭐⭐</td></tr><tr><td>符号表的作用？</td><td>存储函数、类名等符号，用于调试和符号化</td><td>⭐⭐⭐⭐</td></tr></tbody></table></div>
+<hr/>
+<h2 id="8-参考资料">8. 参考资料</h2>
+<h3 id="优质文章">优质文章</h3>
+<ul>
+<li><a href="https://juejin.cn/post/6844904165773328392">iOS App启动优化</a></li>
+<li><a href="https://www.jianshu.com/p/8e0b38719278">美团App冷启动治理</a></li>
+<li><a href="https://medium.com/@sarunw/understanding-ios-app-startup-time-178ad9a3986b">Understanding iOS App Startup Time</a></li>
+<li><a href="https://www.jianshu.com/p/d1d89de0de7">Mach-O 文件结构详解</a></li>
+</ul>
+<h3 id="apple-文档">Apple 文档</h3>
+<ul>
+<li><a href="https://developer.apple.com/library/archive/documentation/mac/Conceptual/MachO/index.html">Mach-O File Format</a></li>
+<li><a href="https://developer.apple.com/library/archive/documentation/Darwin/Reference/ManPages/man5/dyld.1.html">dyld: Dynamic Linking On OS X</a></li>
+</ul>
+<h3 id="开源工具">开源工具</h3>
+<ul>
+<li><a href="https://github.com/apple/llvm">apple-llvm/llvm</a> - LLVM 编译器</li>
+<li><a href="https://github.com/apple/swift">apple/swift</a> - Swift 编译器</li>
+</ul>
+<hr/>
+<p><strong>最后更新</strong>：2026-04-07
+<strong>状态</strong>： 已完成</p></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/ios-client-architecture-complete-guide/"><span class="pager-hint">上一篇</span><span class="pager-title">iOS 客户端常见架构模式对比：MVC、MVVM、VIPER 与 Clean Architecture</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/llvm-and-clang-compiler-principles/"><span class="pager-hint">下一篇</span><span class="pager-title">LLVM 与 Clang 编译流程简析</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#2-mach-o-文件结构">2. Mach-O 文件结构</a></li><li class="toc-level-3"><a href="#21-mach-o-组成">2.1 Mach-O 组成</a></li><li class="toc-level-3"><a href="#22-header头部">2.2 Header（头部）</a></li><li class="toc-level-3"><a href="#23-load-commands加载命令">2.3 Load Commands（加载命令）</a></li><li class="toc-level-3"><a href="#24-segment段和-section节">2.4 Segment（段）和 Section（节）</a></li><li class="toc-level-3"><a href="#25-符号表symbol-table">2.5 符号表（Symbol Table）</a></li><li class="toc-level-2"><a href="#3-dyld-动态链接">3. dyld 动态链接</a></li><li class="toc-level-3"><a href="#31-dyld-简介">3.1 dyld 简介</a></li><li class="toc-level-3"><a href="#32-rebase--bind符号重定位">3.2 Rebase &amp; Bind（符号重定位）</a></li><li class="toc-level-3"><a href="#33-objc-runtime-setup">3.3 ObjC Runtime Setup</a></li><li class="toc-level-2"><a href="#7-常见问题整理">7. 常见问题整理</a></li><li class="toc-level-3"><a href="#71-编译流程">7.1 编译流程</a></li><li class="toc-level-3"><a href="#72-mach-o-文件">7.2 Mach-O 文件</a></li><li class="toc-level-2"><a href="#8-参考资料">8. 参考资料</a></li><li class="toc-level-3"><a href="#优质文章">优质文章</a></li><li class="toc-level-3"><a href="#apple-文档">Apple 文档</a></li><li class="toc-level-3"><a href="#开源工具">开源工具</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"mach-o-and-dyld-linker-principles\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"mach-o-and-dyld-linker-principles\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"mach-o-and-dyld-linker-principles\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"5oacBtudk_X1-mv58zpKpv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"Mach-O 文件格式与 dyld 动态链接过程笔记\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2025-07-20\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"工程化与架构\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"Mach-O / dyld / fishhook\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"p\",\"p-0\",{\"children\":\"Mach-O 描述段、节与加载命令；静态链接合并目标文件，动态链接在启动时由 dyld 完成重定位与 bind。\"}],\"\\n\",[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h2\",\"h2-0\",{\"id\":\"2-mach-o-文件结构\",\"children\":\"2. Mach-O 文件结构\"}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"21-mach-o-组成\",\"children\":\"2.1 Mach-O 组成\"}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Header + Load Commands + Data\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"┌─────────────────────────────────┐\\n│  Header（头部）                   │\\n│  - CPU 类型                      │\\n│  - 文件类型                       │\\n│  - 加载命令数量                   │\\n├─────────────────────────────────┤\\n│  Load Commands（加载命令）        │\\n│  - SEGMENT command（段命令）      │\\n│  - DYLIB command（动态库命令）    │\\n│  - SYMTAB command（符号表命令）   │\\n├─────────────────────────────────┤\\n│  Data（数据）                     │\\n│  - __TEXT（代码段）               │\\n│  - __DATA（数据段）               │\\n│  - __LINKEDIT（链接信息）         │\\n└─────────────────────────────────┘\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"22-header头部\",\"children\":\"2.2 Header（头部）\"}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"结构\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-c\",\"children\":\"struct mach_header_64 {\\n    uint32_t    magic;      // 魔数：0xFEEDFACE + 0x01000000 (64-bit)\\n    uint32_t    cputype;    // CPU 类型：0x01000007 (ARM64)\\n    uint32_t    cpusubtype; // CPU 子类型\\n    uint32_t    filetype;   // 文件类型：0x2 (EXECUTE)\\n    uint32_t    ncmds;      // 加载命令数量\\n    uint32_t    sizeofcmds;  // 加载命令大小\\n    uint32_t    flags;      // 标志位\\n    uint32_t    reserved;   // 保留字段\\n};\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"23-load-commands加载命令\",\"children\":\"2.3 Load Commands（加载命令）\"}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"常用加载命令\"}],\"：\"]}],\"\\n\",[\"$\",\"div\",\"div-0\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"命令\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"说明\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"示例\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`LC_SEGMENT`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"定义段（__TEXT/__DATA）\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"代码段、数据段\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`LC_SYMTAB`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"符号表\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"存储函数、类名等符号\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`LC_DYSYMTAB`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"动态符号表\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"动态库的符号\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`LC_LOAD_DYLIB`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"加载动态库\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"`@rpath/System/Library/Frameworks/...`\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`LC_UUID`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"UUID\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"唯一标识符\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"p\",\"p-4\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Load Command 示例\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-bash\",\"children\":\"# 使用 otool 查看加载命令\\notool -l MyApp\\n\\n# 输出：\\nLoad command 1\\n  cmd LC_SEGMENT\\n  segname __TEXT\\nLoad command 2\\n  cmd LC_SYMTAB\\n  symtab\\nLoad command 3\\n  cmd LC_LOAD_DYLIB\\n    dylib /usr/lib/libobjc.A.dylib\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-3\",{\"id\":\"24-segment段和-section节\",\"children\":\"2.4 Segment（段）和 Section（节）\"}],\"\\n\",[\"$\",\"p\",\"p-5\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"段与节的层次\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"Segment（段）\\n  └── Section（节）\\n      └── Raw Data（原始数据）\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-6\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"常见 Segment\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-bash\",\"children\":\"# 使用 size 命令查看段和节\\nsize -x -m MyApp\\n\\n# 输出：\\nSegment __TEXT: 0x1000\\n  Section __text: 0x31 (addr 0x100000f50 offset 3920)\\n  Section __stubs: 0x6 (addr 0x100000f82 offset 3970)\\n\\nSegment __DATA: 0x1000\\n  Section __nl_symbol_ptr: 0x8 (addr 0x100001000 offset 4096)\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-7\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"__TEXT 段\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-5\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"- 只读代码段\\n- 包含机器码\\n- 存储位置：从 0x100000000 开始（ASLR 后会随机偏移）\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-8\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"__DATA 段\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-6\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"- 可读写数据段\\n- 包含：\\n  - 已初始化数据（__data）\\n  - 未初始化数据（__bss）\\n- 存储位置：紧跟在 __TEXT 后\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-4\",{\"id\":\"25-符号表symbol-table\",\"children\":\"2.5 符号表（Symbol Table）\"}],\"\\n\",[\"$\",\"p\",\"p-9\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"符号表结构\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-7\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"\u003c起始地址\u003e \u003c结束地址\u003e \u003c函数\u003e [\u003c文件名：行号\u003e]\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-10\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"示例\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-8\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-bash\",\"children\":\"# 使用 nm 查看符号表\\nnm -nm MyApp\\n\\n# 输出：\\n                     (undefined) external _printf (from System)\\n0000000100000f50 (__TEXT,__text) external _main\\n0000000100001128 (__TEXT,__text) non-external _Person.description\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-11\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"符号类型\"}],\"：\"]}],\"\\n\",[\"$\",\"div\",\"div-1\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"符号\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"说明\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`external`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"外部符号（可被其他模块链接）\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`non-external`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"内部符号（仅当前模块使用）\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`undefined`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"未定义（需要在其他库中查找）\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"hr\",\"hr-1\",{}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"3-dyld-动态链接\",\"children\":\"3. dyld 动态链接\"}],\"\\n\",[\"$\",\"h3\",\"h3-5\",{\"id\":\"31-dyld-简介\",\"children\":\"3.1 dyld 简介\"}],\"\\n\",[\"$\",\"p\",\"p-12\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"dyld（Dynamic Linker）\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-9\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"作用：动态链接器，在程序启动时加载所有依赖的动态库\\n\\n位置：/usr/lib/dyld\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-13\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"启动流程\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-10\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. Kernel 加载 dyld\\n2. dyld 加载 Mach-O 主程序\\n3. dyld 加载共享缓存（系统动态库）\\n4. dyld 递归加载所有依赖的动态库\\n5. Rebase \u0026 Bind（符号重定位）\\n6. ObjC Runtime Setup\\n7. 初始化（+load、constructor）\\n8. 跳转到 main()\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-6\",{\"id\":\"32-rebase--bind符号重定位\",\"children\":\"3.2 Rebase \u0026 Bind（符号重定位）\"}],\"\\n\",[\"$\",\"p\",\"p-14\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Rebase（重定位）\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-11\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"作用：修正内部指针地址\\n\\n原因：ASLR（地址空间布局随机化）导致加载地址不确定\\n\\n过程：\\n1. 读取所有 Rebase 指针\\n2. 加上 ASLR 偏移值\\n3. 写回指针位置\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-15\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Bind（绑定）\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-12\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"作用：绑定外部符号（动态库中的函数）\\n\\n过程：\\n1. 读取所有 Bind 指针\\n2. 通过符号名查找动态库中的符号地址\\n3. 将地址写入指针位置\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-16\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"优化\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-13\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. Rebase 使用并发处理（多线程同时处理）\\n2. Bind 使用递归查找\\n3. 共享缓存：系统动态库预绑定，减少 Bind 时间\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-7\",{\"id\":\"33-objc-runtime-setup\",\"children\":\"3.3 ObjC Runtime Setup\"}],\"\\n\",[\"$\",\"p\",\"p-17\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"setup 过程\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-14\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. 读取所有 ObjC 类、Category、Protocol\\n2. 注册所有类（objc_readClassPair）\\n3. 插入 Category 方法到类的方法列表\\n4. 调用所有 +load 方法\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-18\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"优化\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-15\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. 缓存类信息\\n2. 延迟 +load 调用（按需加载）\\n3. 移除无用类（Dead Code Stripping）\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-2\",{}],\"\\n\",[\"$\",\"hr\",\"hr-3\",{}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"7-常见问题整理\",\"children\":\"7. 常见问题整理\"}],\"\\n\",[\"$\",\"h3\",\"h3-8\",{\"id\":\"71-编译流程\",\"children\":\"7.1 编译流程\"}],\"\\n\",[\"$\",\"div\",\"div-2\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"问题\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"答案要点\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"难度\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"iOS 应用的编译流程？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"预处理 → 编译 → 汇编 → 链接 → 签名\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"预处理的作用？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"处理 # 指令，展开宏、包含头文件\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"AST 是什么？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"抽象语法树，表示代码结构\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h3\",\"h3-9\",{\"id\":\"72-mach-o-文件\",\"children\":\"7.2 Mach-O 文件\"}],\"\\n\",[\"$\",\"div\",\"div-3\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"问题\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"答案要点\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"难度\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Mach-O 的组成？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Header + Load Commands + Data\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"__TEXT 和 __DATA 的区别？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"__TEXT：只读代码；__DATA：可读写数据\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"符号表的作用？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"存储函数、类名等符号，用于调试和符号化\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"hr\",\"hr-4\",{}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"8-参考资料\",\"children\":\"8. 参考资料\"}],\"\\n\",[\"$\",\"h3\",\"h3-10\",{\"id\":\"优质文章\",\"children\":\"优质文章\"}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://juejin.cn/post/6844904165773328392\",\"children\":\"iOS App启动优化\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://www.jianshu.com/p/8e0b38719278\",\"children\":\"美团App冷启动治理\"}]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://medium.com/@sarunw/understanding-ios-app-startup-time-178ad9a3986b\",\"children\":\"Understanding iOS App Startup Time\"}]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://www.jianshu.com/p/d1d89de0de7\",\"children\":\"Mach-O 文件结构详解\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-11\",{\"id\":\"apple-文档\",\"children\":\"Apple 文档\"}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/library/archive/documentation/mac/Conceptual/MachO/index.html\",\"children\":\"Mach-O File Format\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://developer.apple.com/library/archive/documentation/Darwin/Reference/ManPages/man5/dyld.1.html\",\"children\":\"dyld: Dynamic Linking On OS X\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-12\",{\"id\":\"开源工具\",\"children\":\"开源工具\"}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/apple/llvm\",\"children\":\"apple-llvm/llvm\"}],\" - LLVM 编译器\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"a\",\"a-0\",{\"href\":\"https://github.com/apple/swift\",\"children\":\"apple/swift\"}],\" - Swift 编译器\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-5\",{}],\"\\n\",[\"$\",\"p\",\"p-19\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"最后更新\"}],\"：2026-04-07\\n\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"状态\"}],\"： 已完成\"]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/ios-client-architecture-complete-guide\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"iOS 客户端常见架构模式对比：MVC、MVVM、VIPER 与 Clean Architecture\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/llvm-and-clang-compiler-principles\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"LLVM 与 Clang 编译流程简析\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"2-mach-o-文件结构-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#2-mach-o-文件结构\",\"children\":\"2. Mach-O 文件结构\"}]}],[\"$\",\"li\",\"21-mach-o-组成-1\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#21-mach-o-组成\",\"children\":\"2.1 Mach-O 组成\"}]}],[\"$\",\"li\",\"22-header头部-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#22-header头部\",\"children\":\"2.2 Header（头部）\"}]}],[\"$\",\"li\",\"23-load-commands加载命令-3\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#23-load-commands加载命令\",\"children\":\"2.3 Load Commands（加载命令）\"}]}],[\"$\",\"li\",\"24-segment段和-section节-4\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#24-segment段和-section节\",\"children\":\"2.4 Segment（段）和 Section（节）\"}]}],[\"$\",\"li\",\"25-符号表symbol-table-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#25-符号表symbol-table\",\"children\":\"2.5 符号表（Symbol Table）\"}]}],[\"$\",\"li\",\"3-dyld-动态链接-6\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#3-dyld-动态链接\",\"children\":\"3. dyld 动态链接\"}]}],[\"$\",\"li\",\"31-dyld-简介-7\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#31-dyld-简介\",\"children\":\"3.1 dyld 简介\"}]}],[\"$\",\"li\",\"32-rebase--bind符号重定位-8\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#32-rebase--bind符号重定位\",\"children\":\"3.2 Rebase \u0026 Bind（符号重定位）\"}]}],[\"$\",\"li\",\"33-objc-runtime-setup-9\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#33-objc-runtime-setup\",\"children\":\"3.3 ObjC Runtime Setup\"}]}],[\"$\",\"li\",\"7-常见问题整理-10\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#7-常见问题整理\",\"children\":\"7. 常见问题整理\"}]}],[\"$\",\"li\",\"71-编译流程-11\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#71-编译流程\",\"children\":\"7.1 编译流程\"}]}],[\"$\",\"li\",\"72-mach-o-文件-12\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#72-mach-o-文件\",\"children\":\"7.2 Mach-O 文件\"}]}],[\"$\",\"li\",\"8-参考资料-13\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#8-参考资料\",\"children\":\"8. 参考资料\"}]}],[\"$\",\"li\",\"优质文章-14\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#优质文章\",\"children\":\"优质文章\"}]}],[\"$\",\"li\",\"apple-文档-15\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#apple-文档\",\"children\":\"Apple 文档\"}]}],[\"$\",\"li\",\"开源工具-16\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#开源工具\",\"children\":\"开源工具\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

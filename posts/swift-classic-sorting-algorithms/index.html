@@ -1,0 +1,152 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">常用排序算法的 Swift 实现与优化笔记</h1><div class="article-meta"><time>2024-02-18</time><span class="meta-sep">·</span><span>数据结构与算法</span><span class="meta-sep">·</span><span class="article-tags">排序算法 / Swift / 快速排序 / 归并排序 / 堆排序</span></div></header><div class="markdown-body"><h2 id="常见排序算法复杂度对比">常见排序算法复杂度对比</h2>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>排序算法</th><th>平均时间复杂度</th><th>最坏时间复杂度</th><th>最好时间复杂度</th><th>空间复杂度</th><th>稳定性</th></tr></thead><tbody><tr><td>冒泡排序（Bubble Sort）</td><td>O(n²)</td><td>O(n²)</td><td>O(n)</td><td>O(1)</td><td>稳定</td></tr><tr><td>选择排序（Selection Sort）</td><td>O(n²)</td><td>O(n²)</td><td>O(n²)</td><td>O(1)</td><td>不稳定</td></tr><tr><td>插入排序（Insertion Sort）</td><td>O(n²)</td><td>O(n²)</td><td>O(n)</td><td>O(1)</td><td>稳定</td></tr><tr><td>归并排序（Merge Sort）</td><td>O(n log n)</td><td>O(n log n)</td><td>O(n log n)</td><td>O(n)</td><td>稳定</td></tr><tr><td>快速排序（Quick Sort）</td><td>O(n log n)</td><td>O(n²)</td><td>O(n log n)</td><td>O(log n)</td><td>不稳定</td></tr><tr><td>堆排序（Heap Sort）</td><td>O(n log n)</td><td>O(n log n)</td><td>O(n log n)</td><td>O(1)</td><td>不稳定</td></tr></tbody></table></div>
+<h2 id="1-冒泡排序与边界收敛优化">1. 冒泡排序与边界收敛优化</h2>
+<p>普通冒泡排序每轮两两比较相邻元素；当数组尾部已经局部有序时，可以记录最后一次交换的位置，直接缩小下一轮扫描的上界：</p>
+<pre><code class="language-swift">func bubbleSort(_ nums: inout [Int]) {
+    guard nums.count &gt; 1 else { return }
+    var end = nums.count - 1
+    while end &gt; 0 {
+        var sortedIndex = 0
+        for begin in 1...end {
+            if nums[begin] &lt; nums[begin - 1] {
+                nums.swapAt(begin, begin - 1)
+                sortedIndex = begin - 1
+            }
+        }
+        end = sortedIndex
+    }
+}
+</code></pre>
+<h2 id="2-归并排序分治">2. 归并排序（分治）</h2>
+<p>归并排序将数组不断二分，然后借助左半区辅助数组将两个有序区间合并：</p>
+<pre><code class="language-swift">class MergeSort {
+    private var leftArray = [Int]()
+
+    func sort(_ nums: inout [Int]) {
+        guard nums.count &gt; 1 else { return }
+        leftArray = Array(repeating: 0, count: nums.count &gt;&gt; 1)
+        divide(&amp;nums, begin: 0, end: nums.count)
+    }
+
+    private func divide(_ nums: inout [Int], begin: Int, end: Int) {
+        if end - begin &lt; 2 { return }
+        let mid = (begin + end) &gt;&gt; 1
+        divide(&amp;nums, begin: begin, end: mid)
+        divide(&amp;nums, begin: mid, end: end)
+        merge(&amp;nums, begin: begin, mid: mid, end: end)
+    }
+
+    private func merge(_ nums: inout [Int], begin: Int, mid: Int, end: Int) {
+        var li = 0, le = mid - begin
+        var ri = mid, re = end
+        var ai = begin
+
+        for i in li..&lt;le {
+            leftArray[i] = nums[begin + i]
+        }
+
+        while li &lt; le {
+            if ri &lt; re &amp;&amp; nums[ri] &lt; leftArray[li] {
+                nums[ai] = nums[ri]
+                ai += 1
+                ri += 1
+            } else {
+                nums[ai] = leftArray[li]
+                ai += 1
+                li += 1
+            }
+        }
+    }
+}
+</code></pre>
+<h2 id="3-快速排序随机轴点分割">3. 快速排序（随机轴点分割）</h2>
+<p>通过随机选择轴点元素，可以避免在输入数组接近有序时退化为 $O(n^2)$：</p>
+<pre><code class="language-swift">class QuickSort {
+    func sort(_ nums: inout [Int]) {
+        guard nums.count &gt; 1 else { return }
+        quickSort(&amp;nums, begin: 0, end: nums.count)
+    }
+
+    private func quickSort(_ nums: inout [Int], begin: Int, end: Int) {
+        if end - begin &lt; 2 { return }
+        let mid = pivotIndex(&amp;nums, begin: begin, end: end)
+        quickSort(&amp;nums, begin: begin, end: mid)
+        quickSort(&amp;nums, begin: mid + 1, end: end)
+    }
+
+    private func pivotIndex(_ nums: inout [Int], begin: Int, end: Int) -&gt; Int {
+        let randomIdx = Int.random(in: begin..&lt;end)
+        nums.swapAt(begin, randomIdx)
+        let pivot = nums[begin]
+
+        var l = begin
+        var r = end - 1
+
+        while l &lt; r {
+            while l &lt; r {
+                if pivot &lt; nums[r] {
+                    r -= 1
+                } else {
+                    nums[l] = nums[r]
+                    l += 1
+                    break
+                }
+            }
+            while l &lt; r {
+                if pivot &gt; nums[l] {
+                    l += 1
+                } else {
+                    nums[r] = nums[l]
+                    r -= 1
+                    break
+                }
+            }
+        }
+        nums[l] = pivot
+        return l
+    }
+}
+</code></pre>
+<h2 id="4-堆排序原地建堆与下滤">4. 堆排序（原地建堆与下滤）</h2>
+<p>堆排序先通过自下而上的下滤在 $O(n)$ 时间内原地建堆，再依次将堆顶最大值交换至数组末尾并恢复堆性质：</p>
+<pre><code class="language-swift">class HeapSort {
+    private var heapSize = 0
+
+    func sort(_ nums: inout [Int]) {
+        heapSize = nums.count
+        guard heapSize &gt; 1 else { return }
+
+        for i in stride(from: (heapSize &gt;&gt; 1) - 1, through: 0, by: -1) {
+            siftDown(&amp;nums, index: i)
+        }
+
+        while heapSize &gt; 1 {
+            heapSize -= 1
+            nums.swapAt(0, heapSize)
+            siftDown(&amp;nums, index: 0)
+        }
+    }
+
+    private func siftDown(_ nums: inout [Int], index: Int) {
+        var idx = index
+        let element = nums[idx]
+        let half = heapSize &gt;&gt; 1
+
+        while idx &lt; half {
+            var childIdx = (idx &lt;&lt; 1) + 1
+            var child = nums[childIdx]
+            let rightIdx = childIdx + 1
+
+            if rightIdx &lt; heapSize &amp;&amp; nums[rightIdx] &gt; child {
+                childIdx = rightIdx
+                child = nums[rightIdx]
+            }
+
+            if element &gt;= child { break }
+            nums[idx] = child
+            idx = childIdx
+        }
+        nums[idx] = element
+    }
+}
+</code></pre></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/sdwebimage-pre-decode-memory-early-warning/"><span class="pager-hint">上一篇</span><span class="pager-title">基于 SDWebImage 的图片解码前内存预警方案</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/algorithm-problem-solving-methodology/"><span class="pager-hint">下一篇</span><span class="pager-title">算法刷题常见套路总结：二叉树、双指针与动态规划</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#常见排序算法复杂度对比">常见排序算法复杂度对比</a></li><li class="toc-level-2"><a href="#1-冒泡排序与边界收敛优化">1. 冒泡排序与边界收敛优化</a></li><li class="toc-level-2"><a href="#2-归并排序分治">2. 归并排序（分治）</a></li><li class="toc-level-2"><a href="#3-快速排序随机轴点分割">3. 快速排序（随机轴点分割）</a></li><li class="toc-level-2"><a href="#4-堆排序原地建堆与下滤">4. 堆排序（原地建堆与下滤）</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"swift-classic-sorting-algorithms\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"swift-classic-sorting-algorithms\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"swift-classic-sorting-algorithms\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"dEgt93BvgTcWyaa0RRQEKv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n13:T453,class MergeSort {\n    private var leftArray = [Int]()\n\n    func sort(_ nums: inout [Int]) {\n        guard nums.count \u003e 1 else { return }\n        leftArray = Array(repeating: 0, count: nums.count \u003e\u003e 1)\n        divide(\u0026nums, begin: 0, end: nums.count)\n    }\n\n    private func divide(_ nums: inout [Int], begin: Int, end: Int) {\n        if end - begin \u003c 2 { return }\n        let mid = (begin + end) \u003e\u003e 1\n        divide(\u0026nums, begin: begin, end: mid)\n        divide(\u0026nums, begin: mid, end: end)\n        merge(\u0026nums, begin: begin, mid: mid, end: end)\n    }\n\n    private func merge(_ nums: inout [Int], begin: Int, mid: Int, end: Int) {\n        var li = 0, le = mid - begin\n        var ri = mid, re = end\n        var ai = begin\n\n        for i in li..\u003cle {\n            leftArray[i] = nums[begin + i]\n        }\n\n        while li \u003c le {\n            if ri \u003c re \u0026\u0026 nums[ri] \u003c leftArray[li] {\n                nums[ai] = nums[ri]\n                ai += 1\n                ri += 1\n            } else {\n                nums[ai] = leftArray[li]\n                ai += 1\n                li += 1\n            }\n        }\n    }\n}\n14:T4db,class QuickSort {\n    func sort(_ nums: inout [Int]) {\n        guard nums.count \u003e 1 else { return }\n        quickSort(\u0026nums, begin: 0, end: nums.count)\n    }\n\n    private func quickSort(_ nums: inout [Int], begin: Int, end: Int) {\n        if end - begin \u003c 2 { return }\n        let mid = pivotIndex(\u0026nums, begin: begin, end: end)\n        quickSort(\u0026nums, begin: begin, end: mid)\n        quickSort(\u0026nums, begin: mid + 1, end: end)\n    }\n\n    private func pivotIndex(_ nums: inout [Int], begin: Int, end: Int) -\u003e Int {\n        let randomIdx = Int.random(in: begin..\u003cend)\n        nums.swapAt(begin, randomIdx)\n        le"])</script><script>self.__next_f.push([1,"t pivot = nums[begin]\n\n        var l = begin\n        var r = end - 1\n\n        while l \u003c r {\n            while l \u003c r {\n                if pivot \u003c nums[r] {\n                    r -= 1\n                } else {\n                    nums[l] = nums[r]\n                    l += 1\n                    break\n                }\n            }\n            while l \u003c r {\n                if pivot \u003e nums[l] {\n                    l += 1\n                } else {\n                    nums[r] = nums[l]\n                    r -= 1\n                    break\n                }\n            }\n        }\n        nums[l] = pivot\n        return l\n    }\n}\n15:T401,class HeapSort {\n    private var heapSize = 0\n\n    func sort(_ nums: inout [Int]) {\n        heapSize = nums.count\n        guard heapSize \u003e 1 else { return }\n\n        for i in stride(from: (heapSize \u003e\u003e 1) - 1, through: 0, by: -1) {\n            siftDown(\u0026nums, index: i)\n        }\n\n        while heapSize \u003e 1 {\n            heapSize -= 1\n            nums.swapAt(0, heapSize)\n            siftDown(\u0026nums, index: 0)\n        }\n    }\n\n    private func siftDown(_ nums: inout [Int], index: Int) {\n        var idx = index\n        let element = nums[idx]\n        let half = heapSize \u003e\u003e 1\n\n        while idx \u003c half {\n            var childIdx = (idx \u003c\u003c 1) + 1\n            var child = nums[childIdx]\n            let rightIdx = childIdx + 1\n\n            if rightIdx \u003c heapSize \u0026\u0026 nums[rightIdx] \u003e child {\n                childIdx = rightIdx\n                child = nums[rightIdx]\n            }\n\n            if element \u003e= child { break }\n            nums[idx] = child\n            idx = childIdx\n        }\n        nums[idx] = element\n    }\n}\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"常用排序算法的 Swift 实现与优化笔记\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2024-02-18\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"数据结构与算法\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"排序算法 / Swift / 快速排序 / 归并排序 / 堆排序\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"h2\",\"h2-0\",{\"id\":\"常见排序算法复杂度对比\",\"children\":\"常见排序算法复杂度对比\"}],\"\\n\",[\"$\",\"div\",\"div-0\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"排序算法\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"平均时间复杂度\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"最坏时间复杂度\"}],[\"$\",\"th\",\"th-3\",{\"children\":\"最好时间复杂度\"}],[\"$\",\"th\",\"th-4\",{\"children\":\"空间复杂度\"}],[\"$\",\"th\",\"th-5\",{\"children\":\"稳定性\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"冒泡排序（Bubble Sort）\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"O(n)\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"O(1)\"}],[\"$\",\"td\",\"td-5\",{\"children\":\"稳定\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"选择排序（Selection Sort）\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"O(1)\"}],[\"$\",\"td\",\"td-5\",{\"children\":\"不稳定\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"插入排序（Insertion Sort）\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"O(n)\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"O(1)\"}],[\"$\",\"td\",\"td-5\",{\"children\":\"稳定\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"归并排序（Merge Sort）\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"O(n)\"}],[\"$\",\"td\",\"td-5\",{\"children\":\"稳定\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"快速排序（Quick Sort）\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"O(n²)\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"O(log n)\"}],[\"$\",\"td\",\"td-5\",{\"children\":\"不稳定\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"堆排序（Heap Sort）\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"O(n log n)\"}],[\"$\",\"td\",\"td-4\",{\"children\":\"O(1)\"}],[\"$\",\"td\",\"td-5\",{\"children\":\"不稳定\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"1-冒泡排序与边界收敛优化\",\"children\":\"1. 冒泡排序与边界收敛优化\"}],\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"普通冒泡排序每轮两两比较相邻元素；当数组尾部已经局部有序时，可以记录最后一次交换的位置，直接缩小下一轮扫描的上界：\"}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"func bubbleSort(_ nums: inout [Int]) {\\n    guard nums.count \u003e 1 else { return }\\n    var end = nums.count - 1\\n    while end \u003e 0 {\\n        var sortedIndex = 0\\n        for begin in 1...end {\\n            if nums[begin] \u003c nums[begin - 1] {\\n                nums.swapAt(begin, begin - 1)\\n                sortedIndex = begin - 1\\n            }\\n        }\\n        end = sortedIndex\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"2-归并排序分治\",\"children\":\"2. 归并排序（分治）\"}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":\"归并排序将数组不断二分，然后借助左半区辅助数组将两个有序区间合并：\"}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"$13\"}]}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"3-快速排序随机轴点分割\",\"children\":\"3. 快速排序（随机轴点分割）\"}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":\"通过随机选择轴点元素，可以避免在输入数组接近有序时退化为 $O(n^2)$：\"}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"$14\"}]}],\"\\n\",[\"$\",\"h2\",\"h2-4\",{\"id\":\"4-堆排序原地建堆与下滤\",\"children\":\"4. 堆排序（原地建堆与下滤）\"}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":\"堆排序先通过自下而上的下滤在 $O(n)$ 时间内原地建堆，再依次将堆顶最大值交换至数组末尾并恢复堆性质：\"}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"$15\"}]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/sdwebimage-pre-decode-memory-early-warning\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"基于 SDWebImage 的图片解码前内存预警方案\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/algorithm-problem-solving-methodology\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"算法刷题常见套路总结：二叉树、双指针与动态规划\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"常见排序算法复杂度对比-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#常见排序算法复杂度对比\",\"children\":\"常见排序算法复杂度对比\"}]}],[\"$\",\"li\",\"1-冒泡排序与边界收敛优化-1\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#1-冒泡排序与边界收敛优化\",\"children\":\"1. 冒泡排序与边界收敛优化\"}]}],[\"$\",\"li\",\"2-归并排序分治-2\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#2-归并排序分治\",\"children\":\"2. 归并排序（分治）\"}]}],[\"$\",\"li\",\"3-快速排序随机轴点分割-3\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#3-快速排序随机轴点分割\",\"children\":\"3. 快速排序（随机轴点分割）\"}]}],[\"$\",\"li\",\"4-堆排序原地建堆与下滤-4\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#4-堆排序原地建堆与下滤\",\"children\":\"4. 堆排序（原地建堆与下滤）\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

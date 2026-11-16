@@ -1,0 +1,311 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">Objective-C Category 加载过程与关联对象原理</h1><div class="article-meta"><time>2024-10-06</time><span class="meta-sep">·</span><span>iOS 底层与原理</span><span class="meta-sep">·</span><span class="article-tags">Objective-C / Category / 关联对象</span></div></header><div class="markdown-body"><p>Category 是在运行时将方法/属性/协议附加到已有类的机制；关联对象是 Runtime 通过全局哈希表为任意对象动态绑定键值数据的独立机制。两者常配合使用，但本质上是两个独立的知识点。</p>
+<hr/>
+<h2 id="一category分类">一、Category（分类）</h2>
+<h3 id="11-本质与作用">1.1 本质与作用</h3>
+<p>Category 最直接的作用是<strong>给已有类添加方法</strong>，其他用途包括：</p>
+<ul>
+<li>拆分单个过大的文件，便于多人同时开发一个类</li>
+<li>声明私有方法</li>
+<li>将功能相近的方法归组，提高可读性</li>
+</ul>
+<p>Category 是<strong>运行时决议</strong>的：OC 初始化时调用 <code>_read_images</code>，此时会加载所有类、协议和 Category，并将 Category 的内容合并进宿主类。</p>
+<p>底层结构体 <code>category_t</code>：</p>
+<pre><code class="language-c">struct category_t {
+    const char *name;                  // 分类名称
+    classref_t cls;                    // 宿主类
+    struct method_list_t *instanceMethods;  // 实例方法列表
+    struct method_list_t *classMethods;     // 类方法列表
+    struct protocol_list_t *protocols;      // 协议列表
+    struct property_list_t *instanceProperties; // 属性列表
+};
+</code></pre>
+<p><strong>注意</strong>：<code>category_t</code> 中有 <code>instanceProperties</code>，但这只是属性的 getter/setter 方法的<strong>声明</strong>，没有对应的 <code>ivar</code>（成员变量）。Category <strong>不能为已有类添加成员变量</strong>，因为运行时类的内存布局已经确定，无法再插入新的 ivar。</p>
+<blockquote>
+<p><code>属性 = getter + setter + ivar</code>，Category 里只能实现前两者，缺少 ivar。</p>
+</blockquote>
+<hr/>
+<h3 id="12-category-的加载流程">1.2 Category 的加载流程</h3>
+<pre><code>APP 启动
+  → dyld 加载 image
+  → _objc_init
+  → map_images
+  → _read_images           ← 加载所有类、协议、Category
+      → attachCategories   ← 将 Category 的方法/属性/协议合并进宿主类
+</code></pre>
+<p><strong>合并方式：头插法</strong></p>
+<p>Category 的方法是<strong>插入到宿主类方法列表的最前面</strong>，而不是追加到末尾。所以：</p>
+<ul>
+<li>宿主类和 Category 有同名方法时，Category 的方法会被<strong>优先找到</strong>（不是真正的覆盖，宿主类的方法仍然存在，只是排在后面找不到了）</li>
+<li>多个 Category 有同名方法时，<strong>最后编译</strong>的 Category 的方法排在最前面，会被优先调用</li>
+</ul>
+<blockquote>
+<p>编译顺序可在 Xcode → Build Phases → Compile Sources 中查看和调整。</p>
+</blockquote>
+<hr/>
+<h3 id="13-load-与-initialize">1.3 +load 与 +initialize</h3>
+<p><code>+load</code> 和 <code>+initialize</code> 都是类的特殊方法，但行为完全不同：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>对比项</th><th>`+load`</th><th>`+initialize`</th></tr></thead><tbody><tr><td>调用时机</td><td>APP 启动，`main` 函数**之前**</td><td>类**第一次接收到消息**时（懒加载）</td></tr><tr><td>调用方式</td><td>直接通过函数地址调用，**不走消息发送**</td><td>通过 `objc_msgSend` 调用</td></tr><tr><td>是否每个类都调用</td><td>每个类和分类的 `+load` **都会被调用**</td><td>只调用一次，懒加载</td></tr><tr><td>父子类顺序</td><td>先父类后子类，先宿主类后分类</td><td>先父类后子类</td></tr><tr><td>分类同名处理</td><td>宿主类和所有分类的 `+load` **全部执行**</td><td>只执行**最后编译**的分类的 `+initialize`（其余被覆盖）</td></tr><tr><td>是否需要调用 super</td><td>不需要（系统已处理顺序）</td><td>不需要（系统自动调用父类）</td></tr></tbody></table></div>
+<p><strong>为什么行为不同？</strong></p>
+<ul>
+<li><code>+initialize</code> 本质是 <code>objc_msgSend</code> 消息调用，遵循分类覆盖规则，所以只有排在最前面的版本会被调用</li>
+<li><code>+load</code> 不走消息发送，而是在 <code>_read_images</code> 阶段直接<strong>通过函数指针地址</strong>调用，所以每一个都能被执行，不会被覆盖</li>
+</ul>
+<pre><code class="language-objc">// +load 的典型用途：执行 Method Swizzling（只在这里做最安全）
++ (void)load {
+    static dispatch_once_t onceToken;
+    dispatch_once(&amp;onceToken, ^{
+        // 方法交换...
+    });
+}
+</code></pre>
+<hr/>
+<h3 id="14-category-vs-extension">1.4 Category vs Extension</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>对比项</th><th>Category（分类）</th><th>Extension（扩展）</th></tr></thead><tbody><tr><td>决议时机</td><td>运行时</td><td>编译时</td></tr><tr><td>生命周期</td><td>独立于宿主类</td><td>依附于宿主类，随之一起编译</td></tr><tr><td>能否有实现</td><td>有声明有实现</td><td>只有声明，实现写在宿主类 `.m` 中</td></tr><tr><td>能否为系统类添加</td><td>能</td><td>不能（无法修改系统类的 .m）</td></tr><tr><td>能否添加成员变量</td><td>不能</td><td>能</td></tr><tr><td>主要用途</td><td>添加方法、拆分功能</td><td>声明私有属性、私有方法、私有成员变量</td></tr></tbody></table></div>
+<blockquote>
+<p>Extension 可以看作一个&quot;<strong>匿名的分类</strong>&quot;，但它不是分类。</p>
+</blockquote>
+<hr/>
+<h3 id="15-category-面试高频题">1.5 Category 面试高频题</h3>
+<p><strong>Q1：Category 可以添加属性吗？可以添加成员变量吗？</strong></p>
+<ul>
+<li><strong>成员变量</strong>： 不能。Category 是运行时决议的，此时类的内存布局已经确定，无法再插入 ivar。</li>
+<li><strong>属性</strong>： 可以声明（<code>@property</code>），但编译器只会生成 getter/setter 的<strong>声明</strong>，不会生成 ivar 和对应的实现，调用时会 crash。若要真正使用，需要结合关联对象手动实现 getter/setter。</li>
+</ul>
+<p><strong>Q2：多个 Category 有同名方法，调用顺序是什么？会覆盖原类方法吗？</strong></p>
+<ul>
+<li><strong>不是真正的覆盖</strong>，宿主类的方法仍然存在于方法列表中，只是排在后面，正常的方法查找流程找不到它</li>
+<li>Category 的方法通过<strong>头插法</strong>插入宿主类方法列表的最前面，所以 Category 方法会被<strong>优先调用</strong></li>
+<li>多个 Category 有同名方法时，<strong>最后编译</strong>的 Category 的方法最先被找到</li>
+<li><code>+load</code> 方法例外：每个类和分类的 <code>+load</code> 都会被执行，不受覆盖影响</li>
+</ul>
+<p><strong>Q3：为什么 Method Swizzling 要在 +load 中执行，而不是 +initialize？</strong></p>
+<ul>
+<li><code>+initialize</code> 是懒加载，如果该类从未被使用，<code>+initialize</code> 永远不会执行，导致交换失效</li>
+<li><code>+load</code> 在 APP 启动时确保每个类都会调用，保证交换一定被执行</li>
+<li>同时要配合 <code>dispatch_once</code>，防止多次调用导致方法交换来回抵消而失效</li>
+</ul>
+<hr/>
+<h3 id="16-category-实战">1.6 Category 实战</h3>
+<h4>Method Swizzling 标准写法</h4>
+<pre><code class="language-objc">// UIViewController+Tracking.m
+@implementation UIViewController (Tracking)
+
++ (void)load {
+    static dispatch_once_t onceToken;
+    dispatch_once(&amp;onceToken, ^{
+        Class class = [self class];
+
+        SEL originalSelector = @selector(viewWillAppear:);
+        SEL swizzledSelector = @selector(xxx_viewWillAppear:);
+
+        Method originalMethod = class_getInstanceMethod(class, originalSelector);
+        Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+
+        // 先尝试添加方法，防止原类没有实现该方法时直接交换崩溃
+        BOOL didAddMethod = class_addMethod(class,
+                                            originalSelector,
+                                            method_getImplementation(swizzledMethod),
+                                            method_getTypeEncoding(swizzledMethod));
+        if (didAddMethod) {
+            class_replaceMethod(class,
+                                swizzledSelector,
+                                method_getImplementation(originalMethod),
+                                method_getTypeEncoding(originalMethod));
+        } else {
+            method_exchangeImplementations(originalMethod, swizzledMethod);
+        }
+    });
+}
+
+- (void)xxx_viewWillAppear:(BOOL)animated {
+    [self xxx_viewWillAppear:animated]; // 调用原方法（此时已交换，实际调用原 viewWillAppear:）
+    NSLog(@&quot;页面展示：%@&quot;, NSStringFromClass([self class]));
+}
+
+@end
+</code></pre>
+<blockquote>
+<p><strong>Tips：两个 Category 同时对同一方法做 Swizzling 会怎样？</strong></p>
+<p>如果两个 Category 分别将同一个原始方法（如 <code>viewWillAppear:</code>）与各自的方法交换，执行结果是：第一个 Category 交换后，第二个 Category 又把它换回来（因为拿到的 <code>originalMethod</code> 已经是第一次交换后的结果），最终效果等于没有交换。所以应避免多个 Category 对同一方法做 Swizzling。</p>
+</blockquote>
+<hr/>
+<h2 id="二关联对象associated-object">二、关联对象（Associated Object）</h2>
+<h3 id="21-什么是关联对象">2.1 什么是关联对象</h3>
+<p>关联对象是 OC Runtime 提供的一套机制，允许在<strong>不修改类定义</strong>的前提下，为<strong>任意 OC 对象</strong>动态绑定键值对数据。</p>
+<p>它的核心 API 只有三个：</p>
+<pre><code class="language-objc">// 设置关联值
+void objc_setAssociatedObject(id object, const void *key, id value, objc_AssociationPolicy policy);
+
+// 获取关联值
+id objc_getAssociatedObject(id object, const void *key);
+
+// 移除对象的所有关联值（慎用）
+void objc_removeAssociatedObjects(id object);
+</code></pre>
+<p><strong>关联策略（<code>objc_AssociationPolicy</code>）对照</strong>：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>策略常量</th><th>对应属性修饰符</th></tr></thead><tbody><tr><td>`OBJC_ASSOCIATION_ASSIGN`</td><td>`assign`</td></tr><tr><td>`OBJC_ASSOCIATION_RETAIN_NONATOMIC`</td><td>`strong, nonatomic`</td></tr><tr><td>`OBJC_ASSOCIATION_COPY_NONATOMIC`</td><td>`copy, nonatomic`</td></tr><tr><td>`OBJC_ASSOCIATION_RETAIN`</td><td>`strong, atomic`</td></tr><tr><td>`OBJC_ASSOCIATION_COPY`</td><td>`copy, atomic`</td></tr></tbody></table></div>
+<blockquote>
+<p>关联对象虽然常与 Category 配合使用，但它本身是<strong>独立于 Category 的 Runtime 能力</strong>，可以在任何地方为任意对象绑定数据。</p>
+</blockquote>
+<hr/>
+<h3 id="22-底层数据结构">2.2 底层数据结构</h3>
+<p>关联对象的核心是 Runtime 维护的一套<strong>全局嵌套哈希表</strong>：</p>
+<pre><code>AssociationsManager（单例，管理全局锁 + 全局 map）
+  └── AssociationsHashMap（全局静态 map）
+        ├── key: object 指针（被关联的对象）
+        └── value: ObjectAssociationMap
+                    ├── key: 关联 key（void *）
+                    └── value: ObjectAssociation
+                                  ├── policy（内存策略）
+                                  └── value（关联的值）
+</code></pre>
+<p>用图示表示：</p>
+<pre><code>AssociationsHashMap
+  object_A  →  ObjectAssociationMap
+                  @selector(name)  →  ObjectAssociation { RETAIN, @&quot;Tom&quot; }
+                  @selector(age)   →  ObjectAssociation { ASSIGN, @18 }
+  object_B  →  ObjectAssociationMap
+                  @selector(tag)   →  ObjectAssociation { COPY, @&quot;vip&quot; }
+</code></pre>
+<p><strong>关键特性</strong>：</p>
+<ul>
+<li>所有对象的关联对象都存储在这<strong>同一个全局容器</strong>中，与被关联对象的内存布局无关</li>
+<li><code>AssociationsManager</code> 内部有一把<strong>自旋锁（spinlock）</strong>，保证线程安全</li>
+<li>关联对象<strong>不存储在对象本身</strong>内，而是通过对象指针在全局 map 中查找</li>
+</ul>
+<hr/>
+<h3 id="23-生命周期管理">2.3 生命周期管理</h3>
+<p>对象执行 <code>dealloc</code> 时，Runtime 会自动检查该对象是否有关联对象，如果有则自动清理——<strong>不需要手动移除关联对象</strong>。</p>
+<p><code>dealloc</code> 内部判断流程（简化）：</p>
+<pre><code>dealloc
+  → 判断 nonpointer_isa 中的 has_assoc 位是否为 1
+  → 是 → 调用 _object_remove_associations(self)
+         → 从 AssociationsHashMap 中移除该对象对应的所有关联对象
+         → 根据 policy 对 value 执行 release
+</code></pre>
+<blockquote>
+<p><code>isa</code> 的第 2 位 <code>has_assoc</code> 标记了对象是否存在关联对象，<code>dealloc</code> 正是通过这个标志位快速判断是否需要清理，避免无谓的 map 查找。</p>
+</blockquote>
+<p><strong>移除方式</strong>：</p>
+<ul>
+<li>移除<strong>单个</strong>关联值：调用 <code>objc_setAssociatedObject</code> 并传入 <code>nil</code> 作为 value</li>
+<li>移除<strong>所有</strong>关联值：<code>objc_removeAssociatedObjects(object)</code>（慎用，会清除所有关联数据，包括其他模块设置的）</li>
+</ul>
+<pre><code class="language-objc">// 移除单个
+objc_setAssociatedObject(self, &amp;kNameKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+</code></pre>
+<hr/>
+<h3 id="24-关联对象面试高频题">2.4 关联对象面试高频题</h3>
+<p><strong>Q1：关联对象存储在哪里？对象销毁时怎么处理？</strong></p>
+<ul>
+<li>存储在 Runtime 维护的<strong>全局 <code>AssociationsHashMap</code></strong> 中，不在对象本身的内存里</li>
+<li>对象 <code>dealloc</code> 时，Runtime 会通过 <code>isa</code> 中的 <code>has_assoc</code> 标志位检测，自动调用 <code>_object_remove_associations</code> 清理，<strong>无需手动移除</strong></li>
+</ul>
+<p><strong>Q2：关联对象是线程安全的吗？</strong></p>
+<ul>
+<li><code>objc_setAssociatedObject</code> / <code>objc_getAssociatedObject</code> 内部通过 <code>AssociationsManager</code> 的自旋锁保护，读写操作本身是<strong>原子安全</strong>的</li>
+<li>但如果对关联值的读写存在逻辑上的竞态（如先读后写的复合操作），仍需要外部加锁</li>
+</ul>
+<p><strong>Q3：关联对象的 key 一般用什么？</strong></p>
+<p>常见方式及优劣：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>方式</th><th>示例</th><th>优点</th><th>缺点</th></tr></thead><tbody><tr><td>静态变量地址</td><td>`static const void *kKey = &amp;kKey;`</td><td>唯一、稳定</td><td>需要声明变量</td></tr><tr><td>`@selector`</td><td>`@selector(propertyName)`</td><td>不需要额外声明，语义清晰</td><td>和方法名耦合</td></tr><tr><td>`_cmd`</td><td>`objc_getAssociatedObject(self, _cmd)`</td><td>getter 中使用最简洁</td><td>仅适合 getter，setter 中 `_cmd` 不同</td></tr></tbody></table></div>
+<hr/>
+<h3 id="25-关联对象实战">2.5 关联对象实战</h3>
+<h4>为 Category 属性提供存储</h4>
+<pre><code class="language-objc">// UIView+Tag.h
+@interface UIView (Tag)
+@property (nonatomic, copy) NSString *customTag;
+@end
+
+// UIView+Tag.m
+#import &lt;objc/runtime.h&gt;
+
+@implementation UIView (Tag)
+
+static const void *kCustomTagKey = &amp;kCustomTagKey;
+
+- (NSString *)customTag {
+    return objc_getAssociatedObject(self, kCustomTagKey);
+}
+
+- (void)setCustomTag:(NSString *)customTag {
+    objc_setAssociatedObject(self, kCustomTagKey, customTag, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+@end
+</code></pre>
+<h4>为 UIButton 添加 Block 回调</h4>
+<pre><code class="language-objc">// UIButton+Block.h
+typedef void(^ButtonActionBlock)(UIButton *button);
+
+@interface UIButton (Block)
+- (void)addActionBlock:(ButtonActionBlock)block forControlEvents:(UIControlEvents)events;
+@end
+
+// UIButton+Block.m
+static const void *kActionBlockKey = &amp;kActionBlockKey;
+
+@implementation UIButton (Block)
+
+- (void)addActionBlock:(ButtonActionBlock)block forControlEvents:(UIControlEvents)events {
+    objc_setAssociatedObject(self, kActionBlockKey, block, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    [self addTarget:self action:@selector(handleAction:) forControlEvents:events];
+}
+
+- (void)handleAction:(UIButton *)sender {
+    ButtonActionBlock block = objc_getAssociatedObject(self, kActionBlockKey);
+    if (block) block(sender);
+}
+
+@end
+</code></pre>
+<h4>在非 Category 场景中使用关联对象</h4>
+<p>关联对象不限于 Category，任何需要&quot;为对象临时附加数据&quot;的场景都可以使用：</p>
+<pre><code class="language-objc">// 给 UIAlertController 关联一个回调 block，方便在 delegate 回调中取出
+objc_setAssociatedObject(alertController, &amp;kCompletionKey, completion, OBJC_ASSOCIATION_COPY_NONATOMIC);
+</code></pre>
+<hr/>
+<h2 id="三两者的联动与对比">三、两者的联动与对比</h2>
+<h3 id="31-为什么经常一起讲">3.1 为什么经常一起讲？</h3>
+<p>Category 不能添加 ivar → 声明的 <code>@property</code> 没有实际存储 → 关联对象恰好补全了这个缺口。</p>
+<p>这是两者最常见的配合场景，但<strong>并不意味着关联对象只服务于 Category</strong>。</p>
+<h3 id="32-对比总结">3.2 对比总结</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>对比维度</th><th>Category</th><th>关联对象</th></tr></thead><tbody><tr><td>层级</td><td>语言机制（编译器 + Runtime 协作）</td><td>纯 Runtime 机制</td></tr><tr><td>作用</td><td>为已有类添加方法/属性声明/协议</td><td>为任意对象动态绑定键值数据</td></tr><tr><td>存储</td><td>方法合并进宿主类的方法列表</td><td>存储在全局 `AssociationsHashMap`</td></tr><tr><td>限制</td><td>不能添加 ivar</td><td>无 ivar 限制，但只能存 OC 对象（`id`）</td></tr><tr><td>生命周期</td><td>随 APP 启动时加载，永久存在</td><td>随对象 `dealloc` 自动清理</td></tr><tr><td>线程安全</td><td>加载过程由 Runtime 保证</td><td>读写由 `AssociationsManager` 自旋锁保证</td></tr><tr><td>使用范围</td><td>只能用于 OC 类</td><td>可用于任意 OC 对象，不限于 Category 场景</td></tr></tbody></table></div>
+<h3 id="33-典型协作模式">3.3 典型协作模式</h3>
+<pre><code>Category 声明 @property
+   ↓
+编译器只生成 getter/setter 的声明
+   ↓
+手动实现 getter/setter
+   ↓
+内部用 objc_setAssociatedObject / objc_getAssociatedObject 读写数据
+   ↓
+对象 dealloc 时 Runtime 自动清理关联数据
+</code></pre>
+<hr/>
+<h2 id="四知识图谱总结">四、知识图谱总结</h2>
+<pre><code>Category（分类）                              关联对象（Associated Object）
+├── 本质：category_t 结构体                    ├── 本质：Runtime 全局哈希表存储
+│   （方法/属性/协议列表，无 ivar）              │   （AssociationsManager → HashMap → Map → Association）
+├── 决议时机：运行时                            ├── 线程安全：自旋锁
+│   （_read_images → attachCategories）       ├── 生命周期：对象 dealloc 自动清理
+├── 方法合并：头插法                            │   （isa.has_assoc 标志位判断）
+│   （Category 方法优先于宿主类方法）             ├── API 三件套：
+├── 多 Category 同名方法：                      │   set / get / removeAll
+│   最后编译的优先                              ├── key 的选择：
+├── 不能添加成员变量                             │   静态变量地址 / @selector / _cmd
+├── +load：启动时调用，函数地址直接调用            └── 应用场景：
+├── +initialize：懒加载，objc_msgSend              ├── Category 属性存储
+└── vs Extension：编译时决议                        ├── 为对象附加临时数据
+                                                   └── Block 回调封装
+              ↕ 联动 ↕
+   Category 属性声明 + 关联对象存储实现
+</code></pre>
+<hr/>
+<h2 id="五参考资料">五、参考资料</h2>
+<ul>
+<li><a href="https://opensource.apple.com/source/objc4/">Apple 开源 objc4 源码</a></li>
+<li>《Objective-C 高级编程》第4章 - Objective-C Runtime</li>
+<li>objc-runtime-new.mm：<code>attachCategories</code> 函数</li>
+<li>objc-references.mm：<code>objc_setAssociatedObject</code> 实现</li>
+</ul></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/objc-runtime-messaging-mechanism/"><span class="pager-hint">上一篇</span><span class="pager-title">Objective-C Runtime 消息机制与对象结构整理</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/objc-kvc-and-kvo-principles/"><span class="pager-hint">下一篇</span><span class="pager-title">Objective-C KVC 查找顺序与 KVO 底层实现原理</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#一category分类">一、Category（分类）</a></li><li class="toc-level-3"><a href="#11-本质与作用">1.1 本质与作用</a></li><li class="toc-level-3"><a href="#12-category-的加载流程">1.2 Category 的加载流程</a></li><li class="toc-level-3"><a href="#13-load-与-initialize">1.3 +load 与 +initialize</a></li><li class="toc-level-3"><a href="#14-category-vs-extension">1.4 Category vs Extension</a></li><li class="toc-level-3"><a href="#15-category-面试高频题">1.5 Category 面试高频题</a></li><li class="toc-level-3"><a href="#16-category-实战">1.6 Category 实战</a></li><li class="toc-level-2"><a href="#二关联对象associated-object">二、关联对象（Associated Object）</a></li><li class="toc-level-3"><a href="#21-什么是关联对象">2.1 什么是关联对象</a></li><li class="toc-level-3"><a href="#22-底层数据结构">2.2 底层数据结构</a></li><li class="toc-level-3"><a href="#23-生命周期管理">2.3 生命周期管理</a></li><li class="toc-level-3"><a href="#24-关联对象面试高频题">2.4 关联对象面试高频题</a></li><li class="toc-level-3"><a href="#25-关联对象实战">2.5 关联对象实战</a></li><li class="toc-level-2"><a href="#三两者的联动与对比">三、两者的联动与对比</a></li><li class="toc-level-3"><a href="#31-为什么经常一起讲">3.1 为什么经常一起讲？</a></li><li class="toc-level-3"><a href="#32-对比总结">3.2 对比总结</a></li><li class="toc-level-3"><a href="#33-典型协作模式">3.3 典型协作模式</a></li><li class="toc-level-2"><a href="#四知识图谱总结">四、知识图谱总结</a></li><li class="toc-level-2"><a href="#五参考资料">五、参考资料</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"objc-category-and-associated-objects\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"objc-category-and-associated-objects\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"objc-category-and-associated-objects\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"oQo8TsbxM_Y056hnRQjodv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n13:T5bf,// UIViewController+Tracking.m\n@implementation UIViewController (Tracking)\n\n+ (void)load {\n    static dispatch_once_t onceToken;\n    dispatch_once(\u0026onceToken, ^{\n        Class class = [self class];\n\n        SEL originalSelector = @selector(viewWillAppear:);\n        SEL swizzledSelector = @selector(xxx_viewWillAppear:);\n\n        Method originalMethod = class_getInstanceMethod(class, originalSelector);\n        Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);\n\n        // 先尝试添加方法，防止原类没有实现该方法时直接交换崩溃\n        BOOL didAddMethod = class_addMethod(class,\n                                            originalSelector,\n                                            method_getImplementation(swizzledMethod),\n                                            method_getTypeEncoding(swizzledMethod));\n        if (didAddMethod) {\n            class_replaceMethod(class,\n                                swizzledSelector,\n                                method_getImplementation(originalMethod),\n                                method_getTypeEncoding(originalMethod));\n        } else {\n            method_exchangeImplementations(originalMethod, swizzledMethod);\n        }\n    });\n}\n\n- (void)xxx_viewWillAppear:(BOOL)animated {\n    [self xxx_viewWillAppear:animated]; // 调用原方法（此时已交换，实际调用原 viewWillAppear:）\n    NSLog(@\"页面展示：%@\", NSStringFromClass([self class]));\n}\n\n@end\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"Objective-C Category 加载过程与关联对象原理\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2024-10-06\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"iOS 底层与原理\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"Objective-C / Category / 关联对象\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"p\",\"p-0\",{\"children\":\"Category 是在运行时将方法/属性/协议附加到已有类的机制；关联对象是 Runtime 通过全局哈希表为任意对象动态绑定键值数据的独立机制。两者常配合使用，但本质上是两个独立的知识点。\"}],\"\\n\",[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h2\",\"h2-0\",{\"id\":\"一category分类\",\"children\":\"一、Category（分类）\"}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"11-本质与作用\",\"children\":\"1.1 本质与作用\"}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":[\"Category 最直接的作用是\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"给已有类添加方法\"}],\"，其他用途包括：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"拆分单个过大的文件，便于多人同时开发一个类\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"声明私有方法\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"将功能相近的方法归组，提高可读性\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":[\"Category 是\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"运行时决议\"}],\"的：OC 初始化时调用 \",[\"$\",\"code\",\"code-0\",{\"children\":\"_read_images\"}],\"，此时会加载所有类、协议和 Category，并将 Category 的内容合并进宿主类。\"]}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":[\"底层结构体 \",[\"$\",\"code\",\"code-0\",{\"children\":\"category_t\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-c\",\"children\":\"struct category_t {\\n    const char *name;                  // 分类名称\\n    classref_t cls;                    // 宿主类\\n    struct method_list_t *instanceMethods;  // 实例方法列表\\n    struct method_list_t *classMethods;     // 类方法列表\\n    struct protocol_list_t *protocols;      // 协议列表\\n    struct property_list_t *instanceProperties; // 属性列表\\n};\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-4\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"注意\"}],\"：\",[\"$\",\"code\",\"code-0\",{\"children\":\"category_t\"}],\" 中有 \",[\"$\",\"code\",\"code-1\",{\"children\":\"instanceProperties\"}],\"，但这只是属性的 getter/setter 方法的\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"声明\"}],\"，没有对应的 \",[\"$\",\"code\",\"code-2\",{\"children\":\"ivar\"}],\"（成员变量）。Category \",[\"$\",\"strong\",\"strong-2\",{\"children\":\"不能为已有类添加成员变量\"}],\"，因为运行时类的内存布局已经确定，无法再插入新的 ivar。\"]}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-0\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"属性 = getter + setter + ivar\"}],\"，Category 里只能实现前两者，缺少 ivar。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-1\",{}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"12-category-的加载流程\",\"children\":\"1.2 Category 的加载流程\"}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"APP 启动\\n  → dyld 加载 image\\n  → _objc_init\\n  → map_images\\n  → _read_images           ← 加载所有类、协议、Category\\n      → attachCategories   ← 将 Category 的方法/属性/协议合并进宿主类\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-5\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"合并方式：头插法\"}]}],\"\\n\",[\"$\",\"p\",\"p-6\",{\"children\":[\"Category 的方法是\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"插入到宿主类方法列表的最前面\"}],\"，而不是追加到末尾。所以：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"宿主类和 Category 有同名方法时，Category 的方法会被\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"优先找到\"}],\"（不是真正的覆盖，宿主类的方法仍然存在，只是排在后面找不到了）\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"多个 Category 有同名方法时，\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"最后编译\"}],\"的 Category 的方法排在最前面，会被优先调用\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-1\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":\"编译顺序可在 Xcode → Build Phases → Compile Sources 中查看和调整。\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-2\",{}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"13-load-与-initialize\",\"children\":\"1.3 +load 与 +initialize\"}],\"\\n\",[\"$\",\"p\",\"p-7\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"+load\"}],\" 和 \",[\"$\",\"code\",\"code-1\",{\"children\":\"+initialize\"}],\" 都是类的特殊方法，但行为完全不同：\"]}],\"\\n\",[\"$\",\"div\",\"div-0\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"对比项\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"`+load`\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"`+initialize`\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"调用时机\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"APP 启动，`main` 函数**之前**\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"类**第一次接收到消息**时（懒加载）\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"调用方式\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"直接通过函数地址调用，**不走消息发送**\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"通过 `objc_msgSend` 调用\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"是否每个类都调用\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"每个类和分类的 `+load` **都会被调用**\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"只调用一次，懒加载\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"父子类顺序\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"先父类后子类，先宿主类后分类\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"先父类后子类\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"分类同名处理\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"宿主类和所有分类的 `+load` **全部执行**\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"只执行**最后编译**的分类的 `+initialize`（其余被覆盖）\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"是否需要调用 super\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"不需要（系统已处理顺序）\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"不需要（系统自动调用父类）\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"p\",\"p-8\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"为什么行为不同？\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"+initialize\"}],\" 本质是 \",[\"$\",\"code\",\"code-1\",{\"children\":\"objc_msgSend\"}],\" 消息调用，遵循分类覆盖规则，所以只有排在最前面的版本会被调用\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"+load\"}],\" 不走消息发送，而是在 \",[\"$\",\"code\",\"code-1\",{\"children\":\"_read_images\"}],\" 阶段直接\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"通过函数指针地址\"}],\"调用，所以每一个都能被执行，不会被覆盖\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objc\",\"children\":\"// +load 的典型用途：执行 Method Swizzling（只在这里做最安全）\\n+ (void)load {\\n    static dispatch_once_t onceToken;\\n    dispatch_once(\u0026onceToken, ^{\\n        // 方法交换...\\n    });\\n}\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-3\",{}],\"\\n\",[\"$\",\"h3\",\"h3-3\",{\"id\":\"14-category-vs-extension\",\"children\":\"1.4 Category vs Extension\"}],\"\\n\",[\"$\",\"div\",\"div-1\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"对比项\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"Category（分类）\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"Extension（扩展）\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"决议时机\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"运行时\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"编译时\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"生命周期\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"独立于宿主类\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"依附于宿主类，随之一起编译\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"能否有实现\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"有声明有实现\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"只有声明，实现写在宿主类 `.m` 中\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"能否为系统类添加\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"能\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"不能（无法修改系统类的 .m）\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"能否添加成员变量\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"不能\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"能\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"主要用途\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"添加方法、拆分功能\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"声明私有属性、私有方法、私有成员变量\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-2\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"Extension 可以看作一个\\\"\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"匿名的分类\"}],\"\\\"，但它不是分类。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-4\",{}],\"\\n\",[\"$\",\"h3\",\"h3-4\",{\"id\":\"15-category-面试高频题\",\"children\":\"1.5 Category 面试高频题\"}],\"\\n\",[\"$\",\"p\",\"p-9\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Q1：Category 可以添加属性吗？可以添加成员变量吗？\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-3\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"成员变量\"}],\"： 不能。Category 是运行时决议的，此时类的内存布局已经确定，无法再插入 ivar。\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"属性\"}],\"： 可以声明（\",[\"$\",\"code\",\"code-0\",{\"children\":\"@property\"}],\"），但编译器只会生成 getter/setter 的\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"声明\"}],\"，不会生成 ivar 和对应的实现，调用时会 crash。若要真正使用，需要结合关联对象手动实现 getter/setter。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-10\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Q2：多个 Category 有同名方法，调用顺序是什么？会覆盖原类方法吗？\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-4\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"不是真正的覆盖\"}],\"，宿主类的方法仍然存在于方法列表中，只是排在后面，正常的方法查找流程找不到它\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"Category 的方法通过\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"头插法\"}],\"插入宿主类方法列表的最前面，所以 Category 方法会被\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"优先调用\"}]]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"多个 Category 有同名方法时，\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"最后编译\"}],\"的 Category 的方法最先被找到\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"+load\"}],\" 方法例外：每个类和分类的 \",[\"$\",\"code\",\"code-1\",{\"children\":\"+load\"}],\" 都会被执行，不受覆盖影响\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-11\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Q3：为什么 Method Swizzling 要在 +load 中执行，而不是 +initialize？\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-5\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"+initialize\"}],\" 是懒加载，如果该类从未被使用，\",[\"$\",\"code\",\"code-1\",{\"children\":\"+initialize\"}],\" 永远不会执行，导致交换失效\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"+load\"}],\" 在 APP 启动时确保每个类都会调用，保证交换一定被执行\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"同时要配合 \",[\"$\",\"code\",\"code-0\",{\"children\":\"dispatch_once\"}],\"，防止多次调用导致方法交换来回抵消而失效\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-5\",{}],\"\\n\",[\"$\",\"h3\",\"h3-5\",{\"id\":\"16-category-实战\",\"children\":\"1.6 Category 实战\"}],\"\\n\",[\"$\",\"h4\",\"h4-0\",{\"children\":\"Method Swizzling 标准写法\"}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objc\",\"children\":\"$13\"}]}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-3\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Tips：两个 Category 同时对同一方法做 Swizzling 会怎样？\"}]}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":[\"如果两个 Category 分别将同一个原始方法（如 \",[\"$\",\"code\",\"code-0\",{\"children\":\"viewWillAppear:\"}],\"）与各自的方法交换，执行结果是：第一个 Category 交换后，第二个 Category 又把它换回来（因为拿到的 \",[\"$\",\"code\",\"code-1\",{\"children\":\"originalMethod\"}],\" 已经是第一次交换后的结果），最终效果等于没有交换。所以应避免多个 Category 对同一方法做 Swizzling。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-6\",{}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"二关联对象associated-object\",\"children\":\"二、关联对象（Associated Object）\"}],\"\\n\",[\"$\",\"h3\",\"h3-6\",{\"id\":\"21-什么是关联对象\",\"children\":\"2.1 什么是关联对象\"}],\"\\n\",[\"$\",\"p\",\"p-12\",{\"children\":[\"关联对象是 OC Runtime 提供的一套机制，允许在\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"不修改类定义\"}],\"的前提下，为\",[\"$\",\"strong\",\"strong-1\",{\"children\":\"任意 OC 对象\"}],\"动态绑定键值对数据。\"]}],\"\\n\",[\"$\",\"p\",\"p-13\",{\"children\":\"它的核心 API 只有三个：\"}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objc\",\"children\":\"// 设置关联值\\nvoid objc_setAssociatedObject(id object, const void *key, id value, objc_AssociationPolicy policy);\\n\\n// 获取关联值\\nid objc_getAssociatedObject(id object, const void *key);\\n\\n// 移除对象的所有关联值（慎用）\\nvoid objc_removeAssociatedObjects(id object);\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-14\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":[\"关联策略（\",[\"$\",\"code\",\"code-0\",{\"children\":\"objc_AssociationPolicy\"}],\"）对照\"]}],\"：\"]}],\"\\n\",[\"$\",\"div\",\"div-2\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"策略常量\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"对应属性修饰符\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`OBJC_ASSOCIATION_ASSIGN`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`assign`\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`OBJC_ASSOCIATION_RETAIN_NONATOMIC`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`strong, nonatomic`\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`OBJC_ASSOCIATION_COPY_NONATOMIC`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`copy, nonatomic`\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`OBJC_ASSOCIATION_RETAIN`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`strong, atomic`\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`OBJC_ASSOCIATION_COPY`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`copy, atomic`\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-4\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[\"关联对象虽然常与 Category 配合使用，但它本身是\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"独立于 Category 的 Runtime 能力\"}],\"，可以在任何地方为任意对象绑定数据。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-7\",{}],\"\\n\",[\"$\",\"h3\",\"h3-7\",{\"id\":\"22-底层数据结构\",\"children\":\"2.2 底层数据结构\"}],\"\\n\",[\"$\",\"p\",\"p-15\",{\"children\":[\"关联对象的核心是 Runtime 维护的一套\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"全局嵌套哈希表\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-5\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"AssociationsManager（单例，管理全局锁 + 全局 map）\\n  └── AssociationsHashMap（全局静态 map）\\n        ├── key: object 指针（被关联的对象）\\n        └── value: ObjectAssociationMap\\n                    ├── key: 关联 key（void *）\\n                    └── value: ObjectAssociation\\n                                  ├── policy（内存策略）\\n                                  └── value（关联的值）\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-16\",{\"children\":\"用图示表示：\"}],\"\\n\",[\"$\",\"pre\",\"pre-6\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"AssociationsHashMap\\n  object_A  →  ObjectAssociationMap\\n                  @selector(name)  →  ObjectAssociation { RETAIN, @\\\"Tom\\\" }\\n                  @selector(age)   →  ObjectAssociation { ASSIGN, @18 }\\n  object_B  →  ObjectAssociationMap\\n                  @selector(tag)   →  ObjectAssociation { COPY, @\\\"vip\\\" }\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-17\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"关键特性\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-6\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"所有对象的关联对象都存储在这\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"同一个全局容器\"}],\"中，与被关联对象的内存布局无关\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"AssociationsManager\"}],\" 内部有一把\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"自旋锁（spinlock）\"}],\"，保证线程安全\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"关联对象\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"不存储在对象本身\"}],\"内，而是通过对象指针在全局 map 中查找\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-8\",{}],\"\\n\",[\"$\",\"h3\",\"h3-8\",{\"id\":\"23-生命周期管理\",\"children\":\"2.3 生命周期管理\"}],\"\\n\",[\"$\",\"p\",\"p-18\",{\"children\":[\"对象执行 \",[\"$\",\"code\",\"code-0\",{\"children\":\"dealloc\"}],\" 时，Runtime 会自动检查该对象是否有关联对象，如果有则自动清理——\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"不需要手动移除关联对象\"}],\"。\"]}],\"\\n\",[\"$\",\"p\",\"p-19\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"dealloc\"}],\" 内部判断流程（简化）：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-7\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"dealloc\\n  → 判断 nonpointer_isa 中的 has_assoc 位是否为 1\\n  → 是 → 调用 _object_remove_associations(self)\\n         → 从 AssociationsHashMap 中移除该对象对应的所有关联对象\\n         → 根据 policy 对 value 执行 release\\n\"}]}],\"\\n\",[\"$\",\"blockquote\",\"blockquote-5\",{\"children\":[\"\\n\",[\"$\",\"p\",\"p-0\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"isa\"}],\" 的第 2 位 \",[\"$\",\"code\",\"code-1\",{\"children\":\"has_assoc\"}],\" 标记了对象是否存在关联对象，\",[\"$\",\"code\",\"code-2\",{\"children\":\"dealloc\"}],\" 正是通过这个标志位快速判断是否需要清理，避免无谓的 map 查找。\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-20\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"移除方式\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-7\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"移除\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"单个\"}],\"关联值：调用 \",[\"$\",\"code\",\"code-0\",{\"children\":\"objc_setAssociatedObject\"}],\" 并传入 \",[\"$\",\"code\",\"code-1\",{\"children\":\"nil\"}],\" 作为 value\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"移除\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"所有\"}],\"关联值：\",[\"$\",\"code\",\"code-0\",{\"children\":\"objc_removeAssociatedObjects(object)\"}],\"（慎用，会清除所有关联数据，包括其他模块设置的）\"]}],\"\\n\"]}],\"\\n\",[\"$\",\"pre\",\"pre-8\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objc\",\"children\":\"// 移除单个\\nobjc_setAssociatedObject(self, \u0026kNameKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-9\",{}],\"\\n\",[\"$\",\"h3\",\"h3-9\",{\"id\":\"24-关联对象面试高频题\",\"children\":\"2.4 关联对象面试高频题\"}],\"\\n\",[\"$\",\"p\",\"p-21\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Q1：关联对象存储在哪里？对象销毁时怎么处理？\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-8\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"存储在 Runtime 维护的\",[\"$\",\"strong\",\"strong-0\",{\"children\":[\"全局 \",[\"$\",\"code\",\"code-0\",{\"children\":\"AssociationsHashMap\"}]]}],\" 中，不在对象本身的内存里\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"对象 \",[\"$\",\"code\",\"code-0\",{\"children\":\"dealloc\"}],\" 时，Runtime 会通过 \",[\"$\",\"code\",\"code-1\",{\"children\":\"isa\"}],\" 中的 \",[\"$\",\"code\",\"code-2\",{\"children\":\"has_assoc\"}],\" 标志位检测，自动调用 \",[\"$\",\"code\",\"code-3\",{\"children\":\"_object_remove_associations\"}],\" 清理，\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"无需手动移除\"}]]}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-22\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Q2：关联对象是线程安全的吗？\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-9\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[[\"$\",\"code\",\"code-0\",{\"children\":\"objc_setAssociatedObject\"}],\" / \",[\"$\",\"code\",\"code-1\",{\"children\":\"objc_getAssociatedObject\"}],\" 内部通过 \",[\"$\",\"code\",\"code-2\",{\"children\":\"AssociationsManager\"}],\" 的自旋锁保护，读写操作本身是\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"原子安全\"}],\"的\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"但如果对关联值的读写存在逻辑上的竞态（如先读后写的复合操作），仍需要外部加锁\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-23\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"Q3：关联对象的 key 一般用什么？\"}]}],\"\\n\",[\"$\",\"p\",\"p-24\",{\"children\":\"常见方式及优劣：\"}],\"\\n\",[\"$\",\"div\",\"div-3\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"方式\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"示例\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"优点\"}],[\"$\",\"th\",\"th-3\",{\"children\":\"缺点\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"静态变量地址\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`static const void *kKey = \u0026kKey;`\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"唯一、稳定\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"需要声明变量\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`@selector`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`@selector(propertyName)`\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"不需要额外声明，语义清晰\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"和方法名耦合\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"`_cmd`\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"`objc_getAssociatedObject(self, _cmd)`\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"getter 中使用最简洁\"}],[\"$\",\"td\",\"td-3\",{\"children\":\"仅适合 getter，setter 中 `_cmd` 不同\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"hr\",\"hr-10\",{}],\"\\n\",[\"$\",\"h3\",\"h3-10\",{\"id\":\"25-关联对象实战\",\"children\":\"2.5 关联对象实战\"}],\"\\n\",[\"$\",\"h4\",\"h4-1\",{\"children\":\"为 Category 属性提供存储\"}],\"\\n\",[\"$\",\"pre\",\"pre-9\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objc\",\"children\":\"// UIView+Tag.h\\n@interface UIView (Tag)\\n@property (nonatomic, copy) NSString *customTag;\\n@end\\n\\n// UIView+Tag.m\\n#import \u003cobjc/runtime.h\u003e\\n\\n@implementation UIView (Tag)\\n\\nstatic const void *kCustomTagKey = \u0026kCustomTagKey;\\n\\n- (NSString *)customTag {\\n    return objc_getAssociatedObject(self, kCustomTagKey);\\n}\\n\\n- (void)setCustomTag:(NSString *)customTag {\\n    objc_setAssociatedObject(self, kCustomTagKey, customTag, OBJC_ASSOCIATION_COPY_NONATOMIC);\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-2\",{\"children\":\"为 UIButton 添加 Block 回调\"}],\"\\n\",[\"$\",\"pre\",\"pre-10\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objc\",\"children\":\"// UIButton+Block.h\\ntypedef void(^ButtonActionBlock)(UIButton *button);\\n\\n@interface UIButton (Block)\\n- (void)addActionBlock:(ButtonActionBlock)block forControlEvents:(UIControlEvents)events;\\n@end\\n\\n// UIButton+Block.m\\nstatic const void *kActionBlockKey = \u0026kActionBlockKey;\\n\\n@implementation UIButton (Block)\\n\\n- (void)addActionBlock:(ButtonActionBlock)block forControlEvents:(UIControlEvents)events {\\n    objc_setAssociatedObject(self, kActionBlockKey, block, OBJC_ASSOCIATION_COPY_NONATOMIC);\\n    [self addTarget:self action:@selector(handleAction:) forControlEvents:events];\\n}\\n\\n- (void)handleAction:(UIButton *)sender {\\n    ButtonActionBlock block = objc_getAssociatedObject(self, kActionBlockKey);\\n    if (block) block(sender);\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-3\",{\"children\":\"在非 Category 场景中使用关联对象\"}],\"\\n\",[\"$\",\"p\",\"p-25\",{\"children\":\"关联对象不限于 Category，任何需要\\\"为对象临时附加数据\\\"的场景都可以使用：\"}],\"\\n\",[\"$\",\"pre\",\"pre-11\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objc\",\"children\":\"// 给 UIAlertController 关联一个回调 block，方便在 delegate 回调中取出\\nobjc_setAssociatedObject(alertController, \u0026kCompletionKey, completion, OBJC_ASSOCIATION_COPY_NONATOMIC);\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-11\",{}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"三两者的联动与对比\",\"children\":\"三、两者的联动与对比\"}],\"\\n\",[\"$\",\"h3\",\"h3-11\",{\"id\":\"31-为什么经常一起讲\",\"children\":\"3.1 为什么经常一起讲？\"}],\"\\n\",[\"$\",\"p\",\"p-26\",{\"children\":[\"Category 不能添加 ivar → 声明的 \",[\"$\",\"code\",\"code-0\",{\"children\":\"@property\"}],\" 没有实际存储 → 关联对象恰好补全了这个缺口。\"]}],\"\\n\",[\"$\",\"p\",\"p-27\",{\"children\":[\"这是两者最常见的配合场景，但\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"并不意味着关联对象只服务于 Category\"}],\"。\"]}],\"\\n\",[\"$\",\"h3\",\"h3-12\",{\"id\":\"32-对比总结\",\"children\":\"3.2 对比总结\"}],\"\\n\",[\"$\",\"div\",\"div-4\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"对比维度\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"Category\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"关联对象\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"层级\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"语言机制（编译器 + Runtime 协作）\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"纯 Runtime 机制\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"作用\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"为已有类添加方法/属性声明/协议\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"为任意对象动态绑定键值数据\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"存储\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"方法合并进宿主类的方法列表\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"存储在全局 `AssociationsHashMap`\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"限制\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"不能添加 ivar\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"无 ivar 限制，但只能存 OC 对象（`id`）\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"生命周期\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"随 APP 启动时加载，永久存在\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"随对象 `dealloc` 自动清理\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"线程安全\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"加载过程由 Runtime 保证\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"读写由 `AssociationsManager` 自旋锁保证\"}]]}],[\"$\",\"tr\",\"tr-6\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"使用范围\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"只能用于 OC 类\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"可用于任意 OC 对象，不限于 Category 场景\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h3\",\"h3-13\",{\"id\":\"33-典型协作模式\",\"children\":\"3.3 典型协作模式\"}],\"\\n\",[\"$\",\"pre\",\"pre-12\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"Category 声明 @property\\n   ↓\\n编译器只生成 getter/setter 的声明\\n   ↓\\n手动实现 getter/setter\\n   ↓\\n内部用 objc_setAssociatedObject / objc_getAssociatedObject 读写数据\\n   ↓\\n对象 dealloc 时 Runtime 自动清理关联数据\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-12\",{}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"四知识图谱总结\",\"children\":\"四、知识图谱总结\"}],\"\\n\",[\"$\",\"pre\",\"pre-13\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"Category（分类）                              关联对象（Associated Object）\\n├── 本质：category_t 结构体                    ├── 本质：Runtime 全局哈希表存储\\n│   （方法/属性/协议列表，无 ivar）              │   （AssociationsManager → HashMap → Map → Association）\\n├── 决议时机：运行时                            ├── 线程安全：自旋锁\\n│   （_read_images → attachCategories）       ├── 生命周期：对象 dealloc 自动清理\\n├── 方法合并：头插法                            │   （isa.has_assoc 标志位判断）\\n│   （Category 方法优先于宿主类方法）             ├── API 三件套：\\n├── 多 Category 同名方法：                      │   set / get / removeAll\\n│   最后编译的优先                              ├── key 的选择：\\n├── 不能添加成员变量                             │   静态变量地址 / @selector / _cmd\\n├── +load：启动时调用，函数地址直接调用            └── 应用场景：\\n├── +initialize：懒加载，objc_msgSend              ├── Category 属性存储\\n└── vs Extension：编译时决议                        ├── 为对象附加临时数据\\n                                                   └── Block 回调封装\\n              ↕ 联动 ↕\\n   Category 属性声明 + 关联对象存储实现\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-13\",{}],\"\\n\",[\"$\",\"h2\",\"h2-4\",{\"id\":\"五参考资料\",\"children\":\"五、参考资料\"}],\"\\n\",[\"$\",\"ul\",\"ul-10\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://opensource.apple.com/source/objc4/\",\"children\":\"Apple 开源 objc4 源码\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"《Objective-C 高级编程》第4章 - Objective-C Runtime\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"objc-runtime-new.mm：\",[\"$\",\"code\",\"code-0\",{\"children\":\"attachCategories\"}],\" 函数\"]}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":[\"objc-references.mm：\",[\"$\",\"code\",\"code-0\",{\"children\":\"objc_setAssociatedObject\"}],\" 实现\"]}],\"\\n\"]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/objc-runtime-messaging-mechanism\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Objective-C Runtime 消息机制与对象结构整理\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/objc-kvc-and-kvo-principles\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Objective-C KVC 查找顺序与 KVO 底层实现原理\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"一category分类-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#一category分类\",\"children\":\"一、Category（分类）\"}]}],[\"$\",\"li\",\"11-本质与作用-1\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#11-本质与作用\",\"children\":\"1.1 本质与作用\"}]}],[\"$\",\"li\",\"12-category-的加载流程-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#12-category-的加载流程\",\"children\":\"1.2 Category 的加载流程\"}]}],[\"$\",\"li\",\"13-load-与-initialize-3\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#13-load-与-initialize\",\"children\":\"1.3 +load 与 +initialize\"}]}],[\"$\",\"li\",\"14-category-vs-extension-4\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#14-category-vs-extension\",\"children\":\"1.4 Category vs Extension\"}]}],[\"$\",\"li\",\"15-category-面试高频题-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#15-category-面试高频题\",\"children\":\"1.5 Category 面试高频题\"}]}],[\"$\",\"li\",\"16-category-实战-6\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#16-category-实战\",\"children\":\"1.6 Category 实战\"}]}],[\"$\",\"li\",\"二关联对象associated-object-7\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#二关联对象associated-object\",\"children\":\"二、关联对象（Associated Object）\"}]}],[\"$\",\"li\",\"21-什么是关联对象-8\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#21-什么是关联对象\",\"children\":\"2.1 什么是关联对象\"}]}],[\"$\",\"li\",\"22-底层数据结构-9\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#22-底层数据结构\",\"children\":\"2.2 底层数据结构\"}]}],[\"$\",\"li\",\"23-生命周期管理-10\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#23-生命周期管理\",\"children\":\"2.3 生命周期管理\"}]}],[\"$\",\"li\",\"24-关联对象面试高频题-11\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#24-关联对象面试高频题\",\"children\":\"2.4 关联对象面试高频题\"}]}],[\"$\",\"li\",\"25-关联对象实战-12\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#25-关联对象实战\",\"children\":\"2.5 关联对象实战\"}]}],[\"$\",\"li\",\"三两者的联动与对比-13\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#三两者的联动与对比\",\"children\":\"三、两者的联动与对比\"}]}],[\"$\",\"li\",\"31-为什么经常一起讲-14\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#31-为什么经常一起讲\",\"children\":\"3.1 为什么经常一起讲？\"}]}],[\"$\",\"li\",\"32-对比总结-15\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#32-对比总结\",\"children\":\"3.2 对比总结\"}]}],[\"$\",\"li\",\"33-典型协作模式-16\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#33-典型协作模式\",\"children\":\"3.3 典型协作模式\"}]}],[\"$\",\"li\",\"四知识图谱总结-17\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#四知识图谱总结\",\"children\":\"四、知识图谱总结\"}]}],[\"$\",\"li\",\"五参考资料-18\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#五参考资料\",\"children\":\"五、参考资料\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>

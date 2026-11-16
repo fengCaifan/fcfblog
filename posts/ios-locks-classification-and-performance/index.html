@@ -1,0 +1,655 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/fcfblog/_next/static/css/0ae5dd793e516608.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js"/><script src="/fcfblog/_next/static/chunks/4bd1b696-1bbe00825af7c92a.js" async=""></script><script src="/fcfblog/_next/static/chunks/684-5d936b94ca29bc47.js" async=""></script><script src="/fcfblog/_next/static/chunks/main-app-bd8546b7fa712972.js" async=""></script><script src="/fcfblog/_next/static/chunks/874-7618c3fad5f7ba4a.js" async=""></script><script src="/fcfblog/_next/static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js" async=""></script><title>Caifan&#x27;s Notes</title><meta name="description" content="个人开发与学习笔记"/><link rel="icon" href="/fcfblog/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/fcfblog/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body><div hidden=""><!--$--><!--/$--></div><div class="blog-shell"><header class="masthead"><div class="masthead-inner"><a class="brand-title" href="/fcfblog/">Caifan&#x27;s Notes</a><nav class="top-nav"><a class="nav-link" href="/fcfblog/">← 返回列表</a></nav></div></header><div class="article-page-wrap"><article class="article-main"><header class="article-header"><h1 class="article-title">iOS 常见锁的原理与性能对比</h1><div class="article-meta"><time>2025-05-18</time><span class="meta-sep">·</span><span>iOS 底层与原理</span><span class="meta-sep">·</span><span class="article-tags">多线程锁 / os_unfair_lock / pthread_mutex</span></div></header><div class="markdown-body"><p>多线程访问共享资源需要同步；理解互斥锁、自旋锁、读写锁与信号量的实现与性能差异，是写出线程安全代码的基础。</p>
+<hr/>
+<h2 id="1-锁的分类与性能对比">1. 锁的分类与性能对比</h2>
+<h3 id="11-锁的基本概念">1.1 锁的基本概念</h3>
+<p><strong>为什么需要锁？</strong></p>
+<p>多线程编程中，当多个线程同时访问共享资源时，可能会导致数据竞争（Data Race）。锁的作用是保证同一时刻只有一个线程能访问临界区。</p>
+<p><strong>锁的分类</strong>：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>类型</th><th>说明</th><th>实现方式</th></tr></thead><tbody><tr><td>互斥锁</td><td>获取锁失败时会休眠，等待唤醒</td><td>pthread_mutex、NSLock、@synchronized</td></tr><tr><td>自旋锁</td><td>获取锁失败时会忙等待（循环重试）</td><td>OSSpinLock（已废弃）</td></tr><tr><td>非公平互斥锁</td><td>获取锁失败时会休眠等待内核唤醒，不保证公平获取顺序</td><td>os_unfair_lock</td></tr><tr><td>读写锁</td><td>允许多个读者或一个写者</td><td>pthread_rwlock</td></tr><tr><td>条件锁</td><td>满足特定条件时获取锁</td><td>NSCondition、NSConditionLock</td></tr><tr><td>信号量</td><td>控制并发访问数量</td><td>dispatch_semaphore</td></tr></tbody></table></div>
+<h3 id="12-ios-中常见的锁">1.2 iOS 中常见的锁</h3>
+<h4>1.2.1 OSSpinLock（已废弃）</h4>
+<p><strong>特点</strong>：</p>
+<ul>
+<li>自旋锁；旧资料常以“无竞争时开销低”描述，不能据此机械认定为所有场景性能最高</li>
+<li>存在<strong>优先级反转问题</strong>（Priority Inversion）</li>
+<li>iOS 10 后被废弃</li>
+</ul>
+<p><strong>优先级反转问题</strong>：</p>
+<pre><code>场景：
+- 低优先级线程 L 持有锁
+- 高优先级线程 H 等待锁
+- 中优先级线程 M 抢占 L 的 CPU 时间
+
+结果：H 无法执行，L 无法释放锁，系统性能下降
+
+示例：
+线程 1（低优先级）：获取锁 → 被中断
+线程 2（中优先级）：占用 CPU，线程 1 无法运行
+线程 3（高优先级）：等待锁，但锁被线程 1 持有
+→ 线程 3 永远等待
+</code></pre>
+<p><strong>代码示例</strong>：</p>
+<pre><code class="language-objective-c">//  iOS 10+ 已废弃，不推荐使用
+#import &lt;libkern/OSAtomic.h&gt;
+
+OSSpinLock lock = OS_SPINLOCK_INIT;
+OSSpinLockLock(&amp;lock);
+// 临界区
+OSSpinLockUnlock(&amp;lock);
+</code></pre>
+<h4>1.2.2 os_unfair_lock（推荐）</h4>
+<p><strong>特点</strong>：</p>
+<ul>
+<li>iOS 10+ 引入，替代 OSSpinLock</li>
+<li>非公平互斥锁（<strong>不是自旋锁</strong>）；竞争失败时会阻塞 / 休眠，而不是 CPU 忙等</li>
+<li>内核支持优先级传递等机制以缓解优先级反转；不要表述为“绝对不会有优先级反转”</li>
+<li>适合 iOS 10+、无需递归的短临界区；选型不应只按性能排行</li>
+</ul>
+<p><strong>底层实现</strong>：</p>
+<ul>
+<li>基于 Darwin 的 <code>os_unfair_lock</code> 内核等待 / 唤醒机制；不应将 Apple 平台实现笼统表述为 Linux futex</li>
+<li>获取锁失败时，线程会休眠（而非忙等待）</li>
+</ul>
+<p><strong>代码示例</strong>：</p>
+<pre><code class="language-objective-c">#import &lt;os/lock.h&gt;
+
+os_unfair_lock lock = OS_UNFAIR_LOCK_INIT;
+
+// 加锁
+os_unfair_lock_lock(&amp;lock);
+// 临界区
+os_unfair_lock_unlock(&amp;lock);
+
+// 尝试加锁（不阻塞）
+if (os_unfair_lock_trylock(&amp;lock)) {
+    // 加锁成功
+    os_unfair_lock_unlock(&amp;lock);
+}
+</code></pre>
+<h4>1.2.3 pthread_mutex</h4>
+<p><strong>特点</strong>：</p>
+<ul>
+<li>跨平台，C 语言接口</li>
+<li>支持多种类型：普通、递归、错误检查</li>
+<li>性能中等</li>
+</ul>
+<p><strong>类型</strong>：</p>
+<pre><code class="language-objective-c">// PTHREAD_MUTEX_NORMAL：普通锁（同一线程重复加锁会死锁）
+// PTHREAD_MUTEX_RECURSIVE：递归锁（同一线程可多次加锁）
+// PTHREAD_MUTEX_ERRORCHECK：错误检查锁（重复加锁返回错误）
+
+pthread_mutexattr_t attr;
+pthread_mutexattr_init(&amp;attr);
+pthread_mutexattr_settype(&amp;attr, PTHREAD_MUTEX_RECURSIVE);
+
+pthread_mutex_t mutex;
+pthread_mutex_init(&amp;mutex, &amp;attr);
+
+pthread_mutex_lock(&amp;mutex);
+// 临界区
+pthread_mutex_unlock(&amp;mutex);
+
+pthread_mutex_destroy(&amp;mutex);
+</code></pre>
+<h4>1.2.4 NSLock &amp; NSRecursiveLock</h4>
+<p><strong>NSLock</strong>：</p>
+<pre><code class="language-objective-c">@interface NSLock : NSObject &lt;NSLocking&gt;
+- (BOOL)tryLock; // 尝试加锁，不阻塞
+- (BOOL)lockBeforeDate:(NSDate *)limit; // 超时加锁
+@end
+
+NSLock *lock = [[NSLock alloc] init];
+[lock lock];
+// 临界区
+[lock unlock];
+</code></pre>
+<p><strong>NSRecursiveLock</strong>（递归锁）：</p>
+<pre><code class="language-objective-c">NSRecursiveLock *lock = [[NSRecursiveLock alloc] init];
+
+- (void)recursiveMethod:(int)count {
+    [lock lock];
+    if (count &gt; 0) {
+        [self recursiveMethod:count - 1]; // 同一线程可重复加锁
+    }
+    [lock unlock];
+}
+</code></pre>
+<h4>1.2.5 NSCondition &amp; NSConditionLock</h4>
+<p><strong>NSCondition</strong>（条件变量）：</p>
+<pre><code class="language-objective-c">NSCondition *condition = [[NSCondition alloc] init];
+
+// 线程 1：等待条件
+[condition lock];
+while (!conditionIsMet) {
+    [condition wait]; // 释放锁并等待
+}
+[condition unlock];
+
+// 线程 2：设置条件并唤醒
+[condition lock];
+conditionIsMet = YES;
+[condition signal]; // 唤醒一个等待线程
+// 或 [condition broadcast]; // 唤醒所有等待线程
+[condition unlock];
+</code></pre>
+<p><strong>NSConditionLock</strong>（条件锁）：</p>
+<pre><code class="language-objective-c">NSConditionLock *lock = [[NSConditionLock alloc] initWithCondition:0];
+
+// 线程 1：等待条件为 42
+[lock lockWhenCondition:42];
+// 临界区
+[lock unlock];
+
+// 线程 2：设置条件为 42
+[lock lock];
+[lock unlockWithCondition:42];
+</code></pre>
+<h4>1.2.6 @synchronized</h4>
+<p><strong>特点</strong>：</p>
+<ul>
+<li>使用简单，但性能最差</li>
+<li>递归锁</li>
+<li>底层使用哈希表存储锁对象</li>
+</ul>
+<p><strong>底层实现</strong>：</p>
+<pre><code class="language-objective-c">// 编译器转换
+@synchronized(obj) {
+    // 临界区
+}
+
+// 等价于
+objc_sync_enter(obj);
+// 临界区
+objc_sync_exit(obj);
+</code></pre>
+<p><strong>底层原理</strong>：</p>
+<pre><code>1. objc_sync_enter(obj):
+   - 以 obj 为 key，在全局哈希表中查找 SyncData
+   - 如果找到，递归计数 +1
+   - 如果未找到，创建新的 SyncData，递归计数 = 1
+
+2. objc_sync_exit(obj):
+   - 递归计数 -1
+   - 如果递归计数为 0，释放锁
+</code></pre>
+<h3 id="13-dispatch_semaphore信号量">1.3 dispatch_semaphore（信号量）</h3>
+<p><strong>特点</strong>：</p>
+<ul>
+<li>可以控制并发数量</li>
+<li>也可以作为锁使用</li>
+</ul>
+<p><strong>基本用法</strong>：</p>
+<pre><code class="language-objective-c">// 创建信号量（初始值为 1，作为互斥锁使用）
+dispatch_semaphore_t semaphore = dispatch_semaphore_create(1);
+
+// 等待信号（减 1，如果为 0 则阻塞）
+dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+// 临界区
+// 发送信号（加 1，唤醒等待线程）
+dispatch_semaphore_signal(semaphore);
+</code></pre>
+<p><strong>控制并发数量</strong>：</p>
+<pre><code class="language-objective-c">// 最多允许 3 个并发线程
+dispatch_semaphore_t semaphore = dispatch_semaphore_create(3);
+
+for (int i = 0; i &lt; 10; i++) {
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+
+        // 执行任务（最多 3 个并发）
+        NSLog(@&quot;Task %d&quot;, i);
+        [NSThread sleepForTimeInterval:1.0];
+
+        dispatch_semaphore_signal(semaphore);
+    });
+}
+</code></pre>
+<h3 id="14-锁的性能对比">1.4 锁的性能对比</h3>
+<p><strong>性能测试</strong>（10 万次加锁/解锁）：</p>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>锁类型</th><th>耗时（ns）</th><th>相对性能</th></tr></thead><tbody><tr><td>OSSpinLock</td><td>33.5</td><td>⭐⭐⭐⭐⭐</td></tr><tr><td>os_unfair_lock</td><td>43.7</td><td>⭐⭐⭐⭐</td></tr><tr><td>pthread_mutex</td><td>278.1</td><td>⭐⭐⭐</td></tr><tr><td>NSLock</td><td>387.7</td><td>⭐⭐</td></tr><tr><td>NSCondition</td><td>491.1</td><td>⭐⭐</td></tr><tr><td>@synchronized</td><td>770.2</td><td>⭐</td></tr></tbody></table></div>
+<p><strong>选择建议</strong>：</p>
+<pre><code>1. iOS 10+：优先使用 os_unfair_lock
+2. 需要递归锁：NSRecursiveLock 或 pthread_mutex(RECURSIVE)
+3. 需要条件变量：NSCondition 或 NSConditionLock
+4. 简单场景：@synchronized（性能要求不高时）
+5. 控制并发数量：dispatch_semaphore
+</code></pre>
+<h3 id="15-无锁编程">1.5 无锁编程</h3>
+<p><strong>原子操作</strong>：</p>
+<pre><code class="language-objective-c">#import &lt;libkern/OSAtomic.h&gt;
+
+// 32 位整数原子操作
+int32_t value = 0;
+OSAtomicIncrement32(&amp;value);   // value++
+OSAtomicDecrement32(&amp;value);   // value--
+OSAtomicAdd32(10, &amp;value);     // value += 10
+OSAtomicCompareAndSwapInt(0, 1, &amp;value); // CAS（比较并交换）
+</code></pre>
+<p><strong>Swift 原子操作</strong>：</p>
+<pre><code class="language-swift">import Foundation
+
+var value = 0
+DispatchQueue.global().async {
+    OSAtomicAdd32(1, &amp;value) // 原子加 1
+}
+</code></pre>
+<p><strong>适用场景</strong>：</p>
+<ul>
+<li>计数器</li>
+<li>简单的状态切换</li>
+<li>无需复杂临界区的场景</li>
+</ul>
+<hr/>
+<h2 id="2-锁的真实使用场景面试高频">2. 锁的真实使用场景（面试高频）</h2>
+<h3 id="21-场景一单例模式的线程安全">2.1 场景一：单例模式的线程安全</h3>
+<pre><code class="language-objective-c">// iOS开发中的单例模式
++ (instancetype)sharedInstance {
+    static sharedInstance *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&amp;onceToken, ^{
+        instance = [[self alloc] init];
+    });
+    return instance;
+}
+</code></pre>
+<p><strong>为什么使用dispatch_once？</strong></p>
+<ul>
+<li>保证单例只初始化一次</li>
+<li>线程安全，不会有竞态条件</li>
+<li>系统级别的优化，性能最好</li>
+</ul>
+<h3 id="22-场景二数据库操作的读写锁">2.2 场景二：数据库操作的读写锁</h3>
+<pre><code class="language-objective-c">// 数据库访问场景
+@interface DatabaseManager ()
+@property (nonatomic, strong) dispatch_queue_t readWriteQueue;
+@property (nonatomic, strong) NSMutableDictionary *cache;
+@end
+
+@implementation DatabaseManager
+
+- (instancetype)init {
+    if (self = [super init]) {
+        // 创建并发队列用于读写
+        _readWriteQueue = dispatch_queue_create(&quot;com.app.database&quot;, DISPATCH_QUEUE_CONCURRENT);
+        _cache = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+
+// 读操作：多个线程可以同时读
+- (id)objectForKey:(NSString *)key {
+    __block id result = nil;
+    dispatch_async(_readWriteQueue, ^{
+        result = self.cache[key];
+    });
+    return result;
+}
+
+// 写操作：使用barrier确保独占访问
+- (void)setObject:(id)obj forKey:(NSString *)key {
+    dispatch_barrier_async(_readWriteQueue, ^{
+        self.cache[key] = obj;
+        // 写入数据库
+        [self writeToDatabase:obj forKey:key];
+    });
+}
+
+@end
+</code></pre>
+<p><strong>关键点：</strong></p>
+<ul>
+<li>读操作用dispatch_async，支持并发读</li>
+<li>写操作用dispatch_barrier_async，确保写的时候没有其他操作</li>
+<li>实现了&quot;多读单写&quot;的效果</li>
+</ul>
+<h3 id="23-场景三网络请求的信号量控制">2.3 场景三：网络请求的信号量控制</h3>
+<pre><code class="language-objective-c">// 控制网络请求的最大并发数
+@interface NetworkManager ()
+@property (nonatomic, strong) dispatch_semaphore_t semaphore;
+@end
+
+@implementation NetworkManager
+
+- (instancetype)init {
+    if (self = [super init]) {
+        // 最多允许3个并发网络请求
+        _semaphore = dispatch_semaphore_create(3);
+    }
+    return self;
+}
+
+- (void)requestWithURL:(NSURL *)url completion:(void(^)(NSData *))completion {
+    dispatch_semaphore_wait(_semaphore, DISPATCH_TIME_FOREVER);
+
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (completion) {
+            completion(data);
+        }
+        // 请求完成后释放信号量
+        dispatch_semaphore_signal(_semaphore);
+    }];
+    [task resume];
+}
+
+@end
+</code></pre>
+<p><strong>使用场景：</strong></p>
+<ul>
+<li>限制同时进行的网络请求数量</li>
+<li>避免过多网络请求导致系统资源耗尽</li>
+<li>实现请求队列管理</li>
+</ul>
+<h3 id="24-场景四条件锁的生产消费者模型">2.4 场景四：条件锁的生产消费者模型</h3>
+<pre><code class="language-objective-c">// 线程安全的队列实现
+@interface SafeQueue ()
+@property (nonatomic, strong) NSMutableArray *data;
+@property (nonatomic, strong) NSCondition *condition;
+@property (nonatomic, assign) BOOL isWaiting;
+@end
+
+@implementation SafeQueue
+
+- (instancetype)init {
+    if (self = [super init]) {
+        _data = [NSMutableArray array];
+        _condition = [[NSCondition alloc] init];
+        _isWaiting = NO;
+    }
+    return self;
+}
+
+// 消费者：从队列中取数据
+- (id)dequeue {
+    [_condition lock];
+
+    // 如果队列为空，等待生产者添加数据
+    while (_data.count == 0) {
+        _isWaiting = YES;
+        [_condition wait];
+        _isWaiting = NO;
+    }
+
+    id obj = _data.firstObject;
+    [_data removeObjectAtIndex:0];
+
+    [_condition unlock];
+    return obj;
+}
+
+// 生产者：向队列添加数据
+- (void)enqueue:(id)obj {
+    [_condition lock];
+
+    [_data addObject:obj];
+
+    // 如果有消费者在等待，唤醒它
+    if (_isWaiting) {
+        [_condition signal];
+    }
+
+    [_condition unlock];
+}
+
+@end
+</code></pre>
+<p><strong>实际应用：</strong></p>
+<ul>
+<li>图片下载队列</li>
+<li>消息处理队列</li>
+<li>任务调度系统</li>
+</ul>
+<h3 id="25-场景五属性读写的安全保护">2.5 场景五：属性读写的安全保护</h3>
+<pre><code class="language-objective-c">// 多线程环境下的属性保护
+@interface ThreadSafeObject ()
+@property (nonatomic, strong) os_unfair_lock propertyLock;
+@property (nonatomic, strong) NSString *name;
+@property (nonatomic, assign) NSInteger count;
+@end
+
+@implementation ThreadSafeObject
+
+- (instancetype)init {
+    if (self = [super init]) {
+        _propertyLock = OS_UNFAIR_LOCK_INIT;
+    }
+    return self;
+}
+
+// 线程安全的name getter
+- (NSString *)name {
+    os_unfair_lock_lock(&amp;_propertyLock);
+    NSString *result = _name;
+    os_unfair_lock_unlock(&amp;_propertyLock);
+    return result;
+}
+
+// 线程安全的name setter
+- (void)setName:(NSString *)name {
+    os_unfair_lock_lock(&amp;_propertyLock);
+    _name = name;
+    os_unfair_lock_unlock(&amp;_propertyLock);
+}
+
+// 原子操作的count increment
+- (void)incrementCount {
+    OSAtomicIncrement64(&amp;_count);
+}
+
+@end
+</code></pre>
+<p><strong>选择建议：</strong></p>
+<ul>
+<li>简单属性：使用os_unfair_lock（性能最好）</li>
+<li>对象属性：需要深拷贝或加锁保护</li>
+<li>数值属性：使用原子操作</li>
+</ul>
+<h3 id="26-场景六gcd死锁的避免">2.6 场景六：GCD死锁的避免</h3>
+<pre><code class="language-objective-c">// 常见的死锁场景1：主队列同步操作
+- (void)deadlockExample1 {
+    //  这样会死锁
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        NSLog(@&quot;This will deadlock&quot;);
+    });
+}
+
+// 解决方案：使用异步或检查当前线程
+- (void)fixDeadlockExample1 {
+    if ([NSThread isMainThread]) {
+        // 已经在主线程，直接执行
+        NSLog(@&quot;Already on main thread&quot;);
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSLog(@&quot;This won&#x27;t deadlock&quot;);
+        });
+    }
+}
+
+// 常见的死锁场景2：串行队列同步嵌套
+- (void)deadlockExample2 {
+    dispatch_queue_t serialQueue = dispatch_queue_create(&quot;com.app.serial&quot;, DISPATCH_QUEUE_SERIAL);
+
+    dispatch_async(serialQueue, ^{
+        NSLog(@&quot;Task 1&quot;);
+
+        //  这样会死锁
+        dispatch_sync(serialQueue, ^{
+            NSLog(@&quot;Task 2&quot;);
+        });
+    });
+}
+
+// 解决方案：避免在串行队列中同步执行同一队列的任务
+- (void)fixDeadlockExample2 {
+    dispatch_queue_t serialQueue = dispatch_queue_create(&quot;com.app.serial&quot;, DISPATCH_QUEUE_SERIAL);
+
+    dispatch_async(serialQueue, ^{
+        NSLog(@&quot;Task 1&quot;);
+
+        dispatch_async(serialQueue, ^{
+            NSLog(@&quot;Task 2&quot;);
+        });
+    });
+}
+</code></pre>
+<h3 id="27-场景七网络图片缓存的多读单写">2.7 场景七：网络图片缓存的多读单写</h3>
+<pre><code class="language-swift">// Swift中的并发读写实现
+class ImageCache {
+    private let cache = NSCache&lt;NSString, UIImage&gt;()
+    private let queue = DispatchQueue(label: &quot;com.app.imagecache&quot;, attributes: .concurrent)
+
+    // 多个线程可以同时读
+    func image(for key: String) -&gt; UIImage? {
+        var result: UIImage?
+        queue.async {
+            result = cache.object(forKey: key as NSString)
+        }
+        return result
+    }
+
+    // 写入时使用barrier确保独占
+    func setImage(_ image: UIImage, for key: String) {
+        queue.async(flags: .barrier) {
+            self.cache.setObject(image, forKey: key as NSString)
+        }
+    }
+
+    // 清空缓存也需要barrier
+    func clearCache() {
+        queue.async(flags: .barrier) {
+            self.cache.removeAllObjects()
+        }
+    }
+}
+</code></pre>
+<hr/>
+<h2 id="3-锁的使用最佳实践">3. 锁的使用最佳实践</h2>
+<h3 id="30-object-object-属性不等于线程安全">3.0 <code>atomic</code> 属性不等于线程安全</h3>
+<p>Objective-C 的 <code>atomic</code> 只保证<strong>单次属性 getter 或 setter</strong> 的原子性；它不保证多个操作组成的业务逻辑是原子的，也不保证对象内部可变成员或多个属性之间的一致性。</p>
+<pre><code class="language-objective-c">@property (atomic, assign) NSInteger count;
+</code></pre>
+<p>以下代码仍然存在线程安全问题：</p>
+<pre><code class="language-objective-c">self.count += 1;
+</code></pre>
+<p>它至少包含三个步骤：</p>
+<pre><code class="language-text">1. getter：读取 count
+2. 计算：将本地值加 1
+3. setter：将结果写回 count
+</code></pre>
+<p>两个线程可能交错执行：</p>
+<pre><code class="language-text">初始 count = 0
+
+线程 A：读取 0
+线程 B：读取 0
+线程 A：计算后写回 1
+线程 B：计算后写回 1
+
+最终 count = 1（正确结果应为 2）
+</code></pre>
+<p>因此 <code>count += 1</code> 这类“读 → 修改 → 写”的复合操作仍需要用锁、串行队列、原子 RMW/CAS 等同步手段保护。对 <code>NSMutableArray</code>、<code>NSMutableDictionary</code> 等可变对象，<code>atomic</code> 也不能保护其内部元素增删改和多步业务逻辑。</p>
+<h3 id="31-锁的选择决策树">3.1 锁的选择决策树</h3>
+<pre><code>是否需要递归锁？
+├─ 是 → NSRecursiveLock 或 pthread_mutex(RECURSIVE)
+└─ 否 → 性能要求高吗？
+    ├─ 是 → os_unfair_lock (iOS 10+)
+    ├─ 中等 → pthread_mutex 或 NSLock
+    └─ 低 → @synchronized（代码简洁）
+</code></pre>
+<h3 id="32-常见错误">3.2 常见错误</h3>
+<p><strong>错误1：忘记解锁</strong></p>
+<pre><code class="language-objective-c">//  错误示例
+- (void)badExample {
+    os_unfair_lock_lock(&amp;_lock);
+    if (someCondition) {
+        return; // 忘记解锁，导致死锁
+    }
+    os_unfair_lock_unlock(&amp;_lock);
+}
+
+//  正确示例
+- (void)goodExample {
+    os_unfair_lock_lock(&amp;_lock);
+    if (someCondition) {
+        os_unfair_lock_unlock(&amp;_lock);
+        return;
+    }
+    os_unfair_lock_unlock(&amp;_lock);
+}
+</code></pre>
+<p><strong>错误2：在锁内进行耗时操作</strong></p>
+<pre><code class="language-objective-c">//  错误示例
+- (void)badExample {
+    [_lock lock];
+    // 网络请求等耗时操作会阻塞其他线程
+    [self networkRequest];
+    [_lock unlock];
+}
+
+//  正确示例：只保护必要的临界区
+- (void)goodExample {
+    // 先获取数据
+    NSData *data = [self prepareData];
+
+    [_lock lock];
+    // 只保护真正需要同步的部分
+    [self processData:data];
+    [_lock unlock];
+}
+</code></pre>
+<h3 id="33-性能优化技巧">3.3 性能优化技巧</h3>
+<p><strong>技巧1：减少锁的粒度</strong></p>
+<pre><code class="language-objective-c">//  粗粒度锁
+- (void)badExample {
+    [_lock lock];
+    [self doSomething1];
+    [self doSomething2]; // 可能不需要锁保护
+    [self doSomething3];
+    [_lock unlock];
+}
+
+//  细粒度锁
+- (void)goodExample {
+    [self doSomething1]; // 不需要锁
+    [_lock lock];
+    [self doSomething2]; // 只锁必要的部分
+    [_lock unlock];
+    [self doSomething3]; // 不需要锁
+}
+</code></pre>
+<p><strong>技巧2：使用读写锁提高并发性能</strong></p>
+<pre><code class="language-objective-c">// 读多写少的场景，使用读写锁
+@interface ReadWriteCache ()
+@property (nonatomic, strong) pthread_rwlock_t lock;
+@property (nonatomic, strong) NSMutableDictionary *cache;
+@end
+
+@implementation ReadWriteCache
+
+- (id)readData {
+    pthread_rwlock_rdlock(&amp;_lock); // 读锁
+    id result = _cache[@&quot;key&quot;];
+    pthread_rwlock_unlock(&amp;_lock);
+    return result;
+}
+
+- (void)writeData:(id)data {
+    pthread_rwlock_wrlock(&amp;_lock); // 写锁
+    _cache[@&quot;key&quot;] = data;
+    pthread_rwlock_unlock(&amp;_lock);
+}
+
+@end
+</code></pre>
+<hr/>
+<h2 id="5-常见问题补充">5. 常见问题补充</h2>
+<h3 id="72-其他并发问题">7.2 其他并发问题</h3>
+<div class="table-scroll"><table class="md-table"><thead><tr><th>问题</th><th>答案要点</th><th>难度</th></tr></thead><tbody><tr><td>Serial Queue 和 Concurrent Queue 的区别？</td><td>Serial 一次执行一个，Concurrent 可同时执行多个</td><td>⭐⭐</td></tr><tr><td>dispatch_sync 的作用？</td><td>同步等待任务完成，可能导致死锁</td><td>⭐⭐⭐</td></tr><tr><td>如何避免死锁？</td><td>不要在串行队列中使用 dispatch_sync 执行同一个队列的任务</td><td>⭐⭐⭐⭐</td></tr><tr><td>NSOperationQueue 的依赖关系？</td><td>addDependency，支持复杂的依赖图</td><td>⭐⭐⭐</td></tr></tbody></table></div>
+<hr/>
+<h2 id="8-参考资料">8. 参考资料</h2>
+<h3 id="优质文章">优质文章</h3>
+<ul>
+<li><a href="https://juejin.cn/post/7360879591235551266">iOS 面试题| GCD 和NSOperation 有啥区别？</a></li>
+<li><a href="https://cloud.tencent.com/developer/article/1692252">iOS多线程之GCD、OperationQueue 对比和实践记录</a></li>
+<li><a href="https://cloud.tencent.com/developer/article/1334777">iOS多线程之四：NSOperation的使用</a></li>
+</ul>
+<hr/>
+<p><strong>最后更新</strong>：2026-04-07</p></div><footer class="article-pager"><div class="pager-item"><a href="/fcfblog/posts/ios-multithreading-complete-guide/"><span class="pager-hint">上一篇</span><span class="pager-title">iOS 多线程编程总结：GCD、NSOperation 与 Swift 并发</span></a></div><div class="pager-item right"><a href="/fcfblog/posts/swift-core-mechanisms-deep-dive/"><span class="pager-hint">下一篇</span><span class="pager-title">Swift 核心机制整理：内存布局、方法派发与泛型特化</span></a></div></footer></article><aside class="article-toc"><div class="toc-sticky"><div class="toc-heading">本文目录</div><ul class="toc-list"><li class="toc-level-2"><a href="#1-锁的分类与性能对比">1. 锁的分类与性能对比</a></li><li class="toc-level-3"><a href="#11-锁的基本概念">1.1 锁的基本概念</a></li><li class="toc-level-3"><a href="#12-ios-中常见的锁">1.2 iOS 中常见的锁</a></li><li class="toc-level-3"><a href="#13-dispatch_semaphore信号量">1.3 dispatch_semaphore（信号量）</a></li><li class="toc-level-3"><a href="#14-锁的性能对比">1.4 锁的性能对比</a></li><li class="toc-level-3"><a href="#15-无锁编程">1.5 无锁编程</a></li><li class="toc-level-2"><a href="#2-锁的真实使用场景面试高频">2. 锁的真实使用场景（面试高频）</a></li><li class="toc-level-3"><a href="#21-场景一单例模式的线程安全">2.1 场景一：单例模式的线程安全</a></li><li class="toc-level-3"><a href="#22-场景二数据库操作的读写锁">2.2 场景二：数据库操作的读写锁</a></li><li class="toc-level-3"><a href="#23-场景三网络请求的信号量控制">2.3 场景三：网络请求的信号量控制</a></li><li class="toc-level-3"><a href="#24-场景四条件锁的生产消费者模型">2.4 场景四：条件锁的生产消费者模型</a></li><li class="toc-level-3"><a href="#25-场景五属性读写的安全保护">2.5 场景五：属性读写的安全保护</a></li><li class="toc-level-3"><a href="#26-场景六gcd死锁的避免">2.6 场景六：GCD死锁的避免</a></li><li class="toc-level-3"><a href="#27-场景七网络图片缓存的多读单写">2.7 场景七：网络图片缓存的多读单写</a></li><li class="toc-level-2"><a href="#3-锁的使用最佳实践">3. 锁的使用最佳实践</a></li><li class="toc-level-3"><a href="#30-atomic-属性不等于线程安全">3.0 atomic 属性不等于线程安全</a></li><li class="toc-level-3"><a href="#31-锁的选择决策树">3.1 锁的选择决策树</a></li><li class="toc-level-3"><a href="#32-常见错误">3.2 常见错误</a></li><li class="toc-level-3"><a href="#33-性能优化技巧">3.3 性能优化技巧</a></li><li class="toc-level-2"><a href="#5-常见问题补充">5. 常见问题补充</a></li><li class="toc-level-3"><a href="#72-其他并发问题">7.2 其他并发问题</a></li><li class="toc-level-2"><a href="#8-参考资料">8. 参考资料</a></li><li class="toc-level-3"><a href="#优质文章">优质文章</a></li></ul></div></aside></div><footer class="site-footer"><span>© 2022–2026 FengCaifan</span></footer></div><!--$--><!--/$--><script src="/fcfblog/_next/static/chunks/webpack-21bfd932208446f3.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[7555,[],\"\"]\n3:I[1295,[],\"\"]\n5:I[9665,[],\"OutletBoundary\"]\n8:I[4911,[],\"AsyncMetadataOutlet\"]\na:I[9665,[],\"ViewportBoundary\"]\nc:I[9665,[],\"MetadataBoundary\"]\ne:I[6614,[],\"\"]\n:HL[\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"bCC3fH8ggorFQfQxoj4EU\",\"p\":\"/fcfblog\",\"c\":[\"\",\"posts\",\"ios-locks-classification-and-performance\",\"\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"posts\",{\"children\":[[\"slug\",\"ios-locks-classification-and-performance\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/fcfblog/_next/static/css/0ae5dd793e516608.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"children\":[\"$\",\"body\",null,{\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]]}],{\"children\":[\"posts\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[[\"slug\",\"ios-locks-classification-and-performance\",\"d\"],[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[\"$L4\",null,[\"$\",\"$L5\",null,{\"children\":[\"$L6\",\"$L7\",[\"$\",\"$L8\",null,{\"promise\":\"$@9\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"T62xkJBk8Z5GzECjESQFAv\",{\"children\":[[\"$\",\"$La\",null,{\"children\":\"$Lb\"}],null]}],[\"$\",\"$Lc\",null,{\"children\":\"$Ld\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$e\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"f:\"$Sreact.suspense\"\n10:I[4911,[],\"AsyncMetadata\"]\n12:I[6874,[\"874\",\"static/chunks/874-7618c3fad5f7ba4a.js\",\"858\",\"static/chunks/app/posts/%5Bslug%5D/page-c9609808b1bda3f5.js\"],\"\"]\nd:[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$f\",null,{\"fallback\":null,\"children\":[\"$\",\"$L10\",null,{\"promise\":\"$@11\"}]}]}]\n13:T4e4,// 常见的死锁场景1：主队列同步操作\n- (void)deadlockExample1 {\n    //  这样会死锁\n    dispatch_sync(dispatch_get_main_queue(), ^{\n        NSLog(@\"This will deadlock\");\n    });\n}\n\n// 解决方案：使用异步或检查当前线程\n- (void)fixDeadlockExample1 {\n    if ([NSThread isMainThread]) {\n        // 已经在主线程，直接执行\n        NSLog(@\"Already on main thread\");\n    } else {\n        dispatch_async(dispatch_get_main_queue(), ^{\n            NSLog(@\"This won't deadlock\");\n        });\n    }\n}\n\n// 常见的死锁场景2：串行队列同步嵌套\n- (void)deadlockExample2 {\n    dispatch_queue_t serialQueue = dispatch_queue_create(\"com.app.serial\", DISPATCH_QUEUE_SERIAL);\n\n    dispatch_async(serialQueue, ^{\n        NSLog(@\"Task 1\");\n\n        //  这样会死锁\n        dispatch_sync(serialQueue, ^{\n            NSLog(@\"Task 2\");\n        });\n    });\n}\n\n// 解决方案：避免在串行队列中同步执行同一队列的任务\n- (void)fixDeadlockExample2 {\n    dispatch_queue_t serialQueue = dispatch_queue_create(\"com.app.serial\", DISPATCH_QUEUE_SERIAL);\n\n    dispatch_async(serialQueue, ^{\n        NSLog(@\"Task 1\");\n\n        dispatch_async(serialQueue, ^{\n            NSLog(@\"Task 2\");\n        });\n    });\n}\n"])</script><script>self.__next_f.push([1,"4:[\"$\",\"div\",null,{\"className\":\"blog-shell\",\"children\":[[\"$\",\"header\",null,{\"className\":\"masthead\",\"children\":[\"$\",\"div\",null,{\"className\":\"masthead-inner\",\"children\":[[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"brand-title\",\"children\":\"Caifan's Notes\"}],[\"$\",\"nav\",null,{\"className\":\"top-nav\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/\",\"className\":\"nav-link\",\"children\":\"← 返回列表\"}]}]]}]}],[\"$\",\"div\",null,{\"className\":\"article-page-wrap\",\"children\":[[\"$\",\"article\",null,{\"className\":\"article-main\",\"children\":[[\"$\",\"header\",null,{\"className\":\"article-header\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"article-title\",\"children\":\"iOS 常见锁的原理与性能对比\"}],[\"$\",\"div\",null,{\"className\":\"article-meta\",\"children\":[[\"$\",\"time\",null,{\"children\":\"2025-05-18\"}],[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"children\":\"iOS 底层与原理\"}],[[\"$\",\"span\",null,{\"className\":\"meta-sep\",\"children\":\"·\"}],[\"$\",\"span\",null,{\"className\":\"article-tags\",\"children\":\"多线程锁 / os_unfair_lock / pthread_mutex\"}]]]}]]}],[\"$\",\"div\",null,{\"className\":\"markdown-body\",\"children\":[[\"$\",\"p\",\"p-0\",{\"children\":\"多线程访问共享资源需要同步；理解互斥锁、自旋锁、读写锁与信号量的实现与性能差异，是写出线程安全代码的基础。\"}],\"\\n\",[\"$\",\"hr\",\"hr-0\",{}],\"\\n\",[\"$\",\"h2\",\"h2-0\",{\"id\":\"1-锁的分类与性能对比\",\"children\":\"1. 锁的分类与性能对比\"}],\"\\n\",[\"$\",\"h3\",\"h3-0\",{\"id\":\"11-锁的基本概念\",\"children\":\"1.1 锁的基本概念\"}],\"\\n\",[\"$\",\"p\",\"p-1\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"为什么需要锁？\"}]}],\"\\n\",[\"$\",\"p\",\"p-2\",{\"children\":\"多线程编程中，当多个线程同时访问共享资源时，可能会导致数据竞争（Data Race）。锁的作用是保证同一时刻只有一个线程能访问临界区。\"}],\"\\n\",[\"$\",\"p\",\"p-3\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"锁的分类\"}],\"：\"]}],\"\\n\",[\"$\",\"div\",\"div-0\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"类型\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"说明\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"实现方式\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"互斥锁\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"获取锁失败时会休眠，等待唤醒\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"pthread_mutex、NSLock、@synchronized\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"自旋锁\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"获取锁失败时会忙等待（循环重试）\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"OSSpinLock（已废弃）\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"非公平互斥锁\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"获取锁失败时会休眠等待内核唤醒，不保证公平获取顺序\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"os_unfair_lock\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"读写锁\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"允许多个读者或一个写者\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"pthread_rwlock\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"条件锁\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"满足特定条件时获取锁\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"NSCondition、NSConditionLock\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"信号量\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"控制并发访问数量\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"dispatch_semaphore\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"h3\",\"h3-1\",{\"id\":\"12-ios-中常见的锁\",\"children\":\"1.2 iOS 中常见的锁\"}],\"\\n\",[\"$\",\"h4\",\"h4-0\",{\"children\":\"1.2.1 OSSpinLock（已废弃）\"}],\"\\n\",[\"$\",\"p\",\"p-4\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"特点\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-0\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"自旋锁；旧资料常以“无竞争时开销低”描述，不能据此机械认定为所有场景性能最高\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"存在\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"优先级反转问题\"}],\"（Priority Inversion）\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"iOS 10 后被废弃\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-5\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"优先级反转问题\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-0\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"场景：\\n- 低优先级线程 L 持有锁\\n- 高优先级线程 H 等待锁\\n- 中优先级线程 M 抢占 L 的 CPU 时间\\n\\n结果：H 无法执行，L 无法释放锁，系统性能下降\\n\\n示例：\\n线程 1（低优先级）：获取锁 → 被中断\\n线程 2（中优先级）：占用 CPU，线程 1 无法运行\\n线程 3（高优先级）：等待锁，但锁被线程 1 持有\\n→ 线程 3 永远等待\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-6\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"代码示例\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-1\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"//  iOS 10+ 已废弃，不推荐使用\\n#import \u003clibkern/OSAtomic.h\u003e\\n\\nOSSpinLock lock = OS_SPINLOCK_INIT;\\nOSSpinLockLock(\u0026lock);\\n// 临界区\\nOSSpinLockUnlock(\u0026lock);\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-1\",{\"children\":\"1.2.2 os_unfair_lock（推荐）\"}],\"\\n\",[\"$\",\"p\",\"p-7\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"特点\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-1\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"iOS 10+ 引入，替代 OSSpinLock\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"非公平互斥锁（\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"不是自旋锁\"}],\"）；竞争失败时会阻塞 / 休眠，而不是 CPU 忙等\"]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"内核支持优先级传递等机制以缓解优先级反转；不要表述为“绝对不会有优先级反转”\"}],\"\\n\",[\"$\",\"li\",\"li-3\",{\"children\":\"适合 iOS 10+、无需递归的短临界区；选型不应只按性能排行\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-8\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"底层实现\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-2\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"基于 Darwin 的 \",[\"$\",\"code\",\"code-0\",{\"children\":\"os_unfair_lock\"}],\" 内核等待 / 唤醒机制；不应将 Apple 平台实现笼统表述为 Linux futex\"]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"获取锁失败时，线程会休眠（而非忙等待）\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-9\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"代码示例\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-2\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"#import \u003cos/lock.h\u003e\\n\\nos_unfair_lock lock = OS_UNFAIR_LOCK_INIT;\\n\\n// 加锁\\nos_unfair_lock_lock(\u0026lock);\\n// 临界区\\nos_unfair_lock_unlock(\u0026lock);\\n\\n// 尝试加锁（不阻塞）\\nif (os_unfair_lock_trylock(\u0026lock)) {\\n    // 加锁成功\\n    os_unfair_lock_unlock(\u0026lock);\\n}\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-2\",{\"children\":\"1.2.3 pthread_mutex\"}],\"\\n\",[\"$\",\"p\",\"p-10\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"特点\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-3\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"跨平台，C 语言接口\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"支持多种类型：普通、递归、错误检查\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"性能中等\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-11\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"类型\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-3\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// PTHREAD_MUTEX_NORMAL：普通锁（同一线程重复加锁会死锁）\\n// PTHREAD_MUTEX_RECURSIVE：递归锁（同一线程可多次加锁）\\n// PTHREAD_MUTEX_ERRORCHECK：错误检查锁（重复加锁返回错误）\\n\\npthread_mutexattr_t attr;\\npthread_mutexattr_init(\u0026attr);\\npthread_mutexattr_settype(\u0026attr, PTHREAD_MUTEX_RECURSIVE);\\n\\npthread_mutex_t mutex;\\npthread_mutex_init(\u0026mutex, \u0026attr);\\n\\npthread_mutex_lock(\u0026mutex);\\n// 临界区\\npthread_mutex_unlock(\u0026mutex);\\n\\npthread_mutex_destroy(\u0026mutex);\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-3\",{\"children\":\"1.2.4 NSLock \u0026 NSRecursiveLock\"}],\"\\n\",[\"$\",\"p\",\"p-12\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"NSLock\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-4\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"@interface NSLock : NSObject \u003cNSLocking\u003e\\n- (BOOL)tryLock; // 尝试加锁，不阻塞\\n- (BOOL)lockBeforeDate:(NSDate *)limit; // 超时加锁\\n@end\\n\\nNSLock *lock = [[NSLock alloc] init];\\n[lock lock];\\n// 临界区\\n[lock unlock];\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-13\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"NSRecursiveLock\"}],\"（递归锁）：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-5\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"NSRecursiveLock *lock = [[NSRecursiveLock alloc] init];\\n\\n- (void)recursiveMethod:(int)count {\\n    [lock lock];\\n    if (count \u003e 0) {\\n        [self recursiveMethod:count - 1]; // 同一线程可重复加锁\\n    }\\n    [lock unlock];\\n}\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-4\",{\"children\":\"1.2.5 NSCondition \u0026 NSConditionLock\"}],\"\\n\",[\"$\",\"p\",\"p-14\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"NSCondition\"}],\"（条件变量）：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-6\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"NSCondition *condition = [[NSCondition alloc] init];\\n\\n// 线程 1：等待条件\\n[condition lock];\\nwhile (!conditionIsMet) {\\n    [condition wait]; // 释放锁并等待\\n}\\n[condition unlock];\\n\\n// 线程 2：设置条件并唤醒\\n[condition lock];\\nconditionIsMet = YES;\\n[condition signal]; // 唤醒一个等待线程\\n// 或 [condition broadcast]; // 唤醒所有等待线程\\n[condition unlock];\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-15\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"NSConditionLock\"}],\"（条件锁）：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-7\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"NSConditionLock *lock = [[NSConditionLock alloc] initWithCondition:0];\\n\\n// 线程 1：等待条件为 42\\n[lock lockWhenCondition:42];\\n// 临界区\\n[lock unlock];\\n\\n// 线程 2：设置条件为 42\\n[lock lock];\\n[lock unlockWithCondition:42];\\n\"}]}],\"\\n\",[\"$\",\"h4\",\"h4-5\",{\"children\":\"1.2.6 @synchronized\"}],\"\\n\",[\"$\",\"p\",\"p-16\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"特点\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-4\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"使用简单，但性能最差\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"递归锁\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"底层使用哈希表存储锁对象\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-17\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"底层实现\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-8\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 编译器转换\\n@synchronized(obj) {\\n    // 临界区\\n}\\n\\n// 等价于\\nobjc_sync_enter(obj);\\n// 临界区\\nobjc_sync_exit(obj);\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-18\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"底层原理\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-9\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. objc_sync_enter(obj):\\n   - 以 obj 为 key，在全局哈希表中查找 SyncData\\n   - 如果找到，递归计数 +1\\n   - 如果未找到，创建新的 SyncData，递归计数 = 1\\n\\n2. objc_sync_exit(obj):\\n   - 递归计数 -1\\n   - 如果递归计数为 0，释放锁\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-2\",{\"id\":\"13-dispatch_semaphore信号量\",\"children\":\"1.3 dispatch_semaphore（信号量）\"}],\"\\n\",[\"$\",\"p\",\"p-19\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"特点\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-5\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"可以控制并发数量\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"也可以作为锁使用\"}],\"\\n\"]}],\"\\n\",[\"$\",\"p\",\"p-20\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"基本用法\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-10\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 创建信号量（初始值为 1，作为互斥锁使用）\\ndispatch_semaphore_t semaphore = dispatch_semaphore_create(1);\\n\\n// 等待信号（减 1，如果为 0 则阻塞）\\ndispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);\\n// 临界区\\n// 发送信号（加 1，唤醒等待线程）\\ndispatch_semaphore_signal(semaphore);\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-21\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"控制并发数量\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-11\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 最多允许 3 个并发线程\\ndispatch_semaphore_t semaphore = dispatch_semaphore_create(3);\\n\\nfor (int i = 0; i \u003c 10; i++) {\\n    dispatch_async(dispatch_get_global_queue(0, 0), ^{\\n        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);\\n\\n        // 执行任务（最多 3 个并发）\\n        NSLog(@\\\"Task %d\\\", i);\\n        [NSThread sleepForTimeInterval:1.0];\\n\\n        dispatch_semaphore_signal(semaphore);\\n    });\\n}\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-3\",{\"id\":\"14-锁的性能对比\",\"children\":\"1.4 锁的性能对比\"}],\"\\n\",[\"$\",\"p\",\"p-22\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"性能测试\"}],\"（10 万次加锁/解锁）：\"]}],\"\\n\",[\"$\",\"div\",\"div-1\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"锁类型\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"耗时（ns）\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"相对性能\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"OSSpinLock\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"33.5\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"os_unfair_lock\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"43.7\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"pthread_mutex\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"278.1\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"NSLock\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"387.7\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-4\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"NSCondition\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"491.1\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-5\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"@synchronized\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"770.2\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"p\",\"p-23\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"选择建议\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-12\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"1. iOS 10+：优先使用 os_unfair_lock\\n2. 需要递归锁：NSRecursiveLock 或 pthread_mutex(RECURSIVE)\\n3. 需要条件变量：NSCondition 或 NSConditionLock\\n4. 简单场景：@synchronized（性能要求不高时）\\n5. 控制并发数量：dispatch_semaphore\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-4\",{\"id\":\"15-无锁编程\",\"children\":\"1.5 无锁编程\"}],\"\\n\",[\"$\",\"p\",\"p-24\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"原子操作\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-13\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"#import \u003clibkern/OSAtomic.h\u003e\\n\\n// 32 位整数原子操作\\nint32_t value = 0;\\nOSAtomicIncrement32(\u0026value);   // value++\\nOSAtomicDecrement32(\u0026value);   // value--\\nOSAtomicAdd32(10, \u0026value);     // value += 10\\nOSAtomicCompareAndSwapInt(0, 1, \u0026value); // CAS（比较并交换）\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-25\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"Swift 原子操作\"}],\"：\"]}],\"\\n\",[\"$\",\"pre\",\"pre-14\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"import Foundation\\n\\nvar value = 0\\nDispatchQueue.global().async {\\n    OSAtomicAdd32(1, \u0026value) // 原子加 1\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-26\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"适用场景\"}],\"：\"]}],\"\\n\",[\"$\",\"ul\",\"ul-6\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"计数器\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"简单的状态切换\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"无需复杂临界区的场景\"}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-1\",{}],\"\\n\",[\"$\",\"h2\",\"h2-1\",{\"id\":\"2-锁的真实使用场景面试高频\",\"children\":\"2. 锁的真实使用场景（面试高频）\"}],\"\\n\",[\"$\",\"h3\",\"h3-5\",{\"id\":\"21-场景一单例模式的线程安全\",\"children\":\"2.1 场景一：单例模式的线程安全\"}],\"\\n\",[\"$\",\"pre\",\"pre-15\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// iOS开发中的单例模式\\n+ (instancetype)sharedInstance {\\n    static sharedInstance *instance = nil;\\n    static dispatch_once_t onceToken;\\n    dispatch_once(\u0026onceToken, ^{\\n        instance = [[self alloc] init];\\n    });\\n    return instance;\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-27\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"为什么使用dispatch_once？\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-7\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"保证单例只初始化一次\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"线程安全，不会有竞态条件\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"系统级别的优化，性能最好\"}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-6\",{\"id\":\"22-场景二数据库操作的读写锁\",\"children\":\"2.2 场景二：数据库操作的读写锁\"}],\"\\n\",[\"$\",\"pre\",\"pre-16\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 数据库访问场景\\n@interface DatabaseManager ()\\n@property (nonatomic, strong) dispatch_queue_t readWriteQueue;\\n@property (nonatomic, strong) NSMutableDictionary *cache;\\n@end\\n\\n@implementation DatabaseManager\\n\\n- (instancetype)init {\\n    if (self = [super init]) {\\n        // 创建并发队列用于读写\\n        _readWriteQueue = dispatch_queue_create(\\\"com.app.database\\\", DISPATCH_QUEUE_CONCURRENT);\\n        _cache = [NSMutableDictionary dictionary];\\n    }\\n    return self;\\n}\\n\\n// 读操作：多个线程可以同时读\\n- (id)objectForKey:(NSString *)key {\\n    __block id result = nil;\\n    dispatch_async(_readWriteQueue, ^{\\n        result = self.cache[key];\\n    });\\n    return result;\\n}\\n\\n// 写操作：使用barrier确保独占访问\\n- (void)setObject:(id)obj forKey:(NSString *)key {\\n    dispatch_barrier_async(_readWriteQueue, ^{\\n        self.cache[key] = obj;\\n        // 写入数据库\\n        [self writeToDatabase:obj forKey:key];\\n    });\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-28\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"关键点：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-8\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"读操作用dispatch_async，支持并发读\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"写操作用dispatch_barrier_async，确保写的时候没有其他操作\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"实现了\\\"多读单写\\\"的效果\"}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-7\",{\"id\":\"23-场景三网络请求的信号量控制\",\"children\":\"2.3 场景三：网络请求的信号量控制\"}],\"\\n\",[\"$\",\"pre\",\"pre-17\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 控制网络请求的最大并发数\\n@interface NetworkManager ()\\n@property (nonatomic, strong) dispatch_semaphore_t semaphore;\\n@end\\n\\n@implementation NetworkManager\\n\\n- (instancetype)init {\\n    if (self = [super init]) {\\n        // 最多允许3个并发网络请求\\n        _semaphore = dispatch_semaphore_create(3);\\n    }\\n    return self;\\n}\\n\\n- (void)requestWithURL:(NSURL *)url completion:(void(^)(NSData *))completion {\\n    dispatch_semaphore_wait(_semaphore, DISPATCH_TIME_FOREVER);\\n\\n    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {\\n        if (completion) {\\n            completion(data);\\n        }\\n        // 请求完成后释放信号量\\n        dispatch_semaphore_signal(_semaphore);\\n    }];\\n    [task resume];\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-29\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"使用场景：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-9\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"限制同时进行的网络请求数量\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"避免过多网络请求导致系统资源耗尽\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"实现请求队列管理\"}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-8\",{\"id\":\"24-场景四条件锁的生产消费者模型\",\"children\":\"2.4 场景四：条件锁的生产消费者模型\"}],\"\\n\",[\"$\",\"pre\",\"pre-18\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 线程安全的队列实现\\n@interface SafeQueue ()\\n@property (nonatomic, strong) NSMutableArray *data;\\n@property (nonatomic, strong) NSCondition *condition;\\n@property (nonatomic, assign) BOOL isWaiting;\\n@end\\n\\n@implementation SafeQueue\\n\\n- (instancetype)init {\\n    if (self = [super init]) {\\n        _data = [NSMutableArray array];\\n        _condition = [[NSCondition alloc] init];\\n        _isWaiting = NO;\\n    }\\n    return self;\\n}\\n\\n// 消费者：从队列中取数据\\n- (id)dequeue {\\n    [_condition lock];\\n\\n    // 如果队列为空，等待生产者添加数据\\n    while (_data.count == 0) {\\n        _isWaiting = YES;\\n        [_condition wait];\\n        _isWaiting = NO;\\n    }\\n\\n    id obj = _data.firstObject;\\n    [_data removeObjectAtIndex:0];\\n\\n    [_condition unlock];\\n    return obj;\\n}\\n\\n// 生产者：向队列添加数据\\n- (void)enqueue:(id)obj {\\n    [_condition lock];\\n\\n    [_data addObject:obj];\\n\\n    // 如果有消费者在等待，唤醒它\\n    if (_isWaiting) {\\n        [_condition signal];\\n    }\\n\\n    [_condition unlock];\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-30\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"实际应用：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-10\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"图片下载队列\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"消息处理队列\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"任务调度系统\"}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-9\",{\"id\":\"25-场景五属性读写的安全保护\",\"children\":\"2.5 场景五：属性读写的安全保护\"}],\"\\n\",[\"$\",\"pre\",\"pre-19\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 多线程环境下的属性保护\\n@interface ThreadSafeObject ()\\n@property (nonatomic, strong) os_unfair_lock propertyLock;\\n@property (nonatomic, strong) NSString *name;\\n@property (nonatomic, assign) NSInteger count;\\n@end\\n\\n@implementation ThreadSafeObject\\n\\n- (instancetype)init {\\n    if (self = [super init]) {\\n        _propertyLock = OS_UNFAIR_LOCK_INIT;\\n    }\\n    return self;\\n}\\n\\n// 线程安全的name getter\\n- (NSString *)name {\\n    os_unfair_lock_lock(\u0026_propertyLock);\\n    NSString *result = _name;\\n    os_unfair_lock_unlock(\u0026_propertyLock);\\n    return result;\\n}\\n\\n// 线程安全的name setter\\n- (void)setName:(NSString *)name {\\n    os_unfair_lock_lock(\u0026_propertyLock);\\n    _name = name;\\n    os_unfair_lock_unlock(\u0026_propertyLock);\\n}\\n\\n// 原子操作的count increment\\n- (void)incrementCount {\\n    OSAtomicIncrement64(\u0026_count);\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-31\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"选择建议：\"}]}],\"\\n\",[\"$\",\"ul\",\"ul-11\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":\"简单属性：使用os_unfair_lock（性能最好）\"}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":\"对象属性：需要深拷贝或加锁保护\"}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":\"数值属性：使用原子操作\"}],\"\\n\"]}],\"\\n\",[\"$\",\"h3\",\"h3-10\",{\"id\":\"26-场景六gcd死锁的避免\",\"children\":\"2.6 场景六：GCD死锁的避免\"}],\"\\n\",[\"$\",\"pre\",\"pre-20\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"$13\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-11\",{\"id\":\"27-场景七网络图片缓存的多读单写\",\"children\":\"2.7 场景七：网络图片缓存的多读单写\"}],\"\\n\",[\"$\",\"pre\",\"pre-21\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-swift\",\"children\":\"// Swift中的并发读写实现\\nclass ImageCache {\\n    private let cache = NSCache\u003cNSString, UIImage\u003e()\\n    private let queue = DispatchQueue(label: \\\"com.app.imagecache\\\", attributes: .concurrent)\\n\\n    // 多个线程可以同时读\\n    func image(for key: String) -\u003e UIImage? {\\n        var result: UIImage?\\n        queue.async {\\n            result = cache.object(forKey: key as NSString)\\n        }\\n        return result\\n    }\\n\\n    // 写入时使用barrier确保独占\\n    func setImage(_ image: UIImage, for key: String) {\\n        queue.async(flags: .barrier) {\\n            self.cache.setObject(image, forKey: key as NSString)\\n        }\\n    }\\n\\n    // 清空缓存也需要barrier\\n    func clearCache() {\\n        queue.async(flags: .barrier) {\\n            self.cache.removeAllObjects()\\n        }\\n    }\\n}\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-2\",{}],\"\\n\",[\"$\",\"h2\",\"h2-2\",{\"id\":\"3-锁的使用最佳实践\",\"children\":\"3. 锁的使用最佳实践\"}],\"\\n\",[\"$\",\"h3\",\"h3-12\",{\"id\":\"30-object-object-属性不等于线程安全\",\"children\":[\"3.0 \",[\"$\",\"code\",\"code-0\",{\"children\":\"atomic\"}],\" 属性不等于线程安全\"]}],\"\\n\",[\"$\",\"p\",\"p-32\",{\"children\":[\"Objective-C 的 \",[\"$\",\"code\",\"code-0\",{\"children\":\"atomic\"}],\" 只保证\",[\"$\",\"strong\",\"strong-0\",{\"children\":\"单次属性 getter 或 setter\"}],\" 的原子性；它不保证多个操作组成的业务逻辑是原子的，也不保证对象内部可变成员或多个属性之间的一致性。\"]}],\"\\n\",[\"$\",\"pre\",\"pre-22\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"@property (atomic, assign) NSInteger count;\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-33\",{\"children\":\"以下代码仍然存在线程安全问题：\"}],\"\\n\",[\"$\",\"pre\",\"pre-23\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"self.count += 1;\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-34\",{\"children\":\"它至少包含三个步骤：\"}],\"\\n\",[\"$\",\"pre\",\"pre-24\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-text\",\"children\":\"1. getter：读取 count\\n2. 计算：将本地值加 1\\n3. setter：将结果写回 count\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-35\",{\"children\":\"两个线程可能交错执行：\"}],\"\\n\",[\"$\",\"pre\",\"pre-25\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-text\",\"children\":\"初始 count = 0\\n\\n线程 A：读取 0\\n线程 B：读取 0\\n线程 A：计算后写回 1\\n线程 B：计算后写回 1\\n\\n最终 count = 1（正确结果应为 2）\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-36\",{\"children\":[\"因此 \",[\"$\",\"code\",\"code-0\",{\"children\":\"count += 1\"}],\" 这类“读 → 修改 → 写”的复合操作仍需要用锁、串行队列、原子 RMW/CAS 等同步手段保护。对 \",[\"$\",\"code\",\"code-1\",{\"children\":\"NSMutableArray\"}],\"、\",[\"$\",\"code\",\"code-2\",{\"children\":\"NSMutableDictionary\"}],\" 等可变对象，\",[\"$\",\"code\",\"code-3\",{\"children\":\"atomic\"}],\" 也不能保护其内部元素增删改和多步业务逻辑。\"]}],\"\\n\",[\"$\",\"h3\",\"h3-13\",{\"id\":\"31-锁的选择决策树\",\"children\":\"3.1 锁的选择决策树\"}],\"\\n\",[\"$\",\"pre\",\"pre-26\",{\"children\":[\"$\",\"code\",\"code-0\",{\"children\":\"是否需要递归锁？\\n├─ 是 → NSRecursiveLock 或 pthread_mutex(RECURSIVE)\\n└─ 否 → 性能要求高吗？\\n    ├─ 是 → os_unfair_lock (iOS 10+)\\n    ├─ 中等 → pthread_mutex 或 NSLock\\n    └─ 低 → @synchronized（代码简洁）\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-14\",{\"id\":\"32-常见错误\",\"children\":\"3.2 常见错误\"}],\"\\n\",[\"$\",\"p\",\"p-37\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"错误1：忘记解锁\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-27\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"//  错误示例\\n- (void)badExample {\\n    os_unfair_lock_lock(\u0026_lock);\\n    if (someCondition) {\\n        return; // 忘记解锁，导致死锁\\n    }\\n    os_unfair_lock_unlock(\u0026_lock);\\n}\\n\\n//  正确示例\\n- (void)goodExample {\\n    os_unfair_lock_lock(\u0026_lock);\\n    if (someCondition) {\\n        os_unfair_lock_unlock(\u0026_lock);\\n        return;\\n    }\\n    os_unfair_lock_unlock(\u0026_lock);\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-38\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"错误2：在锁内进行耗时操作\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-28\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"//  错误示例\\n- (void)badExample {\\n    [_lock lock];\\n    // 网络请求等耗时操作会阻塞其他线程\\n    [self networkRequest];\\n    [_lock unlock];\\n}\\n\\n//  正确示例：只保护必要的临界区\\n- (void)goodExample {\\n    // 先获取数据\\n    NSData *data = [self prepareData];\\n\\n    [_lock lock];\\n    // 只保护真正需要同步的部分\\n    [self processData:data];\\n    [_lock unlock];\\n}\\n\"}]}],\"\\n\",[\"$\",\"h3\",\"h3-15\",{\"id\":\"33-性能优化技巧\",\"children\":\"3.3 性能优化技巧\"}],\"\\n\",[\"$\",\"p\",\"p-39\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"技巧1：减少锁的粒度\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-29\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"//  粗粒度锁\\n- (void)badExample {\\n    [_lock lock];\\n    [self doSomething1];\\n    [self doSomething2]; // 可能不需要锁保护\\n    [self doSomething3];\\n    [_lock unlock];\\n}\\n\\n//  细粒度锁\\n- (void)goodExample {\\n    [self doSomething1]; // 不需要锁\\n    [_lock lock];\\n    [self doSomething2]; // 只锁必要的部分\\n    [_lock unlock];\\n    [self doSomething3]; // 不需要锁\\n}\\n\"}]}],\"\\n\",[\"$\",\"p\",\"p-40\",{\"children\":[\"$\",\"strong\",\"strong-0\",{\"children\":\"技巧2：使用读写锁提高并发性能\"}]}],\"\\n\",[\"$\",\"pre\",\"pre-30\",{\"children\":[\"$\",\"code\",\"code-0\",{\"className\":\"language-objective-c\",\"children\":\"// 读多写少的场景，使用读写锁\\n@interface ReadWriteCache ()\\n@property (nonatomic, strong) pthread_rwlock_t lock;\\n@property (nonatomic, strong) NSMutableDictionary *cache;\\n@end\\n\\n@implementation ReadWriteCache\\n\\n- (id)readData {\\n    pthread_rwlock_rdlock(\u0026_lock); // 读锁\\n    id result = _cache[@\\\"key\\\"];\\n    pthread_rwlock_unlock(\u0026_lock);\\n    return result;\\n}\\n\\n- (void)writeData:(id)data {\\n    pthread_rwlock_wrlock(\u0026_lock); // 写锁\\n    _cache[@\\\"key\\\"] = data;\\n    pthread_rwlock_unlock(\u0026_lock);\\n}\\n\\n@end\\n\"}]}],\"\\n\",[\"$\",\"hr\",\"hr-3\",{}],\"\\n\",[\"$\",\"h2\",\"h2-3\",{\"id\":\"5-常见问题补充\",\"children\":\"5. 常见问题补充\"}],\"\\n\",[\"$\",\"h3\",\"h3-16\",{\"id\":\"72-其他并发问题\",\"children\":\"7.2 其他并发问题\"}],\"\\n\",[\"$\",\"div\",\"div-2\",{\"className\":\"table-scroll\",\"children\":[\"$\",\"table\",\"table-0\",{\"className\":\"md-table\",\"children\":[[\"$\",\"thead\",\"thead-0\",{\"children\":[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"th\",\"th-0\",{\"children\":\"问题\"}],[\"$\",\"th\",\"th-1\",{\"children\":\"答案要点\"}],[\"$\",\"th\",\"th-2\",{\"children\":\"难度\"}]]}]}],[\"$\",\"tbody\",\"tbody-0\",{\"children\":[[\"$\",\"tr\",\"tr-0\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"Serial Queue 和 Concurrent Queue 的区别？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"Serial 一次执行一个，Concurrent 可同时执行多个\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-1\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"dispatch_sync 的作用？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"同步等待任务完成，可能导致死锁\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-2\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"如何避免死锁？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"不要在串行队列中使用 dispatch_sync 执行同一个队列的任务\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐⭐\"}]]}],[\"$\",\"tr\",\"tr-3\",{\"children\":[[\"$\",\"td\",\"td-0\",{\"children\":\"NSOperationQueue 的依赖关系？\"}],[\"$\",\"td\",\"td-1\",{\"children\":\"addDependency，支持复杂的依赖图\"}],[\"$\",\"td\",\"td-2\",{\"children\":\"⭐⭐⭐\"}]]}]]}]]}]}],\"\\n\",[\"$\",\"hr\",\"hr-4\",{}],\"\\n\",[\"$\",\"h2\",\"h2-4\",{\"id\":\"8-参考资料\",\"children\":\"8. 参考资料\"}],\"\\n\",[\"$\",\"h3\",\"h3-17\",{\"id\":\"优质文章\",\"children\":\"优质文章\"}],\"\\n\",[\"$\",\"ul\",\"ul-12\",{\"children\":[\"\\n\",[\"$\",\"li\",\"li-0\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://juejin.cn/post/7360879591235551266\",\"children\":\"iOS 面试题| GCD 和NSOperation 有啥区别？\"}]}],\"\\n\",[\"$\",\"li\",\"li-1\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://cloud.tencent.com/developer/article/1692252\",\"children\":\"iOS多线程之GCD、OperationQueue 对比和实践记录\"}]}],\"\\n\",[\"$\",\"li\",\"li-2\",{\"children\":[\"$\",\"a\",\"a-0\",{\"href\":\"https://cloud.tencent.com/developer/article/1334777\",\"children\":\"iOS多线程之四：NSOperation的使用\"}]}],\"\\n\"]}],\"\\n\",[\"$\",\"hr\",\"hr-5\",{}],\"\\n\",[\"$\",\"p\",\"p-41\",{\"children\":[[\"$\",\"strong\",\"strong-0\",{\"children\":\"最后更新\"}],\"：2026-04-07\"]}]]}],[\"$\",\"footer\",null,{\"className\":\"article-pager\",\"children\":[[\"$\",\"div\",null,{\"className\":\"pager-item\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/ios-multithreading-complete-guide\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"上一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"iOS 多线程编程总结：GCD、NSOperation 与 Swift 并发\"}]]}]}],[\"$\",\"div\",null,{\"className\":\"pager-item right\",\"children\":[\"$\",\"$L12\",null,{\"href\":\"/posts/swift-core-mechanisms-deep-dive\",\"children\":[[\"$\",\"span\",null,{\"className\":\"pager-hint\",\"children\":\"下一篇\"}],[\"$\",\"span\",null,{\"className\":\"pager-title\",\"children\":\"Swift 核心机制整理：内存布局、方法派发与泛型特化\"}]]}]}]]}]]}],[\"$\",\"aside\",null,{\"className\":\"article-toc\",\"children\":[\"$\",\"div\",null,{\"className\":\"toc-sticky\",\"children\":[[\"$\",\"div\",null,{\"className\":\"toc-heading\",\"children\":\"本文目录\"}],[\"$\",\"ul\",null,{\"className\":\"toc-list\",\"children\":[[\"$\",\"li\",\"1-锁的分类与性能对比-0\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#1-锁的分类与性能对比\",\"children\":\"1. 锁的分类与性能对比\"}]}],[\"$\",\"li\",\"11-锁的基本概念-1\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#11-锁的基本概念\",\"children\":\"1.1 锁的基本概念\"}]}],[\"$\",\"li\",\"12-ios-中常见的锁-2\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#12-ios-中常见的锁\",\"children\":\"1.2 iOS 中常见的锁\"}]}],[\"$\",\"li\",\"13-dispatch_semaphore信号量-3\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#13-dispatch_semaphore信号量\",\"children\":\"1.3 dispatch_semaphore（信号量）\"}]}],[\"$\",\"li\",\"14-锁的性能对比-4\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#14-锁的性能对比\",\"children\":\"1.4 锁的性能对比\"}]}],[\"$\",\"li\",\"15-无锁编程-5\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#15-无锁编程\",\"children\":\"1.5 无锁编程\"}]}],[\"$\",\"li\",\"2-锁的真实使用场景面试高频-6\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#2-锁的真实使用场景面试高频\",\"children\":\"2. 锁的真实使用场景（面试高频）\"}]}],[\"$\",\"li\",\"21-场景一单例模式的线程安全-7\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#21-场景一单例模式的线程安全\",\"children\":\"2.1 场景一：单例模式的线程安全\"}]}],[\"$\",\"li\",\"22-场景二数据库操作的读写锁-8\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#22-场景二数据库操作的读写锁\",\"children\":\"2.2 场景二：数据库操作的读写锁\"}]}],[\"$\",\"li\",\"23-场景三网络请求的信号量控制-9\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#23-场景三网络请求的信号量控制\",\"children\":\"2.3 场景三：网络请求的信号量控制\"}]}],[\"$\",\"li\",\"24-场景四条件锁的生产消费者模型-10\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#24-场景四条件锁的生产消费者模型\",\"children\":\"2.4 场景四：条件锁的生产消费者模型\"}]}],[\"$\",\"li\",\"25-场景五属性读写的安全保护-11\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#25-场景五属性读写的安全保护\",\"children\":\"2.5 场景五：属性读写的安全保护\"}]}],[\"$\",\"li\",\"26-场景六gcd死锁的避免-12\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#26-场景六gcd死锁的避免\",\"children\":\"2.6 场景六：GCD死锁的避免\"}]}],[\"$\",\"li\",\"27-场景七网络图片缓存的多读单写-13\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#27-场景七网络图片缓存的多读单写\",\"children\":\"2.7 场景七：网络图片缓存的多读单写\"}]}],[\"$\",\"li\",\"3-锁的使用最佳实践-14\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#3-锁的使用最佳实践\",\"children\":\"3. 锁的使用最佳实践\"}]}],[\"$\",\"li\",\"30-atomic-属性不等于线程安全-15\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#30-atomic-属性不等于线程安全\",\"children\":\"3.0 atomic 属性不等于线程安全\"}]}],[\"$\",\"li\",\"31-锁的选择决策树-16\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#31-锁的选择决策树\",\"children\":\"3.1 锁的选择决策树\"}]}],[\"$\",\"li\",\"32-常见错误-17\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#32-常见错误\",\"children\":\"3.2 常见错误\"}]}],[\"$\",\"li\",\"33-性能优化技巧-18\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#33-性能优化技巧\",\"children\":\"3.3 性能优化技巧\"}]}],[\"$\",\"li\",\"5-常见问题补充-19\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#5-常见问题补充\",\"children\":\"5. 常见问题补充\"}]}],[\"$\",\"li\",\"72-其他并发问题-20\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#72-其他并发问题\",\"children\":\"7.2 其他并发问题\"}]}],[\"$\",\"li\",\"8-参考资料-21\",{\"className\":\"toc-level-2\",\"children\":[\"$\",\"a\",null,{\"href\":\"#8-参考资料\",\"children\":\"8. 参考资料\"}]}],[\"$\",\"li\",\"优质文章-22\",{\"className\":\"toc-level-3\",\"children\":[\"$\",\"a\",null,{\"href\":\"#优质文章\",\"children\":\"优质文章\"}]}]]}]]}]}]]}],[\"$\",\"footer\",null,{\"className\":\"site-footer\",\"children\":[\"$\",\"span\",null,{\"children\":\"© 2022–2026 FengCaifan\"}]}]]}]\n"])</script><script>self.__next_f.push([1,"7:null\n"])</script><script>self.__next_f.push([1,"b:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n6:null\n"])</script><script>self.__next_f.push([1,"9:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Caifan's Notes\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"个人开发与学习笔记\"}],[\"$\",\"link\",\"2\",{\"rel\":\"icon\",\"href\":\"/fcfblog/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n11:{\"metadata\":\"$9:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script></body></html>
