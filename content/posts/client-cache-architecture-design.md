@@ -1,9 +1,9 @@
 ---
-title: "客户端缓存架构与 LRU 淘汰策略笔记"
+title: "认识缓存：CPU 缓存、浏览器缓存与 DNS 缓存笔记"
 date: '2023-03-12'
-category: "性能优化与排查"
-description: "内存缓存与磁盘缓存的分层设计思路及常用缓存方案对比。"
-tags: ["缓存", "LRU", "YYCache"]
+category: "计算机基础与网络"
+description: "梳理 CPU 多级缓存（L1/L2/L3）、浏览器 HTTP 缓存与 DNS 缓存的基本原理。"
+tags: ["缓存", "CPU缓存", "HTTP缓存"]
 ---
 
 ---

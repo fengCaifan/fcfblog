@@ -1,8 +1,8 @@
 ---
-title: "动手写一个简化版 UITableView 理解复用机制"
+title: "UIKit 基础问答与自定义 UITableView 复用实现"
 date: '2022-10-08'
 category: "UIKit 与系统框架"
-description: "基于 UIScrollView 实现简单的可视区域计算和 Cell 复用池。"
+description: "整理 UIView 与 CALayer 关系、离屏渲染原因，并基于 UIScrollView 实现简化版 UITableView 复用池。"
 tags: ["UIKit", "UITableView", "视图复用"]
 ---
 
