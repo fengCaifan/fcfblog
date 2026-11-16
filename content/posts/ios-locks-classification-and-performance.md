@@ -1,0 +1,804 @@
+---
+title: "iOS 常见锁的原理与性能对比"
+date: '2025-05-18'
+category: "iOS 底层与原理"
+description: "对比 OSSpinLock 优先级反转问题、os_unfair_lock、pthread_mutex、NSRecursiveLock、读写锁及 @synchronized 的底层实现。"
+tags: ["多线程锁", "os_unfair_lock", "pthread_mutex"]
+---
+
+多线程访问共享资源需要同步；理解互斥锁、自旋锁、读写锁与信号量的实现与性能差异，是写出线程安全代码的基础。
+
+---
+
+## 1. 锁的分类与性能对比
+
+### 1.1 锁的基本概念
+
+**为什么需要锁？**
+
+多线程编程中，当多个线程同时访问共享资源时，可能会导致数据竞争（Data Race）。锁的作用是保证同一时刻只有一个线程能访问临界区。
+
+**锁的分类**：
+
+| 类型 | 说明 | 实现方式 |
+|------|------|----------|
+| **互斥锁** | 获取锁失败时会休眠，等待唤醒 | pthread_mutex、NSLock、@synchronized |
+| **自旋锁** | 获取锁失败时会忙等待（循环重试） | OSSpinLock（已废弃） |
+| **非公平互斥锁** | 获取锁失败时会休眠等待内核唤醒，不保证公平获取顺序 | os_unfair_lock |
+| **读写锁** | 允许多个读者或一个写者 | pthread_rwlock |
+| **条件锁** | 满足特定条件时获取锁 | NSCondition、NSConditionLock |
+| **信号量** | 控制并发访问数量 | dispatch_semaphore |
+
+### 1.2 iOS 中常见的锁
+
+#### 1.2.1 OSSpinLock（已废弃）
+
+**特点**：
+
+- 自旋锁；旧资料常以“无竞争时开销低”描述，不能据此机械认定为所有场景性能最高
+- 存在**优先级反转问题**（Priority Inversion）
+- iOS 10 后被废弃
+
+**优先级反转问题**：
+
+```
+场景：
+- 低优先级线程 L 持有锁
+- 高优先级线程 H 等待锁
+- 中优先级线程 M 抢占 L 的 CPU 时间
+
+结果：H 无法执行，L 无法释放锁，系统性能下降
+
+示例：
+线程 1（低优先级）：获取锁 → 被中断
+线程 2（中优先级）：占用 CPU，线程 1 无法运行
+线程 3（高优先级）：等待锁，但锁被线程 1 持有
+→ 线程 3 永远等待
+```
+
+**代码示例**：
+
+```objective-c
+//  iOS 10+ 已废弃，不推荐使用
+#import <libkern/OSAtomic.h>
+
+OSSpinLock lock = OS_SPINLOCK_INIT;
+OSSpinLockLock(&lock);
+// 临界区
+OSSpinLockUnlock(&lock);
+```
+
+#### 1.2.2 os_unfair_lock（推荐）
+
+**特点**：
+
+- iOS 10+ 引入，替代 OSSpinLock
+- 非公平互斥锁（**不是自旋锁**）；竞争失败时会阻塞 / 休眠，而不是 CPU 忙等
+- 内核支持优先级传递等机制以缓解优先级反转；不要表述为“绝对不会有优先级反转”
+- 适合 iOS 10+、无需递归的短临界区；选型不应只按性能排行
+
+**底层实现**：
+
+- 基于 Darwin 的 `os_unfair_lock` 内核等待 / 唤醒机制；不应将 Apple 平台实现笼统表述为 Linux futex
+- 获取锁失败时，线程会休眠（而非忙等待）
+
+**代码示例**：
+
+```objective-c
+#import <os/lock.h>
+
+os_unfair_lock lock = OS_UNFAIR_LOCK_INIT;
+
+// 加锁
+os_unfair_lock_lock(&lock);
+// 临界区
+os_unfair_lock_unlock(&lock);
+
+// 尝试加锁（不阻塞）
+if (os_unfair_lock_trylock(&lock)) {
+    // 加锁成功
+    os_unfair_lock_unlock(&lock);
+}
+```
+
+#### 1.2.3 pthread_mutex
+
+**特点**：
+
+- 跨平台，C 语言接口
+- 支持多种类型：普通、递归、错误检查
+- 性能中等
+
+**类型**：
+
+```objective-c
+// PTHREAD_MUTEX_NORMAL：普通锁（同一线程重复加锁会死锁）
+// PTHREAD_MUTEX_RECURSIVE：递归锁（同一线程可多次加锁）
+// PTHREAD_MUTEX_ERRORCHECK：错误检查锁（重复加锁返回错误）
+
+pthread_mutexattr_t attr;
+pthread_mutexattr_init(&attr);
+pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+
+pthread_mutex_t mutex;
+pthread_mutex_init(&mutex, &attr);
+
+pthread_mutex_lock(&mutex);
+// 临界区
+pthread_mutex_unlock(&mutex);
+
+pthread_mutex_destroy(&mutex);
+```
+
+#### 1.2.4 NSLock & NSRecursiveLock
+
+**NSLock**：
+
+```objective-c
+@interface NSLock : NSObject <NSLocking>
+- (BOOL)tryLock; // 尝试加锁，不阻塞
+- (BOOL)lockBeforeDate:(NSDate *)limit; // 超时加锁
+@end
+
+NSLock *lock = [[NSLock alloc] init];
+[lock lock];
+// 临界区
+[lock unlock];
+```
+
+**NSRecursiveLock**（递归锁）：
+
+```objective-c
+NSRecursiveLock *lock = [[NSRecursiveLock alloc] init];
+
+- (void)recursiveMethod:(int)count {
+    [lock lock];
+    if (count > 0) {
+        [self recursiveMethod:count - 1]; // 同一线程可重复加锁
+    }
+    [lock unlock];
+}
+```
+
+#### 1.2.5 NSCondition & NSConditionLock
+
+**NSCondition**（条件变量）：
+
+```objective-c
+NSCondition *condition = [[NSCondition alloc] init];
+
+// 线程 1：等待条件
+[condition lock];
+while (!conditionIsMet) {
+    [condition wait]; // 释放锁并等待
+}
+[condition unlock];
+
+// 线程 2：设置条件并唤醒
+[condition lock];
+conditionIsMet = YES;
+[condition signal]; // 唤醒一个等待线程
+// 或 [condition broadcast]; // 唤醒所有等待线程
+[condition unlock];
+```
+
+**NSConditionLock**（条件锁）：
+
+```objective-c
+NSConditionLock *lock = [[NSConditionLock alloc] initWithCondition:0];
+
+// 线程 1：等待条件为 42
+[lock lockWhenCondition:42];
+// 临界区
+[lock unlock];
+
+// 线程 2：设置条件为 42
+[lock lock];
+[lock unlockWithCondition:42];
+```
+
+#### 1.2.6 @synchronized
+
+**特点**：
+
+- 使用简单，但性能最差
+- 递归锁
+- 底层使用哈希表存储锁对象
+
+**底层实现**：
+
+```objective-c
+// 编译器转换
+@synchronized(obj) {
+    // 临界区
+}
+
+// 等价于
+objc_sync_enter(obj);
+// 临界区
+objc_sync_exit(obj);
+```
+
+**底层原理**：
+
+```
+1. objc_sync_enter(obj):
+   - 以 obj 为 key，在全局哈希表中查找 SyncData
+   - 如果找到，递归计数 +1
+   - 如果未找到，创建新的 SyncData，递归计数 = 1
+
+2. objc_sync_exit(obj):
+   - 递归计数 -1
+   - 如果递归计数为 0，释放锁
+```
+
+### 1.3 dispatch_semaphore（信号量）
+
+**特点**：
+
+- 可以控制并发数量
+- 也可以作为锁使用
+
+**基本用法**：
+
+```objective-c
+// 创建信号量（初始值为 1，作为互斥锁使用）
+dispatch_semaphore_t semaphore = dispatch_semaphore_create(1);
+
+// 等待信号（减 1，如果为 0 则阻塞）
+dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+// 临界区
+// 发送信号（加 1，唤醒等待线程）
+dispatch_semaphore_signal(semaphore);
+```
+
+**控制并发数量**：
+
+```objective-c
+// 最多允许 3 个并发线程
+dispatch_semaphore_t semaphore = dispatch_semaphore_create(3);
+
+for (int i = 0; i < 10; i++) {
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+
+        // 执行任务（最多 3 个并发）
+        NSLog(@"Task %d", i);
+        [NSThread sleepForTimeInterval:1.0];
+
+        dispatch_semaphore_signal(semaphore);
+    });
+}
+```
+
+### 1.4 锁的性能对比
+
+**性能测试**（10 万次加锁/解锁）：
+
+| 锁类型 | 耗时（ns） | 相对性能 |
+|--------|-----------|----------|
+| OSSpinLock | 33.5 | ⭐⭐⭐⭐⭐ |
+| os_unfair_lock | 43.7 | ⭐⭐⭐⭐ |
+| pthread_mutex | 278.1 | ⭐⭐⭐ |
+| NSLock | 387.7 | ⭐⭐ |
+| NSCondition | 491.1 | ⭐⭐ |
+| @synchronized | 770.2 | ⭐ |
+
+**选择建议**：
+
+```
+1. iOS 10+：优先使用 os_unfair_lock
+2. 需要递归锁：NSRecursiveLock 或 pthread_mutex(RECURSIVE)
+3. 需要条件变量：NSCondition 或 NSConditionLock
+4. 简单场景：@synchronized（性能要求不高时）
+5. 控制并发数量：dispatch_semaphore
+```
+
+### 1.5 无锁编程
+
+**原子操作**：
+
+```objective-c
+#import <libkern/OSAtomic.h>
+
+// 32 位整数原子操作
+int32_t value = 0;
+OSAtomicIncrement32(&value);   // value++
+OSAtomicDecrement32(&value);   // value--
+OSAtomicAdd32(10, &value);     // value += 10
+OSAtomicCompareAndSwapInt(0, 1, &value); // CAS（比较并交换）
+```
+
+**Swift 原子操作**：
+
+```swift
+import Foundation
+
+var value = 0
+DispatchQueue.global().async {
+    OSAtomicAdd32(1, &value) // 原子加 1
+}
+```
+
+**适用场景**：
+
+- 计数器
+- 简单的状态切换
+- 无需复杂临界区的场景
+
+---
+
+## 2. 锁的真实使用场景（面试高频）
+
+### 2.1 场景一：单例模式的线程安全
+
+```objective-c
+// iOS开发中的单例模式
++ (instancetype)sharedInstance {
+    static sharedInstance *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[self alloc] init];
+    });
+    return instance;
+}
+```
+
+**为什么使用dispatch_once？**
+- 保证单例只初始化一次
+- 线程安全，不会有竞态条件
+- 系统级别的优化，性能最好
+
+### 2.2 场景二：数据库操作的读写锁
+
+```objective-c
+// 数据库访问场景
+@interface DatabaseManager ()
+@property (nonatomic, strong) dispatch_queue_t readWriteQueue;
+@property (nonatomic, strong) NSMutableDictionary *cache;
+@end
+
+@implementation DatabaseManager
+
+- (instancetype)init {
+    if (self = [super init]) {
+        // 创建并发队列用于读写
+        _readWriteQueue = dispatch_queue_create("com.app.database", DISPATCH_QUEUE_CONCURRENT);
+        _cache = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+
+// 读操作：多个线程可以同时读
+- (id)objectForKey:(NSString *)key {
+    __block id result = nil;
+    dispatch_async(_readWriteQueue, ^{
+        result = self.cache[key];
+    });
+    return result;
+}
+
+// 写操作：使用barrier确保独占访问
+- (void)setObject:(id)obj forKey:(NSString *)key {
+    dispatch_barrier_async(_readWriteQueue, ^{
+        self.cache[key] = obj;
+        // 写入数据库
+        [self writeToDatabase:obj forKey:key];
+    });
+}
+
+@end
+```
+
+**关键点：**
+- 读操作用dispatch_async，支持并发读
+- 写操作用dispatch_barrier_async，确保写的时候没有其他操作
+- 实现了"多读单写"的效果
+
+### 2.3 场景三：网络请求的信号量控制
+
+```objective-c
+// 控制网络请求的最大并发数
+@interface NetworkManager ()
+@property (nonatomic, strong) dispatch_semaphore_t semaphore;
+@end
+
+@implementation NetworkManager
+
+- (instancetype)init {
+    if (self = [super init]) {
+        // 最多允许3个并发网络请求
+        _semaphore = dispatch_semaphore_create(3);
+    }
+    return self;
+}
+
+- (void)requestWithURL:(NSURL *)url completion:(void(^)(NSData *))completion {
+    dispatch_semaphore_wait(_semaphore, DISPATCH_TIME_FOREVER);
+
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (completion) {
+            completion(data);
+        }
+        // 请求完成后释放信号量
+        dispatch_semaphore_signal(_semaphore);
+    }];
+    [task resume];
+}
+
+@end
+```
+
+**使用场景：**
+- 限制同时进行的网络请求数量
+- 避免过多网络请求导致系统资源耗尽
+- 实现请求队列管理
+
+### 2.4 场景四：条件锁的生产消费者模型
+
+```objective-c
+// 线程安全的队列实现
+@interface SafeQueue ()
+@property (nonatomic, strong) NSMutableArray *data;
+@property (nonatomic, strong) NSCondition *condition;
+@property (nonatomic, assign) BOOL isWaiting;
+@end
+
+@implementation SafeQueue
+
+- (instancetype)init {
+    if (self = [super init]) {
+        _data = [NSMutableArray array];
+        _condition = [[NSCondition alloc] init];
+        _isWaiting = NO;
+    }
+    return self;
+}
+
+// 消费者：从队列中取数据
+- (id)dequeue {
+    [_condition lock];
+
+    // 如果队列为空，等待生产者添加数据
+    while (_data.count == 0) {
+        _isWaiting = YES;
+        [_condition wait];
+        _isWaiting = NO;
+    }
+
+    id obj = _data.firstObject;
+    [_data removeObjectAtIndex:0];
+
+    [_condition unlock];
+    return obj;
+}
+
+// 生产者：向队列添加数据
+- (void)enqueue:(id)obj {
+    [_condition lock];
+
+    [_data addObject:obj];
+
+    // 如果有消费者在等待，唤醒它
+    if (_isWaiting) {
+        [_condition signal];
+    }
+
+    [_condition unlock];
+}
+
+@end
+```
+
+**实际应用：**
+- 图片下载队列
+- 消息处理队列
+- 任务调度系统
+
+### 2.5 场景五：属性读写的安全保护
+
+```objective-c
+// 多线程环境下的属性保护
+@interface ThreadSafeObject ()
+@property (nonatomic, strong) os_unfair_lock propertyLock;
+@property (nonatomic, strong) NSString *name;
+@property (nonatomic, assign) NSInteger count;
+@end
+
+@implementation ThreadSafeObject
+
+- (instancetype)init {
+    if (self = [super init]) {
+        _propertyLock = OS_UNFAIR_LOCK_INIT;
+    }
+    return self;
+}
+
+// 线程安全的name getter
+- (NSString *)name {
+    os_unfair_lock_lock(&_propertyLock);
+    NSString *result = _name;
+    os_unfair_lock_unlock(&_propertyLock);
+    return result;
+}
+
+// 线程安全的name setter
+- (void)setName:(NSString *)name {
+    os_unfair_lock_lock(&_propertyLock);
+    _name = name;
+    os_unfair_lock_unlock(&_propertyLock);
+}
+
+// 原子操作的count increment
+- (void)incrementCount {
+    OSAtomicIncrement64(&_count);
+}
+
+@end
+```
+
+**选择建议：**
+- 简单属性：使用os_unfair_lock（性能最好）
+- 对象属性：需要深拷贝或加锁保护
+- 数值属性：使用原子操作
+
+### 2.6 场景六：GCD死锁的避免
+
+```objective-c
+// 常见的死锁场景1：主队列同步操作
+- (void)deadlockExample1 {
+    //  这样会死锁
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        NSLog(@"This will deadlock");
+    });
+}
+
+// 解决方案：使用异步或检查当前线程
+- (void)fixDeadlockExample1 {
+    if ([NSThread isMainThread]) {
+        // 已经在主线程，直接执行
+        NSLog(@"Already on main thread");
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSLog(@"This won't deadlock");
+        });
+    }
+}
+
+// 常见的死锁场景2：串行队列同步嵌套
+- (void)deadlockExample2 {
+    dispatch_queue_t serialQueue = dispatch_queue_create("com.app.serial", DISPATCH_QUEUE_SERIAL);
+
+    dispatch_async(serialQueue, ^{
+        NSLog(@"Task 1");
+
+        //  这样会死锁
+        dispatch_sync(serialQueue, ^{
+            NSLog(@"Task 2");
+        });
+    });
+}
+
+// 解决方案：避免在串行队列中同步执行同一队列的任务
+- (void)fixDeadlockExample2 {
+    dispatch_queue_t serialQueue = dispatch_queue_create("com.app.serial", DISPATCH_QUEUE_SERIAL);
+
+    dispatch_async(serialQueue, ^{
+        NSLog(@"Task 1");
+
+        dispatch_async(serialQueue, ^{
+            NSLog(@"Task 2");
+        });
+    });
+}
+```
+
+### 2.7 场景七：网络图片缓存的多读单写
+
+```swift
+// Swift中的并发读写实现
+class ImageCache {
+    private let cache = NSCache<NSString, UIImage>()
+    private let queue = DispatchQueue(label: "com.app.imagecache", attributes: .concurrent)
+
+    // 多个线程可以同时读
+    func image(for key: String) -> UIImage? {
+        var result: UIImage?
+        queue.async {
+            result = cache.object(forKey: key as NSString)
+        }
+        return result
+    }
+
+    // 写入时使用barrier确保独占
+    func setImage(_ image: UIImage, for key: String) {
+        queue.async(flags: .barrier) {
+            self.cache.setObject(image, forKey: key as NSString)
+        }
+    }
+
+    // 清空缓存也需要barrier
+    func clearCache() {
+        queue.async(flags: .barrier) {
+            self.cache.removeAllObjects()
+        }
+    }
+}
+```
+
+---
+
+## 3. 锁的使用最佳实践
+
+### 3.0 `atomic` 属性不等于线程安全
+
+Objective-C 的 `atomic` 只保证**单次属性 getter 或 setter** 的原子性；它不保证多个操作组成的业务逻辑是原子的，也不保证对象内部可变成员或多个属性之间的一致性。
+
+```objective-c
+@property (atomic, assign) NSInteger count;
+```
+
+以下代码仍然存在线程安全问题：
+
+```objective-c
+self.count += 1;
+```
+
+它至少包含三个步骤：
+
+```text
+1. getter：读取 count
+2. 计算：将本地值加 1
+3. setter：将结果写回 count
+```
+
+两个线程可能交错执行：
+
+```text
+初始 count = 0
+
+线程 A：读取 0
+线程 B：读取 0
+线程 A：计算后写回 1
+线程 B：计算后写回 1
+
+最终 count = 1（正确结果应为 2）
+```
+
+因此 `count += 1` 这类“读 → 修改 → 写”的复合操作仍需要用锁、串行队列、原子 RMW/CAS 等同步手段保护。对 `NSMutableArray`、`NSMutableDictionary` 等可变对象，`atomic` 也不能保护其内部元素增删改和多步业务逻辑。
+
+### 3.1 锁的选择决策树
+
+```
+是否需要递归锁？
+├─ 是 → NSRecursiveLock 或 pthread_mutex(RECURSIVE)
+└─ 否 → 性能要求高吗？
+    ├─ 是 → os_unfair_lock (iOS 10+)
+    ├─ 中等 → pthread_mutex 或 NSLock
+    └─ 低 → @synchronized（代码简洁）
+```
+
+### 3.2 常见错误
+
+**错误1：忘记解锁**
+
+```objective-c
+//  错误示例
+- (void)badExample {
+    os_unfair_lock_lock(&_lock);
+    if (someCondition) {
+        return; // 忘记解锁，导致死锁
+    }
+    os_unfair_lock_unlock(&_lock);
+}
+
+//  正确示例
+- (void)goodExample {
+    os_unfair_lock_lock(&_lock);
+    if (someCondition) {
+        os_unfair_lock_unlock(&_lock);
+        return;
+    }
+    os_unfair_lock_unlock(&_lock);
+}
+```
+
+**错误2：在锁内进行耗时操作**
+
+```objective-c
+//  错误示例
+- (void)badExample {
+    [_lock lock];
+    // 网络请求等耗时操作会阻塞其他线程
+    [self networkRequest];
+    [_lock unlock];
+}
+
+//  正确示例：只保护必要的临界区
+- (void)goodExample {
+    // 先获取数据
+    NSData *data = [self prepareData];
+
+    [_lock lock];
+    // 只保护真正需要同步的部分
+    [self processData:data];
+    [_lock unlock];
+}
+```
+
+### 3.3 性能优化技巧
+
+**技巧1：减少锁的粒度**
+
+```objective-c
+//  粗粒度锁
+- (void)badExample {
+    [_lock lock];
+    [self doSomething1];
+    [self doSomething2]; // 可能不需要锁保护
+    [self doSomething3];
+    [_lock unlock];
+}
+
+//  细粒度锁
+- (void)goodExample {
+    [self doSomething1]; // 不需要锁
+    [_lock lock];
+    [self doSomething2]; // 只锁必要的部分
+    [_lock unlock];
+    [self doSomething3]; // 不需要锁
+}
+```
+
+**技巧2：使用读写锁提高并发性能**
+
+```objective-c
+// 读多写少的场景，使用读写锁
+@interface ReadWriteCache ()
+@property (nonatomic, strong) pthread_rwlock_t lock;
+@property (nonatomic, strong) NSMutableDictionary *cache;
+@end
+
+@implementation ReadWriteCache
+
+- (id)readData {
+    pthread_rwlock_rdlock(&_lock); // 读锁
+    id result = _cache[@"key"];
+    pthread_rwlock_unlock(&_lock);
+    return result;
+}
+
+- (void)writeData:(id)data {
+    pthread_rwlock_wrlock(&_lock); // 写锁
+    _cache[@"key"] = data;
+    pthread_rwlock_unlock(&_lock);
+}
+
+@end
+```
+
+---
+
+## 5. 常见问题补充
+
+### 7.2 其他并发问题
+
+| 问题 | 答案要点 | 难度 |
+|------|----------|------|
+| **Serial Queue 和 Concurrent Queue 的区别？** | Serial 一次执行一个，Concurrent 可同时执行多个 | ⭐⭐ |
+| **dispatch_sync 的作用？** | 同步等待任务完成，可能导致死锁 | ⭐⭐⭐ |
+| **如何避免死锁？** | 不要在串行队列中使用 dispatch_sync 执行同一个队列的任务 | ⭐⭐⭐⭐ |
+| **NSOperationQueue 的依赖关系？** | addDependency，支持复杂的依赖图 | ⭐⭐⭐ |
+
+---
+
+## 8. 参考资料
+
+### 优质文章
+- [iOS 面试题\| GCD 和NSOperation 有啥区别？](https://juejin.cn/post/7360879591235551266)
+- [iOS多线程之GCD、OperationQueue 对比和实践记录](https://cloud.tencent.com/developer/article/1692252)
+- [iOS多线程之四：NSOperation的使用](https://cloud.tencent.com/developer/article/1334777)
+
+---
+
+**最后更新**：2026-04-07

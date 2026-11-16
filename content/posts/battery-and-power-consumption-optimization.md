@@ -1,0 +1,79 @@
+---
+title: "iOS 客户端耗电原因分析与 MetricKit 监控"
+date: '2026-06-21'
+category: "性能优化与排查"
+description: "梳理 CPU 高负载、网络蜂窝唤醒、后台定位与定时器对耗电的影响及线上监控手段。"
+tags: ["电量优化", "MetricKit"]
+---
+
+耗电本质是 CPU/GPU、网络、定位、传感器等在「不必要的工作时长与唤醒次数」上超支；优化以「少算、少传、少唤醒、快收尾」为主线。
+
+---
+
+## 1. 核心概念
+
+### 1.1 常见耗电来源
+
+| 来源 | 说明 |
+|------|------|
+| **CPU / GPU** | 主线程重计算、复杂布局与离屏渲染、长时间动画 |
+| **网络** | 频繁小请求、弱网下重试風暴、后台不必要的长连接 |
+| **定位** | 高精持续定位、`startUpdatingLocation` 未及时停 |
+| **蓝牙 / 传感器** | 持续扫描、高频回调 |
+| **唤醒与定时** | 过于密集的 `NSTimer` / `CADisplayLink`、不合理的后台任务 |
+
+（思路整理自旧笔记《专题——耗电与安装包瘦身》，并结合工程实践经验归纳。）
+
+---
+
+## 2. 底层原理与策略
+
+### 2.1 CPU / GPU
+
+- 卡顿治理（见《卡顿优化》）往往同时省电：减少主线程阻塞与 GPU 离屏，可降低整机能耗。
+- 避免无意义的 `drawRect` / 过大 `backing store`；大图用降采样与异步解码。
+
+### 2.2 I/O
+
+- **批量写**：避免高频小文件写入；必要时合并为一次落盘。
+- **大文件 / 重要数据**：可考虑 `dispatch_io` 做异步 I/O，或用 SQLite / Core Data 代替碎片文件读写。
+
+### 2.3 网络
+
+- 控制请求次数与 payload：合并接口、压缩（如 Protocol Buffers）、合理缓存。
+- **不可达时不发起**请求；设置合理超时；允许用户取消长时任务。
+- 批量下载大资源时优先整包或大块，避免大量小文件往返。
+
+### 2.4 定位（Core Location）
+
+- **只要一次位置**：优先 `requestLocation`，完成后系统更易回收硬件电源。
+- 非导航场景避免持续更新；精度不必一律 `kCLLocationAccuracyBest`。
+- 后台定位时合理开启 `pausesLocationUpdatesAutomatically`，行停时让系统暂停更新。
+
+### 2.5 定时与后台
+
+- 降低 Timer 频率；可合并的轮询尽量合并。
+- 后台任务使用 `beginBackgroundTask` 时配对 `endBackgroundTask`，避免无效长拖。
+
+---
+
+## 3. 常见问题与思考
+
+- **如何量化耗电？** 结合 Xcode Energy Gauge、Instruments（Energy Log）、实际场景对照（亮屏时长、网络、定位权限使用）。
+- **定位与省电如何平衡？** 精度、更新频率、是否需要后台、「用后即停」。
+- **弱网下的耗电** 往往来自重试与长连接保活，如何通过退避与合并请求优化？
+
+---
+
+## 4. 实战检查清单
+
+- [ ] 列表/详情是否存在无意义轮询或高频定时器？
+- [ ] 定位是否在页面离开或业务结束后 `stopUpdatingLocation`？
+- [ ] 网络层是否有超时、重试上限、失败退避？
+- [ ] 是否存在后台无声任务未正确结束？
+
+---
+
+## 5. 参考资料
+
+- [Energy Efficiency Best Practices - Apple](https://developer.apple.com/documentation/xcode/improving-your-app-s-performance/reducing-your-app-s-energy-use)

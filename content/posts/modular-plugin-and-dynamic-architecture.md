@@ -1,0 +1,2154 @@
+---
+title: "iOS 组件化、插件化与动态化架构设计笔记"
+date: '2025-06-22'
+category: "工程化与架构"
+description: "对比 Target-Action、Protocol 路由与依赖注入三种组件通信方式，以及复杂房间页面通过插件化拆解生命周期的实践。"
+tags: ["组件化", "插件化", "依赖注入"]
+---
+
+组件化解决代码复用，插件化解决业务差异，动态化解决发版效率——三者分别解决不同维度的工程问题。
+
+---
+
+## 1. 三种架构的核心区别
+
+### 1.1 核心概念对比
+
+| 架构模式 | 核心问题 | 解决方案 | 组合时机 | 典型场景 |
+|----------|----------|----------|----------|----------|
+| **组件化** | 代码重复、耦合严重 | 拆分独立模块 | **编译期** | 跨业务复用（用户中心、支付） |
+| **插件化** | 业务差异大、难以扩展 | 运行时动态组合 | **运行时** | 多房型、多玩法（语音房） |
+| **动态化** | 发版周期长、无法热修复 | 动态下发代码 | **运行时** | 运营活动、快速迭代 |
+
+### 1.2 形象类比
+
+```
+组件化 = 乐高积木
+→ 标准化的积木块，可以组合成不同的模型
+
+插件化 = 电脑配件
+→ CPU、内存、显卡可以独立更换，按需组装
+
+动态化 = 云计算
+→ 功能在服务器端，按需加载，无需更新App
+```
+
+---
+
+## 2. 组件化架构设计与落地
+
+### 2.1 什么是组件化？
+
+**一句话理解**：把App拆成多个独立模块，每个模块像乐高积木一样可以独立使用和组合。
+
+**核心特征**：
+-  **独立编译**：每个组件可以独立编译、测试
+-  **单向依赖**：组件间依赖关系清晰，禁止循环依赖
+-  **接口通信**：通过协议或路由通信，不直接依赖具体实现
+
+**生活类比**：
+> 组件化就像**乐高积木**：
+> - 基础组件：标准的长条、方块（可复用）
+> - 业务组件：组合好的车轮、车体（半成品）
+> - 主工程：最终的成品（组合所有积木）
+
+### 2.2 组件化演进历史（为什么会有3种方案？）
+
+**面试常问**：组件化有几种实现方案？为什么会有这么多方案？
+
+> **推荐学习顺序（按上一个方案的痛点理解下一个）**：
+> `直接 import`（问题起点） → **URL Router**（先学页面跳转解耦） → **Target-Action**（再学跨模块动态调用） → **Protocol-Service**（最后学协议、服务容器与依赖注入）。
+>
+> 不要把三者理解为互相替代：Router 最适合 UI 路由 / Deep Link，Target-Action 适合遗留或低频动态能力调用，Protocol-Service 适合长期维护的核心服务调用；大型工程通常组合使用。
+
+---
+
+#### **时代0：直接import → 耦合严重（问题根源）**
+
+```swift
+//  早期做法：直接依赖
+// HomeViewController.swift
+import UserModule  // 强依赖
+import OrderModule  // 强依赖
+
+class HomeViewController {
+    func showUserDetail() {
+        let userVC = UserDetailViewController()  // 直接创建
+        navigationController?.pushViewController(userVC, animated: true)
+    }
+
+    func showOrderList() {
+        let orderVC = OrderListViewController()  // 直接创建
+        navigationController?.pushViewController(orderVC, animated: true)
+    }
+}
+```
+
+**痛点**：
+-  **编译依赖**：UserModule改了，HomeModule要重新编译
+-  **代码复用差**：UserModule无法在其他App使用
+-  **团队协作难**：A和B同时改HomeModule，经常冲突
+
+---
+
+#### **时代1：URL Router → 解决页面跳转解耦**
+
+```swift
+//  URL Router方案（蘑菇街、美团早期）
+// 问题：直接import耦合严重，怎么解决页面跳转的解耦？
+
+class HomeViewController {
+    func showUserDetail() {
+        // 不import UserModule了！
+        URLRouter.shared.handle("app://user/detail?id=123")
+    }
+
+    func showOrderList() {
+        URLRouter.shared.handle("app://order/list")
+    }
+}
+```
+
+**优点**：
+-  完全解耦：不需要import
+-  支持推送跳转：推送携带URL直接跳转
+-  灵活配置：URL可以动态下发
+
+**缺点**：
+-  **类型不安全**：URL字符串写错，编译期不报错
+-  **参数传递受限**：只能传字符串，复杂对象要序列化
+-  **只支持跳转**：无法调用方法，无法获取返回值
+
+---
+
+#### **时代2：Target-Action → 解决方法调用解耦**
+
+```swift
+//  Target-Action方案（casatwy方案）
+// 问题：URL Router只能跳转页面，不能调用方法
+// 比如：OrderModule需要调用UserModule获取用户信息
+
+//  URL Router做不到
+// "app://user/getUserInfo?id=123" → 返回什么？怎么返回？
+
+//  Target-Action方案
+class HomeViewController {
+    func getUserInfo() {
+        // 不import UserModule
+        let user = Mediator.shared.fetchUserInfo(userId: "123")
+        print(user.name)
+    }
+}
+```
+
+**优点**：
+-  支持方法调用（不只是跳转）
+-  参数字典可承载复杂对象，且可取得返回值
+-  支持复杂对象：直接传User对象
+
+**缺点**：
+-  **仍是弱类型**：Target / Action / 参数 key 写错通常只能运行时发现
+-  **学习成本高**：Target、Action、Mediator概念多
+-  **代码量大**：每个方法都要定义枚举
+-  **仍有一定耦合**：需要知道Mediator的存在
+
+---
+
+#### **时代3：Protocol-Service → 最彻底解耦**
+
+```swift
+//  Protocol-Service方案（DI依赖注入）
+// 问题：Target-Action还是需要知道Mediator
+// 能不能连Mediator也不用知道？
+
+class HomeViewController {
+    private let userService: UserServicing  // 只依赖协议
+
+    init(userService: UserServicing = ServiceContainer.shared.get(UserServicing.self)) {
+        self.userService = userService
+    }
+
+    func getUserInfo() {
+        // 不依赖具体实现，只依赖协议
+        let user = userService.fetchUser(id: "123")
+    }
+}
+```
+
+**优点**：
+-  **最彻底解耦**：只依赖协议
+-  **易测试**：可以Mock协议
+-  **替换实现**：运行时替换
+
+**缺点**：
+-  **过度设计**：小项目用不上
+-  **学习成本高**：需要理解DI
+-  **运行时开销**：容器解析有性能损耗
+
+---
+
+### 2.3 方案对比总览
+
+| 方案 | 核心技术 | 复杂度 | 灵活性 | 典型应用 |
+|------|----------|--------|--------|----------|
+| **URL Router** | URL Scheme + 拦截 | ⭐⭐⭐ | ⭐⭐⭐⭐ | 跨页面跳转 |
+| **Target-Action** | Target-Action模式 | ⭐⭐⭐⭐ | ⭐⭐⭐ | 跨模块调用 |
+| **Protocol-Service** | 协议 + 服务注册 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 完全解耦 |
+
+---
+
+### 2.4 方案一：URL Router（URL路由方案）
+
+#### **核心思想**
+
+```
+页面跳转不用直接import，而是通过URL跳转：
+"app://user/detail?id=123" → 跳转到用户详情页
+```
+
+#### **实现原理**
+
+```
+1. 定义URL规则：app://user/detail?id=123
+2. 注册URL处理器：告诉系统这个URL对应哪个页面
+3. 拦截URL跳转：在AppDelegate里拦截app://开头的URL
+4. 解析参数：解析?id=123
+5. 创建页面：创建对应的ViewController
+6. 执行跳转：push到导航栈
+```
+
+#### **完整代码实现**
+
+```swift
+// 1. 定义URL Router
+class URLRouter {
+    static let shared = URLRouter()
+
+    // URL → ViewController 的映射表
+    private var routes: [String: (URL) -> UIViewController] = [:]
+
+    init() {
+        registerRoutes()
+    }
+
+    // 注册URL规则
+    private func registerRoutes() {
+        // 注册用户详情页
+        register("app://user/detail") { url in
+            let id = url.queryParameters["id"] ?? ""
+            return UserDetailViewController(userId: id)
+        }
+
+        // 注册商品详情页
+        register("app://product/detail") { url in
+            let productId = url.queryParameters["productId"] ?? ""
+            return ProductDetailViewController(productId: productId)
+        }
+
+        // 注册订单页
+        register("app://order/list") { url in
+            return OrderListViewController()
+        }
+    }
+
+    // 注册URL处理器
+    private func register(_ pattern: String, handler: @escaping (URL) -> UIViewController) {
+        routes[pattern] = handler
+    }
+
+    // 处理URL跳转
+    func handle(_ urlString: String) {
+        guard let url = URL(string: urlString),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme,
+              scheme == "app",
+              let host = components.host,
+              let handler = routes[host] else {
+            print("URL Router: 未找到对应的处理器")
+            return
+        }
+
+        let viewController = handler(url)
+        navigateTo(viewController)
+    }
+
+    private func navigateTo(_ viewController: UIViewController) {
+        // 找到当前最顶层的导航控制器
+        if let navigationController = getCurrentNavigationController() {
+            navigationController.pushViewController(viewController, animated: true)
+        } else {
+            // 如果没有导航控制器，就present
+            getCurrentViewController()?.present(viewController, animated: true)
+        }
+    }
+
+    private func getCurrentNavigationController() -> UINavigationController? {
+        return UIApplication.shared.keyWindow?.rootViewController as? UINavigationController
+    }
+
+    private func getCurrentViewController() -> UIViewController? {
+        return UIApplication.shared.keyWindow?.rootViewController
+    }
+}
+
+// 2. 扩展URL：方便解析参数
+extension URL {
+    var queryParameters: [String: String] {
+        var params: [String: String] = [:]
+        guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
+            return params
+        }
+
+        for item in queryItems {
+            params[item.name] = item.value ?? ""
+        }
+        return params
+    }
+}
+
+// 3. 在AppDelegate中拦截URL
+class AppDelegate {
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = nil) -> Bool {
+
+        // 拦截app://开头的URL
+        if url.scheme == "app" {
+            URLRouter.shared.handle(url.absoluteString)
+            return true
+        }
+
+        return false
+    }
+}
+
+// 4. 使用URL Router跳转
+class HomeViewController {
+    func showUserDetail() {
+        URLRouter.shared.handle("app://user/detail?id=123")
+    }
+
+    func showProductDetail() {
+        URLRouter.shared.handle("app://product/detail?productId=456")
+    }
+}
+```
+
+#### **URL Router 的优缺点**
+
+| 维度 | 优点 | 缺点 |
+|------|------|------|
+| **解耦性** | ⭐⭐⭐⭐ | 页面间完全解耦，不需要import |
+| **灵活性** | ⭐⭐⭐⭐ | 可以动态配置URL规则 |
+| **可测试** | ⭐⭐⭐ | URL规则可以单独测试 |
+| **维护性** | ⭐⭐ | 集中管理URL规则，易于维护 |
+| **性能** | ⭐⭐⭐ | 字符串解析有性能开销 |
+| **类型安全** | ⭐ | 参数都是字符串，没有类型检查 |
+| **编译期检查** | ⭐ | 运行时才能发现URL错误 |
+
+#### **详细优缺点分析**
+
+```swift
+//  优点1：完全解耦，不需要import
+// 不需要知道UserModule的存在
+URLRouter.shared.handle("app://user/detail?id=123")
+
+//  优点2：支持推送跳转
+// 推送 payload: {"url": "app://user/detail?id=123"}
+// AppDelegate直接拦截跳转
+func application(_ app: UIApplication, open url: URL, options: ...) {
+    if url.scheme == "app" {
+        URLRouter.shared.handle(url.absoluteString)
+        return true
+    }
+}
+
+//  优点3：支持动态配置
+// 比如做AB测试：一半用户跳转到新页面
+let url = remoteConfig["user_detail_url"] ?? "app://user/detail"
+URLRouter.shared.handle(url)
+
+//  缺点1：类型不安全
+URLRouter.shared.handle("app://user/detaill?id=123")  // ← 拼写错误！运行时才发现
+
+//  缺点2：参数传递受限
+// 只能传字符串，不能传递复杂对象
+let user = User(name: "张三", age: 25)
+URLRouter.shared.handle("app://user/detail?user=\(user)")  // 怎么传？
+
+//  缺点3：只能跳转，不能调用方法
+// 无法获取返回值
+let result = URLRouter.shared.handle("app://user/getInfo?id=123")  // 怎么获取返回值？
+```
+
+#### **URL Router 适用场景**
+
+```
+ 适用场景：
+- 跨页面跳转（Push、Present）
+- 跨模块跳转（不同业务模块）
+- 需要动态配置跳转规则
+- 推送跳转（从推送跳转到指定页面）
+- H5页面跳转原生页面
+
+ 不适用场景：
+- 模块间方法调用
+- 需要传递复杂对象
+- 需要获取返回值
+- 需要类型安全的调用
+```
+
+---
+
+### 2.5 方案二：Target-Action（目标-动作模式）
+
+#### **核心思想**
+
+```
+不直接调用其他模块的方法，而是通过"目标-动作"的方式：
+"我要对UserModule做点什么" → "UserModule处理这个动作"
+```
+
+#### **实现原理**
+
+```
+1. 定义Target（目标）：UserModule、ProductModule
+2. 定义Action（动作）：FetchUserInfo、GetProductList
+3. 创建Mediator（中介者）：管理Target和Action的映射
+4. 调用时：mediator.perform(UserModule.self, .fetchUserInfo(id))
+5. 分发执行：找到对应的Target，执行对应的Action
+```
+
+#### **完整代码实现**
+
+```swift
+// 1. 定义Action（枚举）
+enum UserAction {
+    case fetchUserInfo(userId: String)
+    case updateUser(user: User)
+    case deleteUser(userId: String)
+}
+
+enum ProductAction {
+    case getProductList(page: Int)
+    case getProductDetail(productId: String)
+}
+
+// 2. 定义Target（目标）
+enum Target {
+    case user(UserModuleTarget)
+    case product(ProductModuleTarget)
+}
+
+// 3. 实现Target协议
+protocol UserModuleTarget {
+    func fetchUserInfo(userId: String) -> User?
+    func updateUser(_ user: User) -> Bool
+    func deleteUser(userId: String) -> Bool
+}
+
+// 4. 具体的Target实现
+class UserModule: UserModuleTarget {
+    func fetchUserInfo(userId: String) -> User? {
+        // 从数据库获取用户信息
+        return Database.shared.fetchUser(id: userId)
+    }
+
+    func updateUser(_ user: User) -> Bool {
+        return Database.shared.save(user)
+    }
+
+    func deleteUser(userId: String) -> Bool {
+        return Database.shared.deleteUser(id: userId)
+    }
+}
+
+// 5. 创建Mediator（中介者）
+class Mediator {
+    static let shared = Mediator()
+
+    private let userTarget = UserModule()
+    private let productTarget = ProductModule()
+
+    // 处理User相关的Action
+    func perform(_ target: UserModuleTarget, action: UserAction) -> Any? {
+        switch action {
+        case .fetchUserInfo(let userId):
+            return target.fetchUserInfo(userId: userId)
+
+        case .updateUser(let user):
+            return target.updateUser(user)
+
+        case .deleteUser(let userId):
+            return target.deleteUser(userId: userId)
+        }
+    }
+
+    // 处理Product相关的Action
+    func perform(_ target: ProductModuleTarget, action: ProductAction) -> Any? {
+        switch action {
+        case .getProductList(let page):
+            return target.getProductList(page: page)
+
+        case .getProductDetail(let productId):
+            return target.getProductDetail(productId: productId)
+        }
+    }
+}
+
+// 6. 扩展：提供便捷调用方法
+extension Mediator {
+    func fetchUserInfo(userId: String) -> User? {
+        return perform(userTarget, action: .fetchUserInfo(userId: userId)) as? User
+    }
+
+    func getProductList(page: Int) -> [Product]? {
+        return perform(productTarget, action: .getProductList(page: page)) as? [Product]
+    }
+}
+
+// 7. 使用Mediator
+class HomeViewController {
+    func showUserInfo() {
+        if let user = Mediator.shared.fetchUserInfo(userId: "123") {
+            displayUser(user)
+        }
+    }
+}
+```
+
+#### **Target-Action 的优缺点**
+
+| 维度 | 优点 | 缺点 |
+|------|------|------|
+| **解耦性** | ⭐⭐⭐⭐ | 模块间通过Target-Action解耦 |
+| **灵活性** | ⭐⭐⭐ | 可以动态添加新的Action |
+| **可测试性** | ⭐⭐⭐⭐ | Target可以单独测试 |
+| **维护性** | ⭐⭐⭐ | Action集中管理，易于维护 |
+| **性能** | ⭐⭐⭐⭐ | 直接调用，性能好 |
+| **类型安全** | ⭐⭐⭐ | 编译期类型检查，比URL方案好 |
+| **学习曲线** | ⭐⭐⭐⭐ | 概念多，学习成本高 |
+
+#### **详细优缺点分析**
+
+```swift
+//  优点1：类型安全，编译期检查
+enum UserAction {
+    case fetchUserInfo(userId: String)  // 枚举定义，编译期检查
+}
+Mediator.shared.perform(userTarget, action: .fetchUserInfo(userId: "123"))
+
+//  优点2：支持复杂对象
+let user = User(name: "张三", age: 25)
+Mediator.shared.perform(userTarget, action: .updateUser(user))
+
+//  优点3：支持方法调用，可以获取返回值
+//  可以获取返回值
+let user = Mediator.shared.fetchUserInfo(userId: "123") as? User
+
+//  优点4：性能好，直接调用，没有字符串解析开销
+
+//  缺点1：学习成本高，概念多
+// Target（目标）
+// Action（动作）
+// Mediator（中介者）
+// 需要理解这些概念才能使用
+
+//  缺点2：代码量大，每个方法都要定义
+enum UserAction {
+    case fetchUserInfo(userId: String)
+    case updateUser(user: User)
+    case deleteUser(userId: String)
+    case ...  // 方法很多时，枚举很大
+}
+
+//  缺点3：仍有一定耦合，需要知道Mediator
+class HomeViewController {
+    func getUserInfo() {
+        // 还是依赖了Mediator
+        let user = Mediator.shared.fetchUserInfo(userId: "123")
+    }
+}
+
+//  缺点4：不支持推送跳转
+// 推送无法携带枚举，只能用URL
+```
+
+#### **Target-Action 如何实现页面跳转？**
+
+```swift
+//  问题：如果要页面跳转，是不是要import具体类？
+// 让我们看看实际怎么做的
+
+//  方案1：返回 UIViewController 类型（不依赖具体类）
+protocol UserModuleTarget {
+    func getUserDetailViewController(userId: String) -> UIViewController?
+}
+
+class UserModule: UserModuleTarget {
+    func getUserDetailViewController(userId: String) -> UIViewController? {
+        //  注意：这里还是要 import UserDetailViewController
+        // 但调用者不需要 import
+        return UserDetailViewController(userId: userId)
+    }
+}
+
+// 使用（调用者不依赖具体类）
+class HomeViewController {
+    func showUserDetail() {
+        // 不需要 import UserModule
+        // 不需要 import UserDetailViewController
+        if let userVC = Mediator.shared.getUserDetailViewController(userId: "123") {
+            navigationController?.pushViewController(userVC, animated: true)
+        }
+    }
+}
+
+//  缺点：Mediator内部还是要import具体的ViewController
+// 所以Target-Action实现页面跳转，本质上还是有一定的耦合
+```
+
+**结论**：
+-  **调用方解耦**：HomeViewController不需要import具体类
+-  **Mediator耦合**：Mediator内部还是要import具体类
+-  **权衡**：比直接import好，但不如URL Router彻底解耦
+
+---
+
+#### **Target-Action 适用场景**
+
+```
+ 适用场景：
+- 模块间方法调用（获取数据、更新状态）
+- 需要传递复杂对象
+- 需要类型安全的调用
+- 需要更好的性能
+- 需要获取返回值
+
+ 页面跳转场景：
+- 可以用，但Mediator内部还是要import具体类
+- 不如URL Router彻底解耦
+
+ 不适用场景：
+- 简单的页面跳转（用URL Router更简单）
+- 跨App跳转（用URL Scheme）
+- 推送跳转（用URL Router）
+- 需要动态配置
+- 需要完全解耦（Mediator内部还是有耦合）
+```
+
+---
+
+### 2.6 方案三：Protocol-Service（协议-服务方案）
+
+#### **核心思想**
+
+```
+最彻底的解耦方案：
+- 定义协议：定义组件提供的能力
+- 注册服务：每个组件注册自己的服务
+- 依赖注入：通过容器注入依赖
+- 完全解耦：组件间只依赖协议，不依赖具体实现
+```
+
+#### **实现原理**
+
+```
+1. 定义服务协议：UserServicing、ProductServicing
+2. 实现服务：UserServiceImpl、ProductServiceImpl
+3. 注册到容器：把服务注册到ServiceContainer
+4. 从容器获取：通过容器获取服务，不依赖具体实现
+```
+
+调用链：
+
+```text
+调用模块只依赖 UserServicing 协议
+        │ resolve(UserServicing.self)
+        ▼
+ServiceContainer（保存“协议 → 实现”的映射）
+        ▼
+UserService（用户模块的具体实现）
+```
+
+> 协议应放在调用方和实现方都能依赖的**公共 Interface / Core 模块**，不能只放在 UserModule 内；否则调用方为了 import 协议仍会反向依赖 UserModule，解耦失效。
+
+#### **完整代码实现**
+
+```swift
+// 1. 公共 Interface 模块：调用方与实现方共同依赖“能力合同”
+protocol UserServicing {
+    func fetchUser(id: String) -> User?
+    func updateUser(_ user: User) -> Bool
+}
+
+// 2. UserModule：具体实现只在模块内部可见
+final class UserService: UserServicing {
+    func fetchUser(id: String) -> User? {
+        Database.shared.fetchUser(id: id)
+    }
+
+    func updateUser(_ user: User) -> Bool {
+        Database.shared.save(user)
+    }
+}
+
+// 3. 基础模块：最小服务容器。key 是协议的唯一身份，不依赖易冲突的字符串。
+final class ServiceContainer {
+    static let shared = ServiceContainer()
+    private var services: [ObjectIdentifier: Any] = [:]
+    private let lock = NSLock()
+
+    func register<T>(_ protocolType: T.Type, implementation: T) {
+        lock.lock(); defer { lock.unlock() }
+        services[ObjectIdentifier(protocolType)] = implementation
+    }
+
+    func resolve<T>(_ protocolType: T.Type) -> T? {
+        lock.lock(); defer { lock.unlock() }
+        return services[ObjectIdentifier(protocolType)] as? T
+    }
+}
+
+// 4. App 装配期 / 模块启动期：协议 → 具体实现。
+// 不建议在 +load 或静态初始化中做耗时业务初始化。
+enum UserModuleAssembly {
+    static func registerServices() {
+        ServiceContainer.shared.register(UserServicing.self,
+                                         implementation: UserService())
+    }
+}
+
+// 5. 调用方：只 import 公共协议和容器，完全不知道 UserService 的存在。
+final class HomeViewController: UIViewController {
+    private let userService: UserServicing
+
+    // 推荐构造器注入：依赖显式，测试时可直接传 Mock。
+    init(userService: UserServicing) {
+        self.userService = userService
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func showUserInfo() {
+        if let user = userService.fetchUser(id: "123") {
+            displayUser(user)
+        }
+    }
+}
+
+// App 装配：resolve 一次后注入，不让 HomeViewController 感知容器。
+UserModuleAssembly.registerServices()
+let service: UserServicing = ServiceContainer.shared.resolve(UserServicing.self)!
+let homeVC = HomeViewController(userService: service)
+```
+
+**为什么这比 Target-Action 类型安全？** `userService.fetchUser(id: "123")` 的方法名、参数与返回类型均由 `UserServicing` 在编译期校验；不再依赖 `"User"`、`"fetchUser"`、`[String: Any]` 这类运行时字符串约定。
+
+> **术语精度**：容器创建对象并通过 `init(userService:)` 传入依赖，才是典型的**构造器注入（DI）**。若业务对象内部自行调用 `ServiceContainer.shared.resolve(...)`，严格说属于 **Service Locator（服务定位器）**。AppDIContainer 一类框架可同时作为 DI 容器与服务定位器使用；优先采用构造器注入，让依赖显式且更易测试。
+
+#### **Protocol-Service 的优缺点**
+
+| 维度 | 优点 | 缺点 |
+|------|------|------|
+| **解耦性** | ⭐⭐⭐⭐⭐ | 完全解耦，只依赖协议 |
+| **灵活性** | ⭐⭐⭐⭐⭐ | 可以动态替换实现 |
+| **可测试性** | ⭐⭐⭐⭐⭐ | 协议可以Mock，测试很方便 |
+| **维护性** | ⭐⭐⭐⭐ | 协议集中管理，易于维护 |
+| **性能** | ⭐⭐⭐⭐ | 直接调用，性能好 |
+| **类型安全** | ⭐⭐⭐⭐⭐ | 编译期类型检查，最安全 |
+| **学习曲线** | ⭐⭐⭐⭐ | 需要理解依赖注入 |
+
+#### **详细优缺点分析**
+
+```swift
+//  优点1：最彻底解耦，只依赖协议
+protocol UserServicing {
+    func fetchUser(id: String) -> User?
+}
+
+class HomeViewController {
+    private let userService: UserServicing  // 只依赖协议，不依赖具体实现
+
+    init(userService: UserServicing) {
+        self.userService = userService
+    }
+}
+
+//  优点2：易测试，可以Mock协议
+class MockUserService: UserServicing {
+    func fetchUser(id: String) -> User? {
+        return User(name: "Mock", age: 0)  // 测试数据
+    }
+}
+
+let mockVC = HomeViewController(userService: MockUserService())
+
+//  优点3：运行时替换实现
+// 开发环境用Mock，生产环境用真实实现
+#if DEBUG
+let userService = MockUserService()
+#else
+let userService = UserService()
+#endif
+ServiceContainer.shared.register(UserServicing.self, implementation: userService)
+
+//  优点4：类型安全，编译期检查
+// userService.fetchUser() 编译期检查参数和返回值
+
+//  缺点1：过度设计，小项目用不上
+// 5个页面的App，直接import就行，用Protocol-Service是杀鸡用牛刀
+
+//  缺点2：学习成本高，需要理解依赖注入
+// 什么是依赖注入？
+// 为什么不直接创建对象？
+// 为什么要用协议？
+// 初学者很难理解
+
+//  缺点3：运行时开销，容器解析有性能损耗
+// 每次都要从容器查找：container.resolve(UserServicing.self)
+// 虽然开销不大，但比直接创建对象慢
+
+//  缺点4：代码量大，每个服务都要定义协议
+protocol UserServicing { ... }
+protocol OrderServicing { ... }
+protocol PaymentServicing { ... }
+// 服务很多时，协议文件很多
+```
+
+#### **Protocol-Service 如何实现页面跳转？**
+
+```swift
+//  问题：如果要页面跳转，是不是要import具体类？
+
+//  方案1：定义路由协议
+protocol UserRoutingServicing {
+    func getUserDetailViewController(userId: String) -> UIViewController?
+}
+
+//  实现时还是要import具体类
+class UserRoutingService: UserRoutingServicing {
+    func getUserDetailViewController(userId: String) -> UIViewController? {
+        //  这里还是要 import UserDetailViewController
+        return UserDetailViewController(userId: userId)
+    }
+}
+
+// 注册服务
+ServiceContainer.shared.register(UserRoutingServicing.self,
+                                implementation: UserRoutingService())
+
+// 使用（调用者不依赖具体类）
+class HomeViewController {
+    private let userRoutingService: UserRoutingServicing
+
+    init(userRoutingService: UserRoutingServicing) {
+        self.userRoutingService = userRoutingService
+    }
+
+    func showUserDetail() {
+        // 不需要 import UserDetailViewController
+        if let userVC = userRoutingService.getUserDetailViewController(userId: "123") {
+            navigationController?.pushViewController(userVC, animated: true)
+        }
+    }
+}
+
+//  缺点：Service实现内部还是要import具体的ViewController
+
+//  方案2：更彻底的解耦 - 返回路由信息，不直接返回ViewController
+protocol UserRoutingServicing {
+    func getUserDetailRoute(userId: String) -> Route?
+}
+
+struct Route {
+    let url: String  // 用URL表示路由
+    // 或者
+    let viewControllerType: Any.Type  // 用类型表示
+    let parameters: [String: Any]
+}
+
+class UserRoutingService: UserRoutingServicing {
+    func getUserDetailRoute(userId: String) -> Route? {
+        // 返回路由信息，不创建具体的ViewController
+        return Route(url: "app://user/detail?id=\(userId)")
+    }
+}
+
+// 使用
+class HomeViewController {
+    func showUserDetail() {
+        if let route = userRoutingService.getUserDetailRoute(userId: "123") {
+            // 结合URL Router使用
+            URLRouter.shared.handle(route.url)
+        }
+    }
+}
+
+//  方案3：最彻底解耦 - Protocol-Service + URL Router 组合
+// Protocol-Service 用于方法调用（数据层）
+// URL Router 用于页面跳转（UI层）
+```
+
+**结论**：
+-  **Protocol-Service实现页面跳转，Service内部还是要import具体类**
+-  **推荐做法**：Protocol-Service（方法调用） + URL Router（页面跳转）组合使用
+
+---
+
+#### **Protocol-Service 适用场景**
+
+```
+ 适用场景：
+- 大型项目（20+个页面）
+- 需要完全解耦（方法调用层面）
+- 需要高可测试性
+- 团队协作（不同团队负责不同服务）
+- 需要Mock测试
+- 需要运行时替换实现
+
+ 页面跳转场景：
+- 可以用，但Service内部还是要import具体类
+- 推荐和URL Router组合使用
+
+ 不适用场景：
+- 小型项目（过度设计）
+- 快速原型（开发速度优先）
+- 团队经验不足
+- 页面跳转（推荐用URL Router）
+```
+
+---
+
+### 2.7 三种方案对比总结
+
+#### **面试常问：组件化有几种实现方案？页面跳转怎么做？**
+
+```
+A: 主要有3种主流方案：
+
+1. URL Router方案（URL路由）
+   - 适合：跨页面跳转、推送跳转
+   - 优点：完全解耦、灵活可配置
+   - 缺点：类型不安全、字符串硬编码
+   - 页面跳转： 最推荐，完全解耦
+
+2. Target-Action方案（目标-动作）
+   - 适合：模块间方法调用
+   - 优点：类型安全、性能好
+   - 缺点：学习成本高、代码量大
+   - 页面跳转： 可以用，但Mediator内部还是要import具体类
+
+3. Protocol-Service方案（协议-服务）
+   - 适合：大型项目、完全解耦
+   - 优点：最彻底解耦、可测试性强
+   - 缺点：过度设计、学习成本高
+   - 页面跳转： 可以用，但Service内部还是要import具体类
+
+实际项目中通常会组合使用多种方案。
+```
+
+#### **关键区别：页面跳转的耦合程度**
+
+| 方案 | 调用方耦合 | 内部耦合 | 推荐度 |
+|------|-----------|---------|--------|
+| **URL Router** |  无耦合（只传字符串） |  无耦合（通过映射表） | ⭐⭐⭐⭐⭐ |
+| **Target-Action** |  无耦合（返回UIViewController） |  有耦合（Mediator要import） | ⭐⭐⭐ |
+| **Protocol-Service** |  无耦合（返回UIViewController） |  有耦合（Service要import） | ⭐⭐⭐ |
+
+**结论**：
+```
+页面跳转 → URL Router（最彻底解耦）
+方法调用 → Target-Action 或 Protocol-Service
+
+不要用Target-Action或Protocol-Service做页面跳转！
+因为它们的内部还是要import具体的ViewController，没有彻底解耦。
+```
+
+#### **如何选择方案？（决策树）**
+
+```
+1. 你的项目规模？
+
+   小型项目（< 10个页面）
+   → 直接import，不用组件化
+
+   中型项目（10-20个页面）
+   → URL Router（页面跳转） + Target-Action（方法调用）
+
+   大型项目（> 20个页面）
+   → Protocol-Service（完全解耦） + URL Router（推送跳转）
+
+2. 你的主要需求？
+
+   跨页面跳转 + 推送跳转
+   → URL Router
+
+   模块间方法调用 + 传递复杂对象
+   → Target-Action
+
+   完全解耦 + 高可测试性
+   → Protocol-Service
+
+3. 你的团队能力？
+
+   初级团队 + 快速迭代
+   → URL Router（学习成本低）
+
+   中级团队 + 追求质量
+   → Target-Action（平衡）
+
+   高级团队 + 大型项目
+   → Protocol-Service（最规范）
+```
+
+#### **组合使用（推荐）**
+
+```
+最佳实践：组合使用多种方案
+
+页面跳转 → URL Router（最彻底解耦）
+模块调用 → Target-Action 或 Protocol-Service
+完全解耦 → Protocol-Service
+
+根据具体场景选择最合适的方案
+```
+
+#### **实际项目中的组合方案**
+
+```swift
+// 大型项目的标准组合：
+// 1. URL Router（页面跳转）
+URLRouter.shared.handle("app://user/detail?id=123")
+
+// 2. Protocol-Service（方法调用 - 数据层）
+class HomeViewController {
+    private let userService: UserServicing
+
+    init(userService: UserServicing) {
+        self.userService = userService
+    }
+
+    func loadUserInfo() {
+        // 方法调用用Protocol-Service
+        let user = userService.fetchUser(id: "123")
+        // 页面跳转用URL Router
+        URLRouter.shared.handle("app://user/detail?id=\(user.id)")
+    }
+}
+
+//  不要这样用：
+//  用Protocol-Service做页面跳转（内部还是要import）
+let userVC = userRoutingService.getUserDetailViewController(userId: "123")
+
+//  推荐这样用：
+//  Protocol-Service（方法调用） + URL Router（页面跳转）
+```
+
+#### **分层架构**
+
+```
+┌─────────────────────────────────────────┐
+│           Main Application              │  ← 主工程（组装层）
+├─────────────────────────────────────────┤
+│    Business Components (业务组件)        │
+│  ├─ User Component (用户模块)           │
+│  ├─ Product Component (商品模块)        │
+│  ├─ Order Component (订单模块)          │
+│  └─ Payment Component (支付模块)        │
+├─────────────────────────────────────────┤
+│    Foundation Components (基础组件)      │
+│  ├─ Network Component (网络层)          │
+│  ├─ Database Component (数据库)         │
+│  ├─ UI Component (UI库)                 │
+│  └─ Utility Component (工具类)          │
+└─────────────────────────────────────────┘
+```
+
+#### **依赖规则**
+
+```
+业务组件 → 基础组件 
+基础组件 → 业务组件 
+
+Main → 业务组件 
+业务组件 → Main 
+
+组件A → 组件B 
+组件B → 组件A  (循环依赖)
+```
+
+### 2.3 组件化落地实践
+
+#### **1. 组件拆分原则**
+
+```swift
+//  错误：巨石应用
+// 所有代码都在主工程
+
+//  正确：按业务拆分
+Project/
+├── MainApp/              # 主工程
+├── UserModule/           # 用户组件
+├── ProductModule/        # 商品组件
+├── OrderModule/          # 订单组件
+├── PaymentModule/        # 支付组件
+├── NetworkModule/        # 网络组件
+└── UIModule/             # UI组件
+```
+
+#### **2. 组件间通信 - 路由设计**
+
+```swift
+// 定义路由协议
+protocol AppRouter {
+    func navigateToUserHome(userId: String)
+    func navigateToProduct(productId: String)
+    func navigateToOrder(orderId: String)
+}
+
+// 路由实现
+class AppRouterImpl: AppRouter {
+    func navigateToUserHome(userId: String) {
+        let userVC = UserViewController(userId: userId)
+        navigationController?.pushViewController(userVC, animated: true)
+    }
+}
+
+// URL路由
+class URLRouter {
+    static func handle(url: URL) {
+        guard let scheme = url.scheme,
+              let host = url.host else { return }
+
+        switch (scheme, host) {
+        case ("app", "user"):
+            let userId = url.queryParameters["id"] ?? ""
+            AppRouter.shared.navigateToUserHome(userId: userId)
+
+        case ("app", "product"):
+            let productId = url.queryParameters["id"] ?? ""
+            AppRouter.shared.navigateToProduct(productId: productId)
+
+        default:
+            break
+        }
+    }
+}
+
+// 使用
+// app://user?id=123
+// app://product?id=456
+URLRouter.handle(url: URL(string: "app://user?id=123")!)
+```
+
+#### **3. 组件间通信 - 事件总线**
+
+```swift
+// 定义事件
+enum AppEvent {
+    case userLogin(User)
+    case userLogout
+    case orderCreated(Order)
+}
+
+// 事件总线
+class EventBus {
+    static let shared = EventBus()
+    private var listeners: [String: [(AppEvent) -> Void]] = [:]
+
+    func subscribe(_ event: AppEvent, handler: @escaping (AppEvent) -> Void) {
+        let key = String(describing: event)
+        if listeners[key] == nil {
+            listeners[key] = []
+        }
+        listeners[key]?.append(handler)
+    }
+
+    func post(_ event: AppEvent) {
+        let key = String(describing: event)
+        listeners[key]?.forEach { handler in
+            handler(event)
+        }
+    }
+}
+
+// 使用
+EventBus.shared.subscribe(.userLogin) { event in
+    if case .userLogin(let user) = event {
+        print("用户登录：\(user.name)")
+    }
+}
+
+EventBus.shared.post(.userLogin(User(name: "张三")))
+```
+
+#### **4. 组件化Podfile配置**
+
+```ruby
+# Podfile
+platform :ios, '13.0'
+
+use_frameworks!
+
+# 基础组件
+def base_pods
+  pod 'NetworkModule', :path => './Modules/NetworkModule'
+  pod 'DatabaseModule', :path => './Modules/DatabaseModule'
+  pod 'UIModule', :path => './Modules/UIModule'
+end
+
+# 业务组件
+def business_pods
+  pod 'UserModule', :path => './Modules/UserModule'
+  pod 'ProductModule', :path => './Modules/ProductModule'
+  pod 'OrderModule', :path => './Modules/OrderModule'
+  pod 'PaymentModule', :path => './Modules/PaymentModule'
+end
+
+target 'MainApp' do
+  base_pods
+  business_pods
+end
+```
+
+### 2.7 组件化面试高频问题
+
+#### **Q1: 组件化有几种实现方案？**
+
+**标准答案**：
+```
+主要有3种主流方案：
+
+1. URL Router方案
+   - 原理：通过URL Scheme跳转
+   - 适合：页面跳转、推送跳转
+   - 优点：完全解耦、可配置
+   - 缺点：类型不安全
+
+2. Target-Action方案
+   - 原理：Mediator模式 + 枚举
+   - 适合：模块间方法调用
+   - 优点：类型安全、性能好
+   - 缺点：学习成本高
+
+3. Protocol-Service方案
+   - 原理：协议 + 依赖注入
+   - 适合：大型项目、完全解耦
+   - 优点：最彻底解耦、可测试
+   - 缺点：过度设计
+
+实际项目中通常会组合使用多种方案。
+```
+
+#### **Q2: URL Router的URL解析是怎么做的？**
+
+**标准答案**：
+```
+URL解析的关键步骤：
+
+1. 字符串转URL对象
+   URL(string: "app://user/detail?id=123")
+
+2. 提取Components
+   URLComponents(url: url)
+
+3. 解析Host（确定跳转哪个页面）
+   components.host = "user/detail"
+
+4. 解析Query参数（提取?id=123）
+   components.queryItems = [("id", "123")]
+
+5. 查找注册的处理器
+   routes["user/detail"]?(url)
+
+6. 创建目标ViewController
+   UserDetailViewController(userId: "123")
+
+7. 执行跳转
+   navigationController.pushViewController(vc, animated: true)
+```
+
+#### **Q3: Target-Action和Mediator是什么关系？**
+
+**标准答案**：
+```
+Target-Action是Mediator模式的一种实现方式：
+
+- Target：目标对象（UserModule、ProductModule）
+- Action：动作（fetchUserInfo、getProductList）
+- Mediator：中介者，管理Target和Action的映射
+
+本质是设计模式中的"中介者模式"：
+- 不直接调用其他模块
+- 所有调用都通过Mediator转发
+- 实现模块间的解耦
+```
+
+#### **Q4: 为什么Protocol-Service方案能实现完全解耦？**
+
+**标准答案**：
+```
+Protocol-Service实现完全解耦的核心：
+
+1. 定义协议：只定义接口，不依赖具体实现
+   protocol UserServicing {
+       func fetchUser(id: String) -> User?
+   }
+
+2. 依赖协议：调用者只依赖协议
+   class HomeViewController {
+       let userService: UserServicing  // 只依赖协议
+   }
+
+3. 注入实现：运行时注入具体实现
+   container.register(UserServicing.self, implementation: UserService())
+
+4. 替换实现：可以随时替换具体实现
+   container.register(UserServicing.self, implementation: MockUserService())
+
+5. 编译期检查：协议确保类型安全
+   调用userService.fetchUser()时，编译期检查
+
+这样就实现了：
+- 调用者不依赖具体实现
+- 具体实现可以随时替换
+- 编译期类型安全
+```
+
+#### **Q5: 组件化如何避免循环依赖？**
+
+**标准答案**：
+```
+避免循环依赖的几种方法：
+
+1. 单向依赖规则（架构层面）
+   Presentation → Business → Data
+   禁止反向依赖
+
+2. 使用协议（技术层面）
+   moduleA → protocol ← moduleB
+   两者都依赖协议，不互相依赖
+
+3. 依赖注入（框架层面）
+   通过容器注入依赖，不允许直接import
+
+4. 架构分层（组织层面）
+   严格按照层次组织，跨层需要通过接口
+
+5. Code Review检查
+   禁止循环依赖的代码合并
+```
+
+#### **Q6: 组件化后如何提升编译速度？**
+
+**标准答案**：
+```
+组件化提升编译速度的原理：
+
+1. 并行编译
+   不同组件可以并行编译
+   主工程只负责组装
+
+2. 增量编译
+   修改UserModule只编译UserModule
+   不需要重新编译其他模块
+
+3. 预编译框架
+   每个组件可以预编译成Framework
+   减少重复编译时间
+
+4. CocoaPods缓存
+   依赖的Pod有缓存机制
+   不需要重新下载和编译
+
+实际效果：
+- 单体项目：编译时间5-10分钟
+- 组件化项目：编译时间1-3分钟
+- 增量编译：10-30秒
+```
+
+#### **Q7: 组件化和模块化有什么区别？**
+
+**标准答案**：
+```
+组件化和模块化经常被混用，但有细微区别：
+
+模块化（Modular）：
+- 侧重点：代码组织
+- 方式：按功能划分模块
+- 粒度：比组件化粗一些
+- 场景：同一个项目内部
+
+组件化（Component）：
+- 侧重点：代码复用
+- 方式：按可复用性划分
+- 粒度：比模块化细一些
+- 场景：跨项目复用
+
+在iOS开发中：
+- 模块化：把App分成UserModule、OrderModule
+- 组件化：把网络层抽成NetworkComponent（可跨项目复用）
+
+实践中两者经常一起使用。
+```
+
+#### **Q8: 组件化后如何保证数据一致性？**
+
+**标准答案**：
+```
+组件化后数据一致性保证方法：
+
+1. 单一数据源
+   每个数据有唯一的Owner
+   其他组件通过接口访问
+
+2. 状态管理
+   使用Redux、Combine等状态管理方案
+   统一管理共享状态
+
+3. 事件总线
+   通过EventBus或NotificationCenter同步数据
+   一个组件更新，通知其他组件
+
+4. 数据仓库模式
+   所有数据访问都通过Repository
+   Repository内部保证一致性
+
+5. 数据版本控制
+   给数据加版本号
+   避免使用过期数据
+
+实际项目中的做法：
+- 用户数据：UserModule唯一管理
+- 订单数据：OrderModule唯一管理
+- 共享数据：通过EventBus同步
+- 本地缓存：通过Repository统一管理
+```
+
+---
+
+### 2.8 组件化最佳实践
+
+| 维度 | 收益 |
+|------|------|
+| **代码复用** | 组件可以在多个App中复用 |
+| **编译速度** | 并行编译，提升编译速度 |
+| **团队协作** | 不同团队负责不同组件，减少冲突 |
+| **单元测试** | 组件独立测试，覆盖率提升 |
+| **业务隔离** | 组件间耦合度低，易于维护 |
+
+---
+
+## 3. 插件化架构设计与落地
+
+### 3.1 什么是插件化？
+
+**定义**：将App功能拆分成多个**插件**，运行时按需动态加载和组合。
+
+**核心特征**：
+-  **运行时组合**：插件在运行时动态加载，不是编译期决定
+-  **热插拔**：插件可以动态加载、卸载
+-  **独立开发**：每个插件独立开发、测试
+-  **生命周期管理**：统一的插件生命周期管理
+
+### 3.2 插件化 vs 组件化
+
+| 特性 | 组件化 | 插件化 |
+|------|--------|--------|
+| **组合时机** | 编译期 | 运行时 |
+| **代码复用** | 跨App复用 | App内复用 |
+| **灵活性** | 较低 | 高 |
+| **复杂度** | 较低 | 较高 |
+| **典型场景** | 跨业务复用 | 多房型/多玩法 |
+
+### 3.3 插件化架构设计
+
+#### **核心组件**
+
+```
+┌─────────────────────────────────────────┐
+│           Host Application              │  ← 宿主应用
+├─────────────────────────────────────────┤
+│        Plugin Manager                   │  ← 插件管理器
+│  ├─ Plugin Registry (插件注册表)        │
+│  ├─ Plugin Loader (插件加载器)          │
+│  └─ Plugin Lifecycle (生命周期管理)     │
+├─────────────────────────────────────────┤
+│            Plugins                      │  ← 插件集合
+│  ├─ Plugin A (纯能力型)                 │
+│  ├─ Plugin B (容器型)                   │
+│  └─ Plugin C (UI型)                     │
+├─────────────────────────────────────────┤
+│        Plugin Context                   │  ← 插件上下文
+│  ├─ Shared State (共享状态)             │
+│  ├─ Service Container (服务容器)        │
+│  └─ Event Bus (事件总线)                │
+└─────────────────────────────────────────┘
+```
+
+### 3.4 插件化落地实践
+
+#### **1. 插件定义**
+
+```swift
+// 插件协议
+protocol Plugin {
+    var name: String { get }
+    var version: String { get }
+
+    func onLoad(context: PluginContext)
+    func onUnload()
+}
+
+// 插件上下文
+protocol PluginContext: AnyObject {
+    var hostViewController: UIViewController { get }
+    var serviceContainer: ServiceContainer { get }
+    var eventBus: EventBus { get }
+}
+
+// 服务容器
+class ServiceContainer {
+    private var services: [String: Any] = [:]
+
+    func register<T>(_ type: T.Type, instance: T) {
+        let key = String(describing: type)
+        services[key] = instance
+    }
+
+    func resolve<T>(_ type: T.Type) -> T? {
+        let key = String(describing: type)
+        return services[key] as? T
+    }
+}
+```
+
+#### **2. 插件实现**
+
+```swift
+// 具体插件：礼物插件
+class GiftPlugin: Plugin {
+    var name: String { return "GiftPlugin" }
+    var version: String { return "1.0.0" }
+
+    func onLoad(context: PluginContext) {
+        print("礼物插件加载")
+
+        // 注册服务
+        let giftService = GiftService()
+        context.serviceContainer.register(GiftService.self, instance: giftService)
+
+        // 设置UI
+        setupUI(context: context)
+
+        // 监听事件
+        context.eventBus.subscribe(.sendGift) { [weak self] event in
+            self?.handleSendGift(event)
+        }
+    }
+
+    func onUnload() {
+        print("礼物插件卸载")
+    }
+
+    private func setupUI(context: PluginContext) {
+        let giftButton = UIButton()
+        giftButton.setTitle("礼物", for: .normal)
+        giftButton.addTarget(self, action: #selector(sendGift), for: .touchUpInside)
+
+        context.hostViewController.view.addSubview(giftButton)
+    }
+
+    @objc private func sendGift() {
+        print("发送礼物")
+    }
+
+    private func handleSendGift(_ event: AppEvent) {
+        // 处理送礼事件
+    }
+}
+```
+
+#### **3. 插件管理器**
+
+```swift
+class PluginManager {
+    static let shared = PluginManager()
+
+    private var plugins: [Plugin] = []
+    private var context: PluginContext?
+
+    func register(plugin: Plugin) {
+        plugins.append(plugin)
+    }
+
+    func loadPlugins(context: PluginContext) {
+        self.context = context
+
+        // 按优先级排序插件
+        plugins.sort { $0.name < $1.name }
+
+        // 加载所有插件
+        for plugin in plugins {
+            plugin.onLoad(context: context)
+        }
+    }
+
+    func unloadPlugins() {
+        for plugin in plugins {
+            plugin.onUnload()
+        }
+        plugins.removeAll()
+    }
+
+    func getPlugin<T>(_ type: T.Type) -> T? {
+        return plugins.first { $0 is T } as? T
+    }
+}
+```
+
+#### **4. 插件优先级**
+
+```swift
+enum PluginPriority: Int {
+    case highest = 10    // 核心能力（RTC、麦位）
+    case high = 100      // UI容器内子插件
+    case normal = 1000   // UI容器插件
+    case low = 10000     // 独立UI插件
+    case lowest = 100000 // 不直接显示的插件
+}
+
+protocol Plugin {
+    var priority: PluginPriority { get }
+}
+
+class PluginManager {
+    func loadPlugins(context: PluginContext) {
+        // 按优先级排序
+        plugins.sort { $0.priority.rawValue < $1.priority.rawValue }
+
+        // 按优先级加载
+        for plugin in plugins {
+            plugin.onLoad(context: context)
+        }
+    }
+}
+```
+
+#### **5. 插件生命周期管理**
+
+```swift
+protocol PluginLifeCycle {
+    func pluginDidLoad()      // 插件加载完成
+    func pageDidLoad()         // 页面加载完成
+    func pageWillShow()        // 页面即将显示
+    func pageDidShow()         // 页面已经显示
+    func pageWillHide()        // 页面即将隐藏
+    func pageDidHide()         // 页面已经隐藏
+    func pageDestoried()       // 页面销毁
+}
+
+class BasePlugin: PluginLifeCycle {
+    weak var context: PluginContext?
+
+    func pluginDidLoad() {
+        // 插件初始化
+        registServices()
+    }
+
+    func pageDidLoad() {
+        // 页面加载完成，设置UI
+        setupUI()
+    }
+
+    func pageWillShow() {
+        // 页面即将显示，刷新数据
+        refreshData()
+    }
+
+    func pageDidShow() {
+        // 页面已经显示，开始动画
+        startAnimation()
+    }
+
+    func pageWillHide() {
+        // 页面即将隐藏，暂停动画
+        pauseAnimation()
+    }
+
+    func pageDidHide() {
+        // 页面已经隐藏，停止刷新
+        stopRefresh()
+    }
+
+    func pageDestoried() {
+        // 页面销毁，清理资源
+        cleanup()
+    }
+}
+```
+
+### 3.5 插件化实战案例（语音房）
+
+```swift
+// 语音房插件化架构
+class AudioLivePluginManager {
+    static func createPlugins(for roomType: RoomType) -> [Plugin] {
+        var plugins: [Plugin] = []
+
+        // 核心插件（最高优先级）
+        plugins.append(RTCPlugin())
+        plugins.append(SeatPlugin())
+        plugins.append(MessagePlugin())
+
+        // 根据房型添加不同插件
+        switch roomType {
+        case .normal:
+            plugins.append(ChatPlugin())
+            plugins.append(GiftPlugin())
+
+        case .theme:
+            plugins.append(GamePlugin())
+            plugins.append(AnimationPlugin())
+
+        case .group:
+            plugins.append(GroupChatPlugin())
+            plugins.append(MultiSeatPlugin())
+        }
+
+        return plugins
+    }
+}
+
+// 使用
+let plugins = AudioLivePluginManager.createPlugins(for: .theme)
+PluginManager.shared.loadPlugins(context: context)
+```
+
+### 3.6 插件化收益
+
+| 维度 | 收益 |
+|------|------|
+| **业务差异** | 支持多房型、多玩法组合 |
+| **并行开发** | 不同插件可并行开发 |
+| **可测试性** | 插件独立测试 |
+| **动态扩展** | 运行时动态加载插件 |
+| **故障隔离** | 单个插件崩溃不影响整体 |
+
+---
+
+## 4. 动态化架构设计与落地
+
+### 4.1 什么是动态化？
+
+**定义**：App的部分功能通过**动态下发**的方式实现，无需更新App。
+
+**核心特征**：
+-  **动态下发**：代码/配置从服务器下发
+-  **热更新**：无需发版即可更新功能
+-  **灵活配置**：通过配置控制功能开关
+
+### 4.2 动态化技术方案
+
+#### **方案对比**
+
+| 方案 | 技术栈 | 适用场景 | 复杂度 |
+|------|--------|----------|--------|
+| **H5/小程序** | WebView | 运营活动页 | ⭐ |
+| **React Native** | React + Bridge | 跨平台App | ⭐⭐⭐ |
+| **Flutter** | Dart + Engine | 跨平台App | ⭐⭐⭐⭐ |
+| **Lua/Wax** | Lua脚本 | 游戏逻辑 | ⭐⭐⭐⭐ |
+| **Flexbox/Yoga** | 布局引擎 | 动态UI | ⭐⭐⭐ |
+
+### 4.3 动态化架构设计
+
+#### **分层架构**
+
+```
+┌─────────────────────────────────────────┐
+│         Native Layer (原生层)            │  ← 原生功能
+├─────────────────────────────────────────┤
+│      Dynamic Engine (动态引擎)           │
+│  ├─ JSBridge (JSBridge桥接)             │
+│  ├─ Layout Engine (布局引擎)            │
+│  └─ Render Engine (渲染引擎)            │
+├─────────────────────────────────────────┤
+│       Business Layer (业务层)           │
+│  ├─ H5 Page (H5页面)                    │
+│  ├─ React Native (RN页面)               │
+│  └─ Lua Script (Lua脚本)                │
+├─────────────────────────────────────────┤
+│      Config Layer (配置层)              │  ← 远程配置
+└─────────────────────────────────────────┘
+```
+
+### 4.4 动态化落地实践
+
+#### **1. H5动态化**
+
+```swift
+// WebView加载H5页面
+class DynamicViewController: UIViewController {
+    private var webView: WKWebView!
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // 配置WebView
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = WKUserContentController()
+
+        // 注册JSBridge
+        configuration.userContentController.add(self, name: "AppBridge")
+
+        webView = WKWebView(frame: view.bounds, configuration: configuration)
+        view.addSubview(webView)
+
+        // 加载H5页面
+        loadDynamicPage()
+    }
+
+    private func loadDynamicPage() {
+        // 从服务器获取页面URL
+        let urlString = "https://example.com/dynamic-page"
+        if let url = URL(string: urlString) {
+            webView.load(URLRequest(url: url))
+        }
+    }
+}
+
+// JSBridge实现
+extension DynamicViewController: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any],
+              let action = body["action"] as? String else { return }
+
+        switch action {
+        case "getUserInfo":
+            // 获取用户信息
+            let userInfo = ["name": "张三", "age": 25]
+            webView.evaluateJavaScript("updateUserInfo(\(userInfo))")
+
+        case "navigateTo":
+            // 页面跳转
+            if let pageName = body["pageName"] as? String {
+                navigateToPage(pageName)
+            }
+
+        default:
+            break
+        }
+    }
+}
+```
+
+#### **2. React Native动态化**
+
+```swift
+// 加载RN页面
+import React
+
+class RNViewController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // 创建RN视图
+        let rootView = RCTRootView(
+            bundleURL: URL(string: "http://localhost:8081/index.bundle?platform=ios")!,
+            moduleName: "DynamicPage",
+            initialProperties: ["userId": "123456"],
+            launchOptions: nil
+        )
+
+        view = rootView
+    }
+}
+```
+
+#### **3. 动态配置**
+
+```swift
+// 远程配置管理
+class RemoteConfigManager {
+    static let shared = RemoteConfigManager()
+
+    private var config: [String: Any] = [:]
+
+    func fetchConfig() {
+        // 从服务器获取配置
+        let url = URL(string: "https://api.example.com/config")!
+
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+            DispatchQueue.main.async {
+                self.config = json
+                self.notifyConfigUpdate()
+            }
+        }.resume()
+    }
+
+    func isFeatureEnabled(_ featureName: String) -> Bool {
+        return config[featureName] as? Bool ?? false
+    }
+
+    func getConfigValue(_ key: String) -> Any? {
+        return config[key]
+    }
+
+    private func notifyConfigUpdate() {
+        NotificationCenter.default.post(name: .configDidUpdate, object: nil)
+    }
+}
+
+// 使用
+if RemoteConfigManager.shared.isFeatureEnabled("new_feature") {
+    // 启用新功能
+    showNewFeature()
+} else {
+    // 使用旧功能
+    showOldFeature()
+}
+```
+
+#### **4. 动态UI（Flexbox）**
+
+```swift
+import FlexLayout
+
+class DynamicUIView: UIView {
+    private let container = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+
+    private func setupUI() {
+        addSubview(container)
+
+        // 从配置文件获取UI结构
+        let uiConfig = fetchUIConfig()
+
+        // 动态创建UI
+        container.flex.define { flex in
+            for item in uiConfig.items {
+                if item.type == "label" {
+                    flex.addItem()
+                        .height(item.height)
+                        .margin(item.margin)
+                } else if item.type == "button" {
+                    flex.addItem()
+                        .height(item.height)
+                        .margin(item.margin)
+                }
+            }
+        }
+
+        container.flex.layout(mode: .adjustContainer)
+    }
+
+    private func fetchUIConfig() -> UIConfig {
+        // 从服务器获取UI配置
+        return UIConfig(items: [
+            UIItem(type: "label", height: 50, margin: 10),
+            UIItem(type: "button", height: 44, margin: 20)
+        ])
+    }
+}
+```
+
+### 4.5 动态化实战案例（运营活动页）
+
+```swift
+// 运营活动动态化方案
+class CampaignManager {
+    static let shared = CampaignManager()
+
+    func showCampaign(campaignId: String) {
+        // 从服务器获取活动配置
+        fetchCampaignConfig(campaignId: campaignId) { config in
+            switch config.type {
+            case "h5":
+                self.showH5Campaign(config)
+
+            case "native":
+                self.showNativeCampaign(config)
+
+            case "rn":
+                self.showRNCampaign(config)
+
+            default:
+                break
+            }
+        }
+    }
+
+    private func showH5Campaign(_ config: CampaignConfig) {
+        let vc = WebViewController(url: config.url)
+        UIViewController.current?.present(vc, animated: true)
+    }
+
+    private func showNativeCampaign(_ config: CampaignConfig) {
+        let vc = NativeCampaignViewController(config: config)
+        UIViewController.current?.present(vc, animated: true)
+    }
+
+    private func showRNCampaign(_ config: CampaignConfig) {
+        let vc = RNCampaignViewController(moduleName: config.moduleName)
+        UIViewController.current?.present(vc, animated: true)
+    }
+}
+
+// 使用
+CampaignManager.shared.showCampaign(campaignId: "spring_festival_2026")
+```
+
+### 4.6 动态化收益
+
+| 维度 | 收益 |
+|------|------|
+| **发版效率** | 无需发版即可更新功能 |
+| **A/B测试** | 快速验证不同方案 |
+| **运营活动** | 快速上线运营活动 |
+| **Bug修复** | 关键Bug可热修复 |
+| **个性化** | 根据用户配置展示不同UI |
+
+---
+
+## 5. 三种架构的选型决策
+
+### 5.1 决策树
+
+```
+1. 你的问题是什么？
+
+   代码重复、跨业务复用？
+   → 组件化
+
+   业务差异大、需要运行时组合？
+   → 插件化
+
+   发版周期长、需要快速迭代？
+   → 动态化
+```
+
+### 5.2 组合使用
+
+```
+组件化 + 插件化 + 动态化 的组合：
+
+┌─────────────────────────────────────────┐
+│         Main Application                │
+├─────────────────────────────────────────┤
+│       Plugin System (插件化)             │
+│  ├─ Plugin A (业务插件)                  │
+│  └─ Plugin B (功能插件)                  │
+├─────────────────────────────────────────┤
+│      Component System (组件化)           │
+│  ├─ User Component                      │
+│  └─ Payment Component                   │
+├─────────────────────────────────────────┤
+│      Dynamic System (动态化)             │
+│  ├─ H5 Page                             │
+│  └─ RN Page                             │
+└─────────────────────────────────────────┘
+```
+
+### 5.3 实战案例（大型App）
+
+```swift
+// 大型App的架构组合
+class AppArchitecture {
+
+    // 1. 组件化：拆分基础组件
+    let userComponent = UserComponent()
+    let paymentComponent = PaymentComponent()
+
+    // 2. 插件化：业务模块插件化
+    let pluginManager = PluginManager()
+    pluginManager.register(plugin: HomePlugin())
+    pluginManager.register(plugin: MessagePlugin())
+
+    // 3. 动态化：运营活动动态化
+    let campaignManager = CampaignManager()
+
+    func initialize() {
+        // 初始化组件
+        userComponent.setup()
+        paymentComponent.setup()
+
+        // 加载插件
+        pluginManager.loadPlugins()
+
+        // 获取远程配置
+        RemoteConfigManager.shared.fetchConfig()
+    }
+}
+```
+
+---
+
+## 6. 总结与对比
+
+### 6.1 核心区别总结
+
+| 架构 | 核心问题 | 解决方案 | 组合时机 | 适用场景 |
+|------|----------|----------|----------|----------|
+| **组件化** | 代码重复、耦合严重 | 拆分独立模块 | 编译期 | 跨业务复用 |
+| **插件化** | 业务差异大 | 运行时动态组合 | 运行时 | 多房型/多玩法 |
+| **动态化** | 发版周期长 | 动态下发代码 | 运行时 | 运营活动/快速迭代 |
+
+### 6.2 落地难度对比
+
+| 架构 | 落地难度 | 学习曲线 | 维护成本 | 推荐指数 |
+|------|----------|----------|----------|----------|
+| **组件化** | ⭐⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **插件化** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ |
+| **动态化** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+
+### 6.3 何时使用哪种架构？
+
+```
+使用组件化的时机：
+ 多个App需要复用代码
+ 团队规模扩大，需要并行开发
+ 代码耦合严重，难以维护
+
+使用插件化的时机：
+ 业务差异大，需要运行时组合
+ 多房型、多玩法场景
+ 需要快速扩展功能
+
+使用动态化的时机：
+ 运营活动频繁
+ 需要A/B测试
+ 关键Bug需要热修复
+```
+
+---
+
+## 7. 参考资料
+
+### 优质文章
+- [iOS组件化架构漫谈](https://juejin.cn/post/6844903607589160968)
+- [iOS插件化架构设计](https://juejin.cn/post/6844903472984123399)
+- [iOS动态化方案对比](https://juejin.cn/post/6844903811820457992)
+
+### 开源项目
+- [Bifrost (iOS Plugin Framework)](https://github.com/gitklip/Bifrost)
+- [JSPatch (Hotfix)](https://github.com/bang590/JSPatch)
+- [FlexLib (Dynamic UI)](https://github.com/aliyun/aliyun-oss-ios-sdk)
+
+---
+
+**最后更新**：2026-09-23
+**状态**： 已完善（补充组件化学习顺序与 Swift Protocol-Service 注册 / 注入细节）
+
+**Sources**:
+- 语音房重构实战经验
+- iOS架构设计最佳实践
+- 大厂架构演进案例分析

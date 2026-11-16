@@ -1,0 +1,77 @@
+---
+title: "基于 mmap 的客户端高性能日志组件设计思路"
+date: '2025-12-07'
+category: "工程化与架构"
+description: "对比普通文件写入与 mmap 内存映射，探讨兼顾防丢失、流式压缩、加密与回捞机制的日志组件架构。"
+tags: ["日志系统", "mmap", "架构设计"]
+---
+
+移动端日志 = 本地统一日志 API + 分级/category + 隐私（默认脱敏）+ 可持久化环形缓冲 + 可选远端上报；主线推荐 Apple Unified Logging (`Logger`/`OSLog`)。
+
+---
+
+## 1. 需求澄清
+
+| 维度 | 说明 |
+|------|------|
+| 消费方 | 开发调试、线上问题、行为分析（分析应与埋点分流） |
+| 持久化 | 是否落盘、最大尺寸、是否加密 |
+| 上报 | 采样率、批量、弱网、与崩溃日志对齐 |
+| 合规 | PII 默认 **private**、可配置的 redact |
+
+---
+
+## 2. 核心设计
+
+### 2.1 API 层
+
+统一门面：
+
+```swift
+enum LogLevel: Int { case debug, info, warn, error }
+
+protocol LogSink {
+    func log(level: LogLevel, tag: String, _ message: String, file: StaticString, line: UInt)
+}
+```
+
+内部可组合多个 sink：`OSLogSink`、`FileSink`、`RemoteSink`。
+
+### 2.2 系统日志（推荐）
+
+- Swift：`import OSLog`，`Logger(subsystem:category:)`。
+- **隐私**：`logger.info("uid=\(id, privacy: .private)")`，见 Apple 文档 [OSLogPrivacy](https://developer.apple.com/documentation/os/oslogprivacy)。
+- Console.app + `log stream` 联调；Release 仍注意性能与 I/O。
+
+### 2.3 文件 / 环形缓冲
+
+- **高频日志**用内存队列 + 后台写文件，避免主线程 sync。
+- **Ring buffer** 固定大小，保留最近 N MB；崩溃时附带 `/Library/Caches` 里的上一份。
+- 加密：敏感环境对文件 **AES** + 设备密钥（仍可能被越狱读取，只增成本）。
+
+### 2.4 远端上报
+
+- 批次 + gzip；与 **用户信息分离**；失败重试指数退避。
+- 与 **APM/crash** 共用 device/session id，方便关联时间线。
+
+---
+
+## 3. 常见问题与思考
+
+- **为什么不用 `print`？** 不可控、隐私差、性能与系统工具集成弱。  
+- **如何防日志拖垮性能？** 异步、批量写、采样、Release 降 verbose。  
+
+---
+
+## 4. 实战清单
+
+- [ ] 定义 tag 规范（`network` / `ui` / `boot`）  
+- [ ] 关键路径 error 必带 **错误码 + requestId**  
+- [ ] 脱敏规则走查（手机号、token）  
+
+---
+
+## 5. 参考资料
+
+- [Generating log messages from your code - Apple](https://developer.apple.com/documentation/os/logging/generating_log_messages_from_your_code)
+- [Logger - Apple](https://developer.apple.com/documentation/os/logger)

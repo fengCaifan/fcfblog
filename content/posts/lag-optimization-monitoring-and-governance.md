@@ -1,0 +1,818 @@
+---
+title: "iOS 列表与渲染卡顿治理：预排版、异步绘制与公屏流控"
+date: '2026-04-22'
+category: "性能优化与排查"
+description: "从 CPU 与 GPU 协作角度梳理卡顿成因，总结文本高度缓存、异步位图绘制以及高频消息列表的分级刷新策略。"
+tags: ["卡顿优化", "异步绘制", "列表优化"]
+---
+
+卡顿本质是主线程无法在帧预算内完成工作；监控主线程+drops+布局耗时，再用工具和架构手段拆解热点。
+
+---
+
+## 2. 卡顿优化
+
+### 2.1 卡顿原理
+
+**屏幕刷新机制**：
+
+```
+iOS 设备刷新率：
+- 60Hz：iPhone 8 及以前，16.67ms/帧
+- 120Hz：iPhone 13 Pro 及以后，8.33ms/帧
+
+VSync（垂直同步信号）：
+- 每 16.67ms（60Hz）或 8.33ms（120Hz）触发一次
+- 系统在此时间点完成屏幕渲染
+```
+
+**卡顿定义**：
+
+```
+主线程在一个 VSync 周期内（16.67ms）未能完成渲染工作
+→ 错过 VSync 信号
+→ 掉帧
+→ 连续掉帧 → 用户感知卡顿
+```
+
+**渲染流水线**：
+
+```
+Layout（计算布局）→ Display（绘制）→ Prepare（图片解码）→ Commit（提交）
+```
+
+### 2.2 卡顿监控
+
+**方案一：RunLoop Observer**
+
+```objective-c
+static CGFloat kFPS = 60;
+static CGFloat kDuration = 0;
+
+// 监控 RunLoop 状态切换耗时
+- (void)setupRunLoopMonitoring {
+    CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(
+        CFAllocatorGetDefault(),
+        kCFRunLoopAllActivities,
+        YES,
+        0,
+        ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
+            if (activity == kCFRunLoopBeforeSources ||
+                activity == kCFRunLoopAfterWaiting) {
+
+                CFRunLoopActivity currentActivity = activity;
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    // 记录开始时间
+                    CFDateRef startDate = CFDateCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent());
+
+                    // 等待状态切换
+                    while (currentActivity == activity) {
+                        [NSThread sleepForTimeInterval:0.001];
+                    }
+
+                    // 计算耗时
+                    CFDateRef endDate = CFDateCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent());
+                    CFTimeInterval duration = CFDateGetTimeIntervalSinceDate(endDate, startDate);
+
+                    if (duration > 1.0 / kFPS - 0.01) {
+                        // 卡顿发生，记录堆栈
+                        [self recordStackTrace];
+                    }
+                });
+            }
+        }
+    );
+
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+    CFRelease(observer);
+}
+```
+
+**方案二：CADisplayLink 帧率检测**
+
+```swift
+class FPSMonitor {
+    private var displayLink: CADisplayLink?
+    private var lastTimestamp: CFTimeInterval = 0
+    private var frameCount: Int = 0
+
+    func startMonitoring() {
+        displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFired))
+        displayLink?.add(to: .main, forMode: .common)
+        lastTimestamp = CACurrentMediaTime()
+    }
+
+    @objc private func displayLinkFired() {
+        frameCount += 1
+        let currentTimestamp = CACurrentMediaTime()
+        let duration = currentTimestamp - lastTimestamp
+
+        if duration >= 1.0 {
+            let fps = Double(frameCount) / duration
+            print("FPS: \(fps)")
+
+            if fps < 50 {
+                print(" 检测到卡顿！FPS: \(fps)")
+            }
+
+            frameCount = 0
+            lastTimestamp = currentTimestamp
+        }
+    }
+}
+```
+
+**方案三：子线程 Ping 主线程（微信 Matrix）**
+
+```objective-c
+// 子线程定期 ping 主线程
+- (void)startMainThreadPing {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        while (YES) {
+            dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_semaphore_signal(semaphore);
+            });
+
+            // 等待主线程响应
+            dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC);
+            if (dispatch_semaphore_wait(semaphore, timeout) != 0) {
+                // 主线程超时未响应，记录堆栈
+                [self recordMainThreadStack];
+            }
+
+            [NSThread sleepForTimeInterval:0.01];
+        }
+    });
+}
+
+// 记录主线程堆栈
+- (void)recordMainThreadStack {
+    thread_t thread = pthread_main_thread_np();
+    uintptr_t buffer[128];
+    int count = thread_get_stack_frames(thread, buffer, sizeof(buffer) / sizeof(uintptr_t));
+
+    for (int i = 0; i < count; i++) {
+        printf("%p\n", (void *)buffer[i]);
+    }
+}
+```
+
+### 2.3 卡顿原因与优化
+
+| 卡顿原因 | 检测方法 | 优化手段 |
+|---------|---------|----------|
+| **主线程耗时计算** | Time Profiler | 移到子线程、异步处理 |
+| **大量对象创建** | Allocations | 对象池、懒加载 |
+| **AutoLayout 约束过多** | Time Profiler | 减少约束、AsyncDisplayKit |
+| **离屏渲染** | Core Animation Instruments | 圆角裁剪、阴影优化 |
+| **主线程 I/O** | System Trace | 移到子线程 |
+| **图片解码** | Time Profiler | 预解码、降采样 |
+| **锁竞争** | Time Profiler | 无锁数据结构、减少锁 |
+
+**离屏渲染优化**：
+
+```swift
+//  触发离屏渲染
+imageView.layer.cornerRadius = 10
+imageView.layer.masksToBounds = true
+imageView.layer.shadowColor = UIColor.black.cgColor
+imageView.layer.shadowOpacity = 0.5
+
+//  优化圆角
+imageView.layer.cornerRadius = 10
+imageView.layer.masksToBounds = true
+// 设置 layer.shouldRasterize = true 缓存渲染结果
+imageView.layer.shouldRasterize = true
+imageView.layer.rasterizationScale = UIScreen.main.scale
+
+//  优化阴影
+imageView.layer.shadowColor = UIColor.black.cgColor
+imageView.layer.shadowOpacity = 0.5
+imageView.layer.shadowOffset = CGSize(width: 0, height: 2)
+imageView.layer.shadowRadius = 4
+// 使用 shadowPath 而不是 layer 的边界
+imageView.layer.shadowPath = UIBezierPath(rect: imageView.bounds).cgPath
+```
+
+**图片解码优化**：
+
+```swift
+//  主线程解码
+let image = UIImage(named: "large.jpg") // 在主线程解码
+imageView.image = image
+
+//  预解码到子线程
+DispatchQueue.global(qos: .userInitiated).async {
+    let image = UIImage(named: "large.jpg")
+    // 强制解码
+    let cgImage = image?.cgImage
+    let decodedImage = UIImage(cgImage: cgImage!, scale: image!.scale, orientation: image!.imageOrientation)
+
+    DispatchQueue.main.async {
+        imageView.image = decodedImage
+    }
+}
+```
+
+---
+
+## 3. 内存优化
+
+### 3.1 内存分类
+
+| 类型 | 说明 | 示例 | 可回收 |
+|------|------|------|--------|
+| **Clean Memory** | 可从磁盘重新加载 | 代码段、只读数据 |  是 |
+| **Dirty Memory** | 已修改，无法回收 | 堆对象、图片缓存 |  否 |
+| **Compressed Memory** | 系统压缩的 dirty pages | 不活跃的 dirty pages |  是（解压后） |
+
+### 3.2 OOM 与 Jetsam
+
+**Jetsam 机制**：
+
+```
+内存压力 → memorystatus_monitor → 按优先级杀进程
+优先级（从高到低）：
+1. 前台 App
+2. Audio App
+3. 后台 App - Recent
+4. 后台 App - Long-term
+5. 后台 App - Suspended
+```
+
+**监控 OOM**：
+
+```swift
+func checkMemoryPressure() {
+    var stats = vm_statistics64()
+    var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
+
+    let result = withUnsafeMutablePointer(to: &stats) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+        }
+    }
+
+    if result == KERN_SUCCESS {
+        let free = stats.free_count
+        let active = stats.active_count
+        let inactive = stats.inactive_count
+        let wired = stats.wire_count
+        let total = free + active + inactive + wired
+
+        let usage = Double(active + wired) / Double(total)
+        print("Memory usage: \(usage * 100)%")
+
+        if usage > 0.85 {
+            print(" High memory pressure!")
+        }
+    }
+}
+```
+
+### 3.3 内存优化策略
+
+**大图降采样**：
+
+```objective-c
+UIImage * downsampleImage(UIImage *image, CGSize size) {
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)UIImageJPEGRepresentation(image, 1), nil);
+
+    NSDictionary *options = @{
+        (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageIfAbsent: @YES,
+        (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @(MAX(size.width, size.height)),
+        (__bridge NSString *)kCGImageSourceShouldCacheImmediately: @YES
+    };
+
+    CGImageRef thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+    UIImage *result = [UIImage imageWithCGImage:thumbnail];
+
+    CGImageRelease(thumbnail);
+    CFRelease(source);
+
+    return result;
+}
+```
+
+**图片内存计算**：
+
+```
+1024 x 1024 图片的内存占用：
+- 未解码（磁盘）：~300KB（JPEG 压缩）
+- 解码后（内存）：1024 x 1024 x 4 字节 = 4MB
+- 使用 @3x 设备：1024 x 1024 x 4 x 3 = 12MB
+```
+
+**避免内存泄漏**：
+
+```objective-c
+//  循环引用
+self.handler = ^{
+    [self doSomething];
+};
+
+//  使用 weak
+__weak typeof(self) weakSelf = self;
+self.handler = ^{
+    __strong typeof(weakSelf) strongSelf = weakSelf;
+    if (strongSelf) {
+        [strongSelf doSomething];
+    }
+};
+```
+
+---
+
+## 4. Instruments 工具使用
+
+### 4.1 Time Profiler（CPU 分析）
+
+**使用场景**：分析 CPU 密集型操作、定位性能热点
+
+**使用步骤**：
+
+```
+1. Xcode → Product → Profile (⌘+I)
+2. 选择 "Time Profiler"
+3. 点击红色按钮开始录制
+4. 操作 App，触发性能问题
+5. 停止录制，分析结果
+```
+
+**关键指标**：
+
+```
+- Running Time：函数总耗时
+- Self Time：函数自身耗时（不包括子函数）
+- Symbol Name：函数名
+- Binary：所在二进制文件
+```
+
+**优化技巧**：
+
+```
+1. 勾选 "Invert Call Tree"（倒置调用树）
+   - 查看最耗时的叶子函数
+
+2. 勾选 "Separate by Thread"（按线程分离）
+   - 排查主线程耗时
+
+3. 勾选 "Hide System Libraries"（隐藏系统库）
+   - 只看 App 代码
+```
+
+### 4.2 Allocations（内存分配）
+
+**使用场景**：监控内存增长、定位内存泄漏、分析内存峰值
+
+**使用步骤**：
+
+```
+1. 选择 "Allocations" 模板
+2. 录制后操作 App
+3. 查看 "Heap Growth" 图表
+4. 选中特定对象，查看 "Allocations List"
+```
+
+**关键指标**：
+
+```
+- # Living：当前存活对象数量
+- # Overall：累计分配对象数量
+- Bytes：内存占用大小
+- Responsible Caller：分配位置
+```
+
+**内存泄漏检测**：
+
+```
+1. 进入页面，记录内存：A
+2. 退出页面，记录内存：B
+3. 反复多次，如果 B 持续增长 → 内存泄漏
+4. 查看 "Allocations List"，找到未释放的对象
+5. 查看 "Marked Heap"，分析对象引用关系
+```
+
+### 4.3 Leaks（内存泄漏）
+
+**使用场景**：自动检测内存泄漏
+
+**使用步骤**：
+
+```
+1. 选择 "Leaks" 模板
+2. 录制后操作 App
+3. 查看 "Leaks" 时间线
+4. 点击蓝色箭头，查看泄漏详情
+```
+
+**泄漏详情**：
+
+```
+- Leaked Object：泄漏的对象
+- Responsible Frame：泄漏的调用栈
+- Retain Cycle：循环引用链
+```
+
+**常见泄漏模式**：
+
+```
+1. Delegate 未使用 weak
+2. Block 中强引用 self
+3. NSTimer 未 invalidate
+4. Observer 未移除
+```
+
+### 4.4 Core Animation（渲染分析）
+
+**使用场景**：检测离屏渲染、帧率问题
+
+**关键指标**：
+
+```
+- FPS：当前帧率
+- FPS Graph：帧率曲线
+- Color Blended Layers：图层混合（绿色=正常，红色=过度混合）
+- Color Misaligned Images：图片缩放（绿色=正常，红色=需要缩放）
+- Color Offscreen-Rendered Yellow：离屏渲染（黄色=离屏渲染）
+- Color Compositing Fast-Path Blue：光栅化缓存（蓝色=已缓存）
+```
+
+**优化离屏渲染**：
+
+```swift
+// 查看离屏渲染
+// Color Offscreen-Rendered Yellow 开启后，黄色区域即为离屏渲染
+
+// 优化阴影
+imageView.layer.shadowPath = UIBezierPath(rect: bounds).cgPath
+
+// 优化圆角
+imageView.layer.shouldRasterize = true
+```
+
+---
+
+## 5. 实战：复杂列表优化方案
+
+### 5.1 复杂列表性能瓶颈分析
+
+**传统实现的问题：**
+
+```swift
+//  传统方案：所有操作都在主线程
+class TableViewCell: UITableViewCell {
+    private let avatarView = UIImageView()
+    private let nameLabel = UILabel()
+    private let contentLabel = UILabel()
+
+    func configure(with model: MessageModel) {
+        // 1. 同步下载图片（主线程阻塞）
+        avatarView.kf.setImage(with: URL(string: model.avatarURL))
+
+        // 2. 复杂文本布局计算（主线程耗时）
+        let contentSize = model.content.boundingRect(
+            with: CGSize(width: bounds.width - 80, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: UIFont.systemFont(ofSize: 14)],
+            context: nil
+        ).size
+
+        // 3. 约束计算（AutoLayout耗时）
+        contentLabelHeightConstraint.constant = contentSize.height
+
+        // 4. 圆角图片渲染（触发离屏渲染）
+        avatarView.layer.cornerRadius = 25
+        avatarView.layer.masksToBounds = true
+    }
+}
+```
+
+**性能瓶颈识别：**
+
+| 瓶颈类型 | 耗时操作 | 影响 |
+|---------|---------|------|
+| **主线程I/O** | 图片下载、解压缩 | 阻塞主线程，直接卡顿 |
+| **文本计算** | boundingRect、NSAttributedString | 大量计算，CPU密集 |
+| **布局计算** | AutoLayout约束求解 | O(n)复杂度，频繁触发 |
+| **离屏渲染** | 圆角、阴影、光栅化 | 上下文切换，额外开销 |
+| **图片解码** | JPEG/PNG解压缩 | 主线程解码，大图尤其明显 |
+
+### 5.2 预排版方案
+
+**核心思想：** 将布局计算从主线程移到子线程，缓存布局结果
+
+```swift
+// 1. 定义布局模型
+struct MessageLayoutModel {
+    let avatarFrame: CGRect
+    let nameLabelFrame: CGRect
+    let contentLabelFrame: CGRect
+    let cellHeight: CGFloat
+}
+
+// 2. 布局计算器（子线程操作）
+class MessageLayoutCalculator {
+    static func calculateLayout(
+        model: MessageModel,
+        containerWidth: CGFloat
+    ) -> MessageLayoutModel {
+
+        // 头像位置
+        let avatarFrame = CGRect(x: 15, y: 10, width: 50, height: 50)
+
+        // 昵称位置
+        let nameMaxWidth = containerWidth - 80
+        let nameSize = model.nickname.boundingRect(
+            with: CGSize(width: nameMaxWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: UIFont.boldSystemFont(ofSize: 16)],
+            context: nil
+        ).size
+        let nameLabelFrame = CGRect(x: 75, y: 10, width: nameSize.width, height: nameSize.height)
+
+        // 内容位置（使用Core Text优化）
+        let contentMaxWidth = containerWidth - 80
+        let contentSize = calculateContentSize(text: model.content, maxWidth: contentMaxWidth)
+        let contentLabelFrame = CGRect(x: 75, y: nameLabelFrame.maxY + 5, width: contentSize.width, height: contentSize.height)
+
+        // 总高度
+        let cellHeight = max(70, contentLabelFrame.maxY + 10)
+
+        return MessageLayoutModel(
+            avatarFrame: avatarFrame,
+            nameLabelFrame: nameLabelFrame,
+            contentLabelFrame: contentLabelFrame,
+            cellHeight: cellHeight
+        )
+    }
+
+    // 使用Core Text优化文本计算
+    static func calculateContentSize(text: String, maxWidth: CGFloat) -> CGSize {
+        let attrString = NSAttributedString(string: text, attributes: [.font: UIFont.systemFont(ofSize: 14)])
+        let framesetter = CTFramesetterCreateWithAttributedString(attrString)
+        let constraints = CGSize(width: maxWidth, height: .greatestFiniteMagnitude)
+        let suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(framesetter, CFRange(location: 0, length: 0), nil, constraints, nil)
+        return suggestedSize
+    }
+}
+
+// 3. 数据模型扩展（缓存布局）
+class MessageModel {
+    var id: String
+    var nickname: String
+    var content: String
+    var avatarURL: String
+
+    private var _cachedLayout: MessageLayoutModel?
+
+    func calculateLayout(containerWidth: CGFloat) -> MessageLayoutModel {
+        if let cached = _cachedLayout {
+            return cached
+        }
+
+        let layout = MessageLayoutCalculator.calculateLayout(model: self, containerWidth: containerWidth)
+        _cachedLayout = layout
+        return layout
+    }
+}
+
+// 4. 后台预计算
+class DataSourceManager {
+    func preloadLayouts(for models: [MessageModel], containerWidth: CGFloat) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            for model in models {
+                _ = model.calculateLayout(containerWidth: containerWidth)
+                ImageDownloader.shared.downloadImage(from: model.avatarURL)
+            }
+        }
+    }
+}
+```
+
+### 5.3 异步绘制方案
+
+**异步绘制架构：**
+
+```swift
+// 异步绘制的Layer
+class AsyncDisplayLayer: CALayer {
+    override func display() {
+        guard needsAsyncDisplay() else {
+            super.display()
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            UIGraphicsBeginImageContextWithOptions(self.bounds.size, !self.isOpaque, self.contentsScale)
+            self.draw(in: UIGraphicsGetCurrentContext()!)
+            let image = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+
+            DispatchQueue.main.async {
+                self.contents = image?.cgImage
+            }
+        }
+    }
+
+    func draw(in context: CGContext) {
+        // 子类重写此方法实现具体的绘制逻辑
+    }
+
+    func needsAsyncDisplay() -> Bool {
+        return true
+    }
+}
+```
+
+**富文本Cell异步绘制：**
+
+```swift
+class RichTextCell: UITableViewCell {
+    private let asyncLayer = AsyncDisplayLayer()
+
+    func configure(with model: MessageModel) {
+        asyncLayer.bounds = bounds
+        asyncLayer.drawTask = { [weak self] context in
+            guard let self = self else { return }
+
+            // 绘制背景
+            self.drawBackground(in: context)
+
+            // 绘制头像
+            self.drawAvatar(in: context, from: model.avatarURL)
+
+            // 绘制昵称
+            self.drawNickname(in: context, text: model.nickname)
+
+            // 绘制富文本内容
+            self.drawRichText(in: context, text: model.content)
+        }
+
+        asyncLayer.setNeedsDisplay()
+    }
+
+    private func drawRichText(in context: CGContext, text: String) {
+        let contentFrame = CGRect(x: 75, y: 35, width: bounds.width - 90, height: 100)
+
+        // 使用Core Text绘制复杂文本
+        let attrString = NSMutableAttributedString(string: text)
+        attrString.addAttributes([.font: UIFont.systemFont(ofSize: 14), .foregroundColor: UIColor.darkGray], range: NSRange(location: 0, length: attrString.length))
+
+        let framesetter = CTFramesetterCreateWithAttributedString(attrString)
+        let path = CGPath(rect: contentFrame, transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
+
+        CTFrameDraw(frame, context)
+    }
+}
+```
+
+### 5.4 综合优化策略
+
+**按需加载：**
+
+```swift
+extension ComplexListViewController: UIScrollViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // 开始滚动：暂停图片加载
+        ImageDownloader.shared.suspend()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        // 完全停止：恢复图片加载
+        ImageDownloader.shared.resume()
+        preloadVisibleImages()
+    }
+
+    private func preloadVisibleImages() {
+        let visibleIndexPaths = tableView.indexPathsForVisibleRows ?? []
+
+        for indexPath in visibleIndexPaths {
+            let model = dataSource[indexPath.row]
+
+            // 预加载前后几行的图片
+            for offset in -2...2 {
+                let targetRow = indexPath.row + offset
+                if targetRow >= 0 && targetRow < dataSource.count {
+                    let targetModel = dataSource[targetRow]
+                    ImageDownloader.shared.downloadImage(from: targetModel.avatarURL)
+                }
+            }
+        }
+    }
+}
+```
+
+**RunLoop空闲时加载：**
+
+```swift
+class RunLoopQueueLoader {
+    private var taskQueue: [() -> Void] = []
+    private let maxQueueSize = 100
+
+    func addTask(_ task: @escaping () -> Void) {
+        guard taskQueue.count < maxQueueSize else { return }
+        taskQueue.append(task)
+    }
+
+    func start() {
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, { [weak self] observer, activity in
+            self?.processTasks()
+        })
+
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultModes)
+    }
+
+    private func processTasks() {
+        guard !taskQueue.isEmpty else { return }
+
+        let task = taskQueue.removeFirst()
+        task()
+    }
+}
+
+// 使用示例
+class ViewController: UIViewController {
+    private let loader = RunLoopQueueLoader()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        loader.start()
+
+        // 添加任务
+        loader.addTask {
+            // 预加载图片
+            self.preloadImages()
+        }
+
+        loader.addTask {
+            // 预计算布局
+            self.preloadLayouts()
+        }
+    }
+}
+```
+
+### 5.5 高吞吐消息列表优化（语音房 / IM 公屏）
+
+与「普通列表卡顿」相比，公屏类场景多了 **多消息类型、富文本、气泡与装饰、瞬时消息风暴**。
+
+**观测：**
+- **线下**：**Time Profiler** 盯 layout/富文本热点；**Core Animation** 看离屏与大图 GPU；**Allocations** 看 Cell 是否短时间创建过多对象
+- **线上**：**CADisplayLink** 统计 FPS；**RunLoop Observer + 子线程信号量**：关注 `kCFRunLoopBeforeSources` / `kCFRunLoopAfterWaiting` 等阶段是否 **超过阈值**
+
+**架构层优化（MessageKit 思路）：**
+- **布局与展示解耦**：高度与 glyph 在 **后台** 算好再上屏
+- **TextKit 预排版**：`NSTextStorage` + `NSLayoutManager` + `NSTextContainer` 在子线程得到 **boundingRect** 与行信息
+- **高频更新少用 Auto Layout**：改为 **手动 frame**，position / size **分步计算**
+
+**图片与气泡优化：**
+- **Downsample**：显示尺寸远小于像素尺寸时必须降采样；远程图 **后台解码** 再回主线程赋值
+- **第三方加载器**：可配置 **大图缩小、避免在主线程自动 setImage、缩略像素尺寸**
+- **气泡**：优先 **resizable image**；复杂静态气泡可用 **`shouldRasterize` + 合适 `rasterizationScale`**
+
+**列表数据与流控：**
+- **UICollectionView + DiffableDataSource**：在 burst 场景下对 **当前 snapshot 做增量 append**，避免每次全量 snapshot 导致 **大范围 diff**
+- **展示条数上限**：仅保留最近 N 条（产品约定）
+- **流控**：**缓冲队列 + 定时批量刷新**，可提供 **快进 / 暂停** 模式
+
+---
+
+## 7. 常见问题整理
+
+### 7.1 启动优化
+
+| 问题 | 答案要点 | 难度 |
+|------|----------|------|
+| **App 启动流程？** | dyld 加载 → Rebase/Bind → ObjC setup → main | ⭐⭐⭐⭐ |
+| **如何优化启动速度？** | 二进制重排、减少动态库、移除 +load、异步初始化 | ⭐⭐⭐⭐⭐ |
+| **什么是二进制重排？** | 将启动时调用的函数排列到相邻 Page，减少 Page Fault | ⭐⭐⭐⭐⭐ |
+| **如何监控启动时间？** | DYLD_PRINT_STATISTICS、sysctl 获取进程启动时间 | ⭐⭐⭐⭐ |
+
+### 7.2 卡顿优化
+
+---
+
+## 8. 参考资料
+
+### 优质文章
+- [iOS App启动优化与二进制重排](https://juejin.cn/post/6844904165773328392)
+- [美团App冷启动治理](https://www.jianshu.com/p/8e0b38719278)
+- [iOS Memory Deep Dive](https://developer.apple.com/videos/play/wwdc2018/416/)
+- [Xcode Instruments: Find Memory Leaks in 5 Minutes](https://medium.com/@chandra.welim/xcode-instruments-find-memory-leaks-in-5-minutes-not-hours-4f80982e3682)
+- [Mastering iOS Profiler Instruments](https://medium.com/@asherazeem25/mastering-ios-profiler-instruments-a-complete-guide-to-performance-optimization-9a4813a059a1)
+- [Crash Analytics in iOS (2026): A Complete Practical Guide](https://medium.com/@garejakirit/crash-analytics-in-ios-2026-a-complete-practical-guide-d2c0b9c0cec5)
+- [The ultimate guide to symbolica ting iOS crash reports](https://www.zoho.com/apptics/digest/ios-crash-debugging-guide.html)
+
+### 开源项目
+- [MLeaksFinder](https://github.com/Tencent/MLeaksFinder) - 腾讯内存泄漏检测工具
+- [OOMDetector](https://github.com/Tencent/OOMDetector) - 腾讯 OOM 监控工具
+- [CocoaLumberjack](https://github.com/CocoaLumberjack/CocoaLumberjack) - 日志框架
+- [PLCrashReporter](https://github.com/microsoft/plcrashreporter) - 崩溃报告框架
+
+### Apple 官方文档

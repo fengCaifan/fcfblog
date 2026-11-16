@@ -1,0 +1,72 @@
+---
+title: "客户端网络层中间件与拦截器设计"
+date: '2025-12-21'
+category: "工程化与架构"
+description: "利用责任链拦截器模式解耦公共参数签名、Token 自动刷新、弱网重试与统一监控埋点。"
+tags: ["网络架构", "拦截器"]
+---
+
+网络层 = 协议无关的 Request/Response 模型 + 可组合中间件链（编码、签名、鉴权、重试、日志）+ 与业务隔离的 Parser/错误域。
+
+---
+
+## 1. 需求澄清
+
+- **传输**：`URLSession` 为主；是否要替换底层（如 Cronet）？
+- **契约**：REST + Codable / HandyJSON / protobuf。
+- **鉴权**：Token 刷新、并发等待、`401` 统一登录。
+- **Mock**：Debug 下拦截到本地 JSON。
+
+---
+
+## 2. 架构（结合旧笔记《网络框架》）
+
+### 2.1 单次请求生命周期（概念）
+
+1. 组装 `URLRequest`（method、header、body）  
+2. 检查缓存策略（若有）  
+3. DNS → TCP → TLS（系统处理）  
+4. 收发 data → 校验 status / 业务 code  
+5. 解码 Model → 回调
+
+### 2.2 中间件链（Interceptor）
+
+类似 Alamofire `RequestInterceptor` / OkHttp：
+
+```text
+request → [Logging] → [AuthHeader] → [Signature] → Session.task
+response ← [Retry] ← [ErrorMap] ← ...
+```
+
+- **AuthInterceptor**：附 `Authorization`；遇到 401 串行刷新 token（`Operation`/`actor` 防 thundering herd）。
+- **Retry**：仅幂等 GET 或业务规定的可重试 code；指数退避。
+- **Logger**：调试全量，Release 采样 + **不记敏感 body**。
+
+### 2.3 Session 配置
+
+- `URLSessionConfiguration`：超时、`waitsForConnectivity`、共享 cookie、`httpMaximumConnectionsPerHost`。
+- **Background session**：独立 identifier + AppDelegate `handleEventsForBackgroundURLSession`。
+
+### 2.4 线程模型
+
+- 解析 JSON 在 **后台队列**；回调主线程更新 UI。
+- `Request` 对象线程安全或用 `actor` 包状态。
+
+---
+
+## 3. 错误设计
+
+- **分层**：`TransportError`（无网、超时）、`HTTPError`（4xx/5xx）、`BizError`（code≠0）。
+- 统一 `Result<Model, NetworkFailure>` 便于 UI 展示。
+
+---
+
+## 相关问题讨论
+- **如何做幂等与去重？** GET 自然幂等；POST 配请求 id / 服务端防抖。  
+- **大数据下载？** `downloadTask` + 断点 `resumeData`。  
+
+---
+
+## 5. 参考资料
+
+- [Alamofire - RequestInterceptor](https://github.com/Alamofire/Alamofire)
