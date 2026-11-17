@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack -p 2027",
     "build": "next build",
     "start": "next start -p 2027",
-    "lint": "next lint"
+    "lint": "next lint",
+    "feishu:pull": "node scripts/feishu-sync.mjs pull",
+    "feishu:import": "node scripts/feishu-sync.mjs import"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.0",

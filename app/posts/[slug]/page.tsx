@@ -193,6 +193,24 @@ export default async function PostDetailPage({
                     .replace(/[^\w\u4e00-\u9fa5-]/g, '');
                   return <h3 id={id}>{children}</h3>;
                 },
+                img: ({ src, alt }) => {
+                  const rawSrc = typeof src === 'string' ? src : '';
+                  const basePath =
+                    process.env.NODE_ENV === 'production' ? '/fcfblog' : '';
+                  const resolvedSrc =
+                    rawSrc.startsWith('/') && !rawSrc.startsWith('/fcfblog/')
+                      ? `${basePath}${rawSrc}`
+                      : rawSrc;
+                  return (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={resolvedSrc}
+                      alt={alt || ''}
+                      loading="lazy"
+                      style={{ maxWidth: '100%', height: 'auto', borderRadius: '6px' }}
+                    />
+                  );
+                },
               }}
             >
               {post.content}
