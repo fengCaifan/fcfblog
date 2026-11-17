@@ -10,9 +10,9 @@ function hashString(input: string): number {
 }
 
 /**
- * 为每篇文章生成稳定、自然的累计阅读底数（跨设备、跨刷新完全一致）
- * - 结合文章发布时间（2022~2026 历史跨度）、主题热度权重与标题哈希
- * - 同时随自然日缓慢增长，避免静态死数字
+ * 为每篇文章生成克制、真实的累计阅读底数（个位数 ~ 十位数：3 ~ 58 次）
+ * - 跨设备、跨刷新完全一致
+ * - 约 35% 文章为个位数（3 ~ 9 次），其余为十位数（10 ~ 58 次）
  */
 export function getSeededPostViews(post: {
   slug: string;
@@ -21,40 +21,34 @@ export function getSeededPostViews(post: {
   category?: string;
   description?: string;
 }): number {
-  const h1 = hashString(`views:${post.slug}:${post.title}`);
-  const h2 = hashString(`salt:${post.date}:${post.slug}`);
+  const h1 = hashString(`views_v2:${post.slug}:${post.title}`);
+  const h2 = hashString(`salt_v2:${post.date}:${post.slug}`);
 
-  // 计算文章距今的月份/天数跨度（以 2022-01 ~ 2026-11 为基准）
   const pubTime = Date.parse(post.date) || Date.parse('2024-06-01');
   const refNow = Math.max(Date.now(), Date.parse('2026-11-17'));
-  const daysSincePub = Math.max(15, Math.floor((refNow - pubTime) / (1000 * 60 * 60 * 24)));
+  const daysSincePub = Math.max(10, Math.floor((refNow - pubTime) / (1000 * 60 * 60 * 24)));
 
-  // 基础随机底数：180 ~ 620
-  const baseRandom = 180 + (h1 % 440);
+  // 基础底数：2 ~ 18
+  const baseRandom = 2 + (h1 % 17);
 
-  // 时间沉淀增量：发布越早的文章，历史累计阅读越高（封顶合理区间）
-  const ageFactor = Math.min(daysSincePub, 1500);
-  const ageViews = Math.floor(ageFactor * (0.42 + ((h2 % 35) / 100)));
+  // 时间跨度微调：0 ~ 14（老文章略多几次阅读）
+  const ageViews = Math.min(14, Math.floor(daysSincePub / 110) + (h2 % 4));
 
-  // 热门技术主题权重加成
-  let topicMultiplier = 1.0;
+  // 核心长文略微上浮，普通笔记保持个位数或十来次
+  let raw = baseRandom + ageViews;
   const titleAndCat = `${post.title} ${post.category || ''}`;
   if (
-    /完全指南|完全学习指南|知识体系|源码|底层|Runtime|RunLoop|多线程|锁|崩溃|FOOM|卡顿|内存|架构|组件化|SwiftUI|Combine|大模型|Agent|RAG/i.test(
+    /完全指南|完全学习指南|知识体系|源码|底层|Runtime|RunLoop|多线程|锁|崩溃|FOOM|卡顿|组件化|SwiftUI|Combine|大模型|RAG/i.test(
       titleAndCat
     )
   ) {
-    topicMultiplier = 1.38 + ((h1 % 28) / 100); // 1.38x ~ 1.65x
-  } else if (/实战|blog项目|设计模式|模式|剑指|二叉树|动态规划|双指针|Vue3|Go语言/i.test(titleAndCat)) {
-    topicMultiplier = 1.15 + ((h2 % 20) / 100); // 1.15x ~ 1.34x
+    raw = Math.round(raw * 1.45) + (h1 % 9); // 约 18 ~ 58 次
+  } else if (h2 % 3 === 0) {
+    // 约 1/3 的常规笔记保持在个位数（3 ~ 9 次）
+    raw = 3 + (h1 % 7);
   }
 
-  // 自然日微增（每天全网自然增加 0~2 次阅读）
-  const dayIndex = Math.floor(refNow / (1000 * 60 * 60 * 24));
-  const dailyDrift = Math.floor(((dayIndex - 20770) * ((h1 % 3) + 1)) / 2);
-
-  const total = Math.round((baseRandom + ageViews) * topicMultiplier) + Math.max(0, dailyDrift);
-  return Math.max(126, total);
+  return Math.max(3, Math.min(62, raw));
 }
 
 /**
@@ -65,10 +59,8 @@ export function getSeededSiteTotals(posts: PostSummary[]): {
   totalUv: number;
 } {
   const articleViewsSum = posts.reduce((acc, p) => acc + getSeededPostViews(p), 0);
-  // 加上首页、分类筛选、图谱页浏览的合理比例（约 1.18 倍文章总阅读）
-  const totalPv = Math.round(articleViewsSum * 1.18) + 4280;
-  // 独立访客 UV 约为总 PV 的 32.4%
-  const totalUv = Math.round(totalPv * 0.324) + 137;
+  const totalPv = articleViewsSum + 86;
+  const totalUv = Math.max(42, Math.round(totalPv * 0.28));
   return { totalPv, totalUv };
 }
 

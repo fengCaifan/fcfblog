@@ -22,7 +22,7 @@ export default function PostEngagement({
   category,
   baseViews,
 }: PostEngagementProps) {
-  const baseLikes = Math.max(8, Math.round(baseViews * 0.042));
+  const baseLikes = Math.min(5, Math.floor(baseViews / 11));
   const [likes, setLikes] = useState<number>(baseLikes);
   const [liked, setLiked] = useState<boolean>(false);
 
