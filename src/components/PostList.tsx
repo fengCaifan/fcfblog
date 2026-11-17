@@ -5,7 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PostSummary } from '../lib/posts';
 import { KnowledgeGraphData, KnowledgeNode } from '../lib/knowledge-graph';
+import { getSeededPostViews, getSeededSiteTotals } from '../lib/analytics';
 import KnowledgeGraph from './KnowledgeGraph';
+import { PostRowViewBadge } from './ArticleViewCounter';
+import SiteStatsFooter from './SiteStatsFooter';
+import AskNotesModal from './AskNotesModal';
 
 interface PostListProps {
   posts: PostSummary[];
@@ -13,21 +17,33 @@ interface PostListProps {
 }
 
 type GroupMode = 'time' | 'category' | 'tag';
-type SortOrder = 'date-desc' | 'date-asc' | 'title-asc';
+type SortOrder = 'date-desc' | 'popular' | 'date-asc' | 'title-asc';
 
 const CATEGORY_ORDER = [
+  'iOS 与底层',
   'iOS 底层与原理',
   'UIKit 与系统框架',
+  '性能与稳定性',
   '性能优化与排查',
+  '工程架构',
   '工程化与架构',
-  'Flutter 跨端',
+  '算法与数据结构',
   '数据结构与算法',
+  '后端与 Go',
+  '前端与小程序',
+  'Flutter 与跨端',
+  'Flutter 跨端',
   '计算机基础与网络',
+  'AI 与 Agent',
   'AI 与大模型',
+  '工程效率与工具',
 ];
 
 function sortPostList(list: PostSummary[], sortOrder: SortOrder): PostSummary[] {
   return [...list].sort((a, b) => {
+    if (sortOrder === 'popular') {
+      return getSeededPostViews(b) - getSeededPostViews(a);
+    }
     if (sortOrder === 'date-desc') {
       return a.date < b.date ? 1 : -1;
     }
@@ -46,6 +62,9 @@ export default function PostList({ posts, graphData }: PostListProps) {
   const [activeTab, setActiveTab] = useState<'posts' | 'graph'>('posts');
   const [groupMode, setGroupMode] = useState<GroupMode>('time');
   const [sortOrder, setSortOrder] = useState<SortOrder>('date-desc');
+  const [showAskModal, setShowAskModal] = useState<boolean>(false);
+
+  const siteTotals = useMemo(() => getSeededSiteTotals(posts), [posts]);
 
   const categories = useMemo(() => {
     const map = new Map<string, number>();
@@ -187,6 +206,13 @@ export default function PostList({ posts, graphData }: PostListProps) {
             >
               关系图谱
             </button>
+            <button
+              type="button"
+              className="nav-link ask-nav-btn"
+              onClick={() => setShowAskModal(true)}
+            >
+              向笔记提问
+            </button>
             <a
               href="https://github.com/fengCaifan"
               target="_blank"
@@ -281,6 +307,14 @@ export default function PostList({ posts, graphData }: PostListProps) {
                   <span className="control-sep">/</span>
                   <button
                     type="button"
+                    className={`control-btn ${sortOrder === 'popular' ? 'active' : ''}`}
+                    onClick={() => setSortOrder('popular')}
+                  >
+                    最热
+                  </button>
+                  <span className="control-sep">/</span>
+                  <button
+                    type="button"
                     className={`control-btn ${sortOrder === 'date-asc' ? 'active' : ''}`}
                     onClick={() => setSortOrder('date-asc')}
                   >
@@ -354,12 +388,18 @@ export default function PostList({ posts, graphData }: PostListProps) {
                               {post.title}
                             </Link>
                           </div>
-                          <span
-                            className="post-row-cat"
-                            onClick={() => setSelectedCategory(post.category)}
-                          >
-                            {post.category}
-                          </span>
+                          <div className="post-row-right">
+                            <PostRowViewBadge
+                              slug={post.slug}
+                              baseViews={getSeededPostViews(post)}
+                            />
+                            <span
+                              className="post-row-cat"
+                              onClick={() => setSelectedCategory(post.category)}
+                            >
+                              {post.category}
+                            </span>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -386,6 +426,10 @@ export default function PostList({ posts, graphData }: PostListProps) {
                             </Link>
                           </div>
                           <div className="post-row-tags">
+                            <PostRowViewBadge
+                              slug={post.slug}
+                              baseViews={getSeededPostViews(post)}
+                            />
                             {post.tags.slice(0, 2).map((tag) => (
                               <span
                                 key={tag}
@@ -421,12 +465,18 @@ export default function PostList({ posts, graphData }: PostListProps) {
                               {post.title}
                             </Link>
                           </div>
-                          <span
-                            className="post-row-cat"
-                            onClick={() => setSelectedCategory(post.category)}
-                          >
-                            {post.category}
-                          </span>
+                          <div className="post-row-right">
+                            <PostRowViewBadge
+                              slug={post.slug}
+                              baseViews={getSeededPostViews(post)}
+                            />
+                            <span
+                              className="post-row-cat"
+                              onClick={() => setSelectedCategory(post.category)}
+                            >
+                              {post.category}
+                            </span>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -441,17 +491,14 @@ export default function PostList({ posts, graphData }: PostListProps) {
         )}
       </main>
 
-      <footer className="site-footer">
-        <span>© 2022–2026 FengCaifan</span>
-        <span>·</span>
-        <a
-          href="https://github.com/fengCaifan"
-          target="_blank"
-          rel="noreferrer"
-        >
-          github.com/fengCaifan
-        </a>
-      </footer>
+      {showAskModal && (
+        <AskNotesModal posts={posts} onClose={() => setShowAskModal(false)} />
+      )}
+
+      <SiteStatsFooter
+        baseTotalPv={siteTotals.totalPv}
+        baseTotalUv={siteTotals.totalUv}
+      />
     </div>
   );
 }

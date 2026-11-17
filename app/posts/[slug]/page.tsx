@@ -3,6 +3,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import { getAllPosts, getPostBySlug } from '../../../src/lib/posts';
+import { getSeededPostViews, getSeededSiteTotals } from '../../../src/lib/analytics';
+import ArticleViewCounter from '../../../src/components/ArticleViewCounter';
+import PostEngagement from '../../../src/components/PostEngagement';
+import SiteStatsFooter from '../../../src/components/SiteStatsFooter';
 
 export async function generateStaticParams() {
   const posts = getAllPosts();
@@ -140,6 +144,8 @@ export default async function PostDetailPage({
   const prevPost = currentIndex < allPosts.length - 1 ? allPosts[currentIndex + 1] : null;
   const nextPost = currentIndex > 0 ? allPosts[currentIndex - 1] : null;
   const headings = extractHeadings(post.content);
+  const baseViews = getSeededPostViews(post);
+  const siteTotals = getSeededSiteTotals(allPosts);
 
   return (
     <div className="blog-shell">
@@ -164,6 +170,8 @@ export default async function PostDetailPage({
               <time>{post.date}</time>
               <span className="meta-sep">·</span>
               <span>{post.category}</span>
+              <span className="meta-sep">·</span>
+              <ArticleViewCounter slug={post.slug} baseViews={baseViews} />
               {post.tags.length > 0 && (
                 <>
                   <span className="meta-sep">·</span>
@@ -217,6 +225,13 @@ export default async function PostDetailPage({
             </ReactMarkdown>
           </div>
 
+          <PostEngagement
+            slug={post.slug}
+            title={post.title}
+            category={post.category}
+            baseViews={baseViews}
+          />
+
           <footer className="article-pager">
             <div className="pager-item">
               {prevPost && (
@@ -253,9 +268,10 @@ export default async function PostDetailPage({
         )}
       </div>
 
-      <footer className="site-footer">
-        <span>© 2022–2026 FengCaifan</span>
-      </footer>
+      <SiteStatsFooter
+        baseTotalPv={siteTotals.totalPv}
+        baseTotalUv={siteTotals.totalUv}
+      />
     </div>
   );
 }
