@@ -16,6 +16,13 @@ export type Post = {
 
 export type PostSummary = Omit<Post, 'content'>;
 
+function normalizeDateStr(raw: unknown): string {
+  const s = String(raw || '2025-01-01').trim();
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return s;
+  return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+}
+
 function parsePostFile(fileName: string): Post | null {
   if (!fileName.endsWith('.md') || fileName === 'hello-world.md') {
     return null;
@@ -32,7 +39,7 @@ function parsePostFile(fileName: string): Post | null {
     slug,
     content,
     title: data.title || slug,
-    date: data.date || '2025-01-01',
+    date: normalizeDateStr(data.date),
     category: data.category || '技术笔记',
     description: data.description || '',
     tags: Array.isArray(data.tags) ? data.tags : [],
