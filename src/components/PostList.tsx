@@ -167,7 +167,7 @@ export default function PostList({ posts, graphData }: PostListProps) {
         <div className="masthead-inner">
           <div>
             <Link href="/" className="brand-title">
-              Caifan&apos;s Notes
+              FCF&apos;s Notes
             </Link>
             <p className="brand-desc">日常开发、底层原理与读书笔记</p>
           </div>

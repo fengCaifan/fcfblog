@@ -146,7 +146,7 @@ export default async function PostDetailPage({
       <header className="masthead">
         <div className="masthead-inner">
           <Link href="/" className="brand-title">
-            Caifan&apos;s Notes
+            FCF&apos;s Notes
           </Link>
           <nav className="top-nav">
             <Link href="/" className="nav-link">
